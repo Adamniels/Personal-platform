@@ -322,9 +322,9 @@ describe("a project's cards, cards first", () => {
 		const steps = feature40.getByRole("img", { name: "1 of 3 landed" });
 		expect(
 			[...steps.children].map((step) => step.getAttribute("data-step")),
-		).toEqual(["landed", "current", "to-do"]);
+		).toEqual(["done", "current", "to-do"]);
 		expect(rule(".step")).toMatch(/background:\s*var\(--surface-3\)/);
-		expect(rule('.step[data-step="landed"]')).toMatch(
+		expect(rule('.step[data-step="done"]')).toMatch(
 			/background:\s*var\(--accent\)/,
 		);
 		expect(rule('.step[data-step="current"]')).toMatch(
@@ -374,7 +374,7 @@ describe("a project's cards, cards first", () => {
 		const steps = screen.getByRole("img", { name: "2 of 2 landed" });
 		expect(
 			[...steps.children].map((step) => step.getAttribute("data-step")),
-		).toEqual(["landed", "landed"]);
+		).toEqual(["done", "done"]);
 	});
 
 	test("cards on their own are a table newest change first, Changed hidden on phone", () => {

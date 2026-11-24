@@ -201,6 +201,37 @@ function PageLink({
 	);
 }
 
+/** Where a step of a steps bar is. */
+export type StepMark = "done" | "current" | "to-do";
+
+/** "Steps" of "Progress bar and meter" in section 4 of design/DESIGN.md: one
+ * pill per step, an image named by `label`, which says the number. A
+ * feature's cards and a project's setup steps are drawn with it. */
+export function StepsBar({
+	label,
+	steps,
+	className,
+}: {
+	label: string;
+	steps: StepMark[];
+	className?: string;
+}) {
+	return (
+		<div
+			className={[styles.steps, className].filter(Boolean).join(" ")}
+			role="img"
+			aria-label={label}
+		>
+			{steps.map((step, at) => (
+				// The steps are drawn in their order and never move, so the
+				// place is the key.
+				// biome-ignore lint/suspicious/noArrayIndexKey: see above.
+				<span key={at} className={styles.step} data-step={step} />
+			))}
+		</div>
+	);
+}
+
 /** A feature as a card: its label, "Feature #N", with its state; its title
  * as the hero label, a link to the feature's page; a mono line with its
  * cards landed of its total, an ignored card in neither, and its number
@@ -244,21 +275,16 @@ export function FeatureCard({
 					<p className={styles.reason}>{feature.reason}</p>
 				)}
 				{counted.length === 0 ? null : (
-					<div className={styles.steps} role="img" aria-label={progress}>
-						{counted.map((card, at) => (
-							<span
-								key={card.number}
-								className={styles.step}
-								data-step={
-									card.state === "done"
-										? "landed"
-										: at === current
-											? "current"
-											: "to-do"
-								}
-							/>
-						))}
-					</div>
+					<StepsBar
+						label={progress}
+						steps={counted.map((card, at) =>
+							card.state === "done"
+								? "done"
+								: at === current
+									? "current"
+									: "to-do",
+						)}
+					/>
 				)}
 				<ol className={styles.rows} aria-label={`Cards of #${feature.number}`}>
 					{feature.cards.map((card) => (

@@ -565,8 +565,9 @@ describe("a project's setup", () => {
 		const { loadCards } = renderPage({ setup: twoDone });
 
 		const card = await screen.findByRole("article", { name: "Setting it up" });
-		// It needs me, so it has the accent border and says so.
-		expect(within(card).getByText("Needs you")).toBeTruthy();
+		// It needs me, so it has the accent border and says so, as its current
+		// step does beside its title.
+		expect(within(card).getAllByText("Needs you")).toHaveLength(2);
 		// The steps bar, on the right: two done of six.
 		expect(
 			within(card).getByRole("img", { name: "2 of 6 steps done" }),
@@ -784,7 +785,9 @@ describe("a project's setup", () => {
 		expect(within(step).getByRole("heading", { name: "Guided" }).tagName).toBe(
 			"H3",
 		);
-		expect(within(step).getByText(PRESET_MEANINGS.guided)).toBeTruthy();
+		expect(
+			within(step).getByText(PRESET_MEANINGS.guided as string),
+		).toBeTruthy();
 		expect(
 			within(step).getByText(
 				"Its migrations are worth a look before they merge.",
@@ -928,7 +931,9 @@ describe("a project's setup", () => {
 		const panel = await screen.findByRole("article", { name: "Setting it up" });
 
 		expect(within(panel).getByText(CHECK_RUNNING)).toBeTruthy();
-		const pictures = within(panel).getAllByRole("img");
+		const pictures = within(
+			within(panel).getByRole("list", { name: "The project's address" }),
+		).getAllByRole("img");
 		expect(pictures.map((picture) => picture.getAttribute("src"))).toEqual([
 			`/devflow/api/projects/${ID}/setup/checks/0190a8f0-0000-7000-8000-00000000c4e1/pictures/home-desktop`,
 			`/devflow/api/projects/${ID}/setup/checks/0190a8f0-0000-7000-8000-00000000c4e1/pictures/home-phone`,

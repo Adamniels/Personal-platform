@@ -5277,19 +5277,19 @@ def test_a_project_is_checked_before_its_first_card(
     # Setting up: its page shows the steps of setting it up in place of its
     # cards, the recipe read and nothing else done yet.
     page.reload()
-    setup = page.get_by_role("article", name="Setting up")
-    steps = setup.get_by_role("list", name="Setup steps").get_by_role("listitem")
+    setup = page.get_by_role("article", name="Setting it up", exact=True)
+    steps = setup.get_by_role("list", name="Setup steps").locator(":scope > li")
     expect(steps).to_have_count(6)
-    expect(steps.nth(0)).to_contain_text("Done")
-    expect(steps.nth(0)).to_contain_text("A valid .devflow/ on the default branch")
-    expect(steps.nth(1)).to_contain_text("Done")
+    expect(steps.nth(0)).to_have_attribute("data-state", "done")
+    expect(steps.nth(0)).to_contain_text("The setup run")
+    expect(steps.nth(1)).to_have_attribute("data-state", "done")
     expect(steps.nth(1)).to_contain_text("The recipe on the default branch")
-    expect(steps.nth(2)).to_contain_text("To do")
+    expect(steps.nth(2)).to_have_attribute("data-state", "current")
     # No setup run listed a value, so the values step is done.
-    expect(steps.nth(3)).to_contain_text("Done")
+    expect(steps.nth(3)).to_have_attribute("data-state", "done")
     expect(steps.nth(3)).to_contain_text("The values its tests need")
-    expect(steps.nth(4)).to_contain_text("To do")
-    expect(steps.nth(5)).to_contain_text("To do")
+    expect(steps.nth(4)).to_have_attribute("data-state", "to-come")
+    expect(steps.nth(5)).to_have_attribute("data-state", "to-come")
     expect(page.get_by_role("region", name="Cards", exact=True)).to_have_count(0)
     assert (
         page.request.get(f"/devflow/api/projects/{project}/setup").json()["state"]
@@ -5319,13 +5319,13 @@ def test_a_project_is_checked_before_its_first_card(
     expect(check.get_by_text("Failed", exact=True)).to_be_visible()
     expect(check.get_by_text("exited with 1", exact=False)).to_be_visible()
     expect(check.locator("pre")).to_contain_text("Tests  1 failed | 24 passed")
-    expect(steps.nth(2)).to_contain_text("Done")
-    expect(steps.nth(3)).to_contain_text("Done")
-    expect(steps.nth(4)).to_contain_text("Done")
-    expect(steps.nth(5)).to_contain_text("To do")
-    expect(setup.get_by_role("button", name="Check again")).to_be_visible()
+    expect(steps.nth(2)).to_have_attribute("data-state", "done")
+    expect(steps.nth(3)).to_have_attribute("data-state", "done")
+    expect(steps.nth(4)).to_have_attribute("data-state", "done")
+    expect(steps.nth(5)).to_have_attribute("data-state", "current")
+    expect(steps.nth(5).get_by_role("button", name="Check again")).to_be_visible()
     assert _axe_violations(page) == []
-    capture(page, "devflow-project-setting-up")
+    capture(page, "devflow-project-first-check-failed")
 
     # Waiting for you lists it under Setup.
     waiting = page.request.get("/devflow/api/waiting").json()
@@ -5368,7 +5368,9 @@ def test_a_project_is_checked_before_its_first_card(
     assert read["card"] == CARD
     page.reload()
     expect(page.get_by_role("region", name="Cards", exact=True)).to_be_visible()
-    expect(page.get_by_role("article", name="Setting up")).to_have_count(0)
+    expect(page.get_by_role("article", name="Setting it up", exact=True)).to_have_count(
+        0
+    )
 
 
 def _setup_report() -> dict:
@@ -5455,11 +5457,11 @@ def test_a_project_is_set_up_by_an_agent(
     # Its step shows why a setup run is due and the command that starts its
     # worker from the base image.
     page.reload()
-    setup = page.get_by_role("article", name="Setting up")
-    steps = setup.get_by_role("list", name="Setup steps").get_by_role("listitem")
+    setup = page.get_by_role("article", name="Setting it up", exact=True)
+    steps = setup.get_by_role("list", name="Setup steps").locator(":scope > li")
     expect(steps).to_have_count(6)
-    expect(steps.nth(0)).to_contain_text("To do")
-    expect(steps.nth(0)).to_contain_text("A valid .devflow/ on the default branch")
+    expect(steps.nth(0)).to_have_attribute("data-state", "current")
+    expect(steps.nth(0)).to_contain_text("The setup run")
     run = setup.get_by_role("region", name="The setup run")
     expect(run.get_by_text(".devflow/Dockerfile is missing.")).to_be_visible()
     expect(
@@ -5511,12 +5513,12 @@ def test_a_project_is_set_up_by_an_agent(
     # settings taken as accepted by the fake worker; then a worker on the
     # recipe.
     run.get_by_role("button", name="Merge").click()
-    expect(steps.nth(0)).to_contain_text("Done")
-    expect(steps.nth(1)).to_contain_text("Done")
-    expect(steps.nth(2)).to_contain_text("Done")
-    expect(steps.nth(3)).to_contain_text("To do")
+    expect(steps.nth(0)).to_have_attribute("data-state", "done")
+    expect(steps.nth(1)).to_have_attribute("data-state", "done")
+    expect(steps.nth(2)).to_have_attribute("data-state", "done")
+    expect(steps.nth(3)).to_have_attribute("data-state", "current")
     expect(steps.nth(3)).to_contain_text("The values its tests need")
-    expect(steps.nth(4)).to_contain_text("To do")
+    expect(steps.nth(4)).to_have_attribute("data-state", "to-come")
     expect(steps.nth(4)).to_contain_text("A worker on the recipe")
     assert page.request.get("/devflow/api/waiting").json()["setup_runs"] == []
 
@@ -5571,7 +5573,7 @@ def test_a_stopped_setup_runs_again_on_my_comment(
 
     # Its step says why, and my comment from it runs it again.
     page.reload()
-    run = page.get_by_role("article", name="Setting up").get_by_role(
+    run = page.get_by_role("article", name="Setting it up", exact=True).get_by_role(
         "region", name="The setup run"
     )
     expect(run.get_by_text("Stopped", exact=True)).to_be_visible()
@@ -5652,18 +5654,18 @@ def test_i_accept_the_proposed_settings(
     # While its pull request waits for me, the settings step is not offered:
     # it comes after the setup's pull request.
     page.reload()
-    setup = page.get_by_role("article", name="Setting up")
-    steps = setup.get_by_role("list", name="Setup steps").get_by_role("listitem")
-    expect(steps.nth(2)).to_contain_text("The settings accepted")
-    expect(steps.nth(2)).to_contain_text("To do")
+    setup = page.get_by_role("article", name="Setting it up", exact=True)
+    steps = setup.get_by_role("list", name="Setup steps").locator(":scope > li")
+    expect(steps.nth(2)).to_contain_text("The settings")
+    expect(steps.nth(2)).to_have_attribute("data-state", "to-come")
     run = setup.get_by_role("region", name="The setup run")
     expect(run.get_by_text("Waits for you", exact=True)).to_be_visible()
     expect(setup.get_by_role("region", name="The settings")).to_have_count(0)
 
     # I merge it, and the settings step waits with the proposal.
     run.get_by_role("button", name="Merge").click()
-    expect(steps.nth(0)).to_contain_text("Done")
-    expect(steps.nth(2)).to_contain_text("To do")
+    expect(steps.nth(0)).to_have_attribute("data-state", "done")
+    expect(steps.nth(2)).to_have_attribute("data-state", "current")
     step = setup.get_by_role("region", name="The settings")
     expect(step.get_by_text("Guided", exact=True)).to_be_visible()
     expect(
@@ -5680,7 +5682,7 @@ def test_i_accept_the_proposed_settings(
     # I accept: the step is done, and the Settings panel shows the preset and
     # the path.
     step.get_by_role("button", name="Accept").click()
-    expect(steps.nth(2)).to_contain_text("Done")
+    expect(steps.nth(2)).to_have_attribute("data-state", "done")
     expect(setup.get_by_role("region", name="The settings")).to_have_count(0)
     settings = _edit_settings(page)
     expect(settings.locator("output")).to_have_text("Guided")
@@ -5731,15 +5733,15 @@ def test_i_give_a_projects_values(
         assert ran.status == 200, ran.text()
         assert ran.json()["kind"] == kind
     page.reload()
-    setup = page.get_by_role("article", name="Setting up")
+    setup = page.get_by_role("article", name="Setting it up", exact=True)
     setup.get_by_role("region", name="The setup run").get_by_role(
         "button", name="Merge"
     ).click()
 
     # The values step lists the one variable, with why, missing.
-    steps = setup.get_by_role("list", name="Setup steps").get_by_role("listitem")
+    steps = setup.get_by_role("list", name="Setup steps").locator(":scope > li")
     expect(steps.nth(3)).to_contain_text("The values its tests need")
-    expect(steps.nth(3)).to_contain_text("To do")
+    expect(steps.nth(3)).to_have_attribute("data-state", "current")
     values = setup.get_by_role("region", name="The values")
     rows = values.get_by_role("list", name="Values").get_by_role("listitem")
     expect(rows).to_have_count(1)
@@ -5756,7 +5758,7 @@ def test_i_give_a_projects_values(
     expect(rows).to_have_count(2)
     expect(rows.nth(1)).to_contain_text("MAPS_TEST_KEY")
     expect(rows.nth(1).get_by_text("Given", exact=True)).to_be_visible()
-    expect(steps.nth(3)).to_contain_text("To do")
+    expect(steps.nth(3)).to_have_attribute("data-state", "current")
     assert _axe_violations(page) == []
     capture(page, "devflow-project-values")
 
@@ -5765,13 +5767,14 @@ def test_i_give_a_projects_values(
     expect(field).to_have_attribute("type", "password")
     field.fill(STRIPE_VALUE)
     rows.nth(0).get_by_role("button", name="Give").click()
-    expect(rows.nth(0).get_by_text("Given", exact=True)).to_be_visible()
-    expect(steps.nth(3)).to_contain_text("Done")
+    # The step is done, and closes to its one line: the worker is next.
+    expect(steps.nth(3)).to_have_attribute("data-state", "done")
+    expect(values).to_have_count(0)
+    expect(steps.nth(4)).to_have_attribute("data-state", "current")
 
     # The page never shows a value again, nor does any route it reads.
     page.reload()
-    expect(steps.nth(3)).to_contain_text("Done")
-    expect(rows).to_have_count(2)
+    expect(steps.nth(3)).to_have_attribute("data-state", "done")
     for value in (STRIPE_VALUE, MAPS_VALUE):
         assert value not in page.content()
     listed = page.request.get(f"/devflow/api/projects/{project}/values")
@@ -5845,7 +5848,7 @@ def test_i_send_a_failed_check_back(
 
     # I send it back with a comment from the check.
     page.reload()
-    setup = page.get_by_role("article", name="Setting up")
+    setup = page.get_by_role("article", name="Setting it up", exact=True)
     check = setup.get_by_role("region", name="The newest check")
     expect(check.get_by_text("Failed", exact=True)).to_be_visible()
     check.get_by_role("button", name="Send back with a comment").click()
