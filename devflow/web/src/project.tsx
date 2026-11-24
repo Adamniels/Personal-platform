@@ -340,7 +340,7 @@ export function ProjectPage({
 							values={{ loadValues, giveValue, removeValue }}
 						/>
 					) : null}
-					{cardsShown ? <CardsPanel id={id} list={cards} /> : null}
+					{cardsShown ? <CardsPanel id={id} list={cards} now={now()} /> : null}
 				</>
 			)}
 			<WorkersPanel

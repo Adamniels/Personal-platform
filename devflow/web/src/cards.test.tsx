@@ -53,14 +53,20 @@ const feature = (
 
 /** The panel with the cards the page read, null when they could not be. */
 function renderPanel(list: CardList | null) {
-	render(<CardsPanel id={ID} list={list} />);
+	render(<CardsPanel id={ID} list={list} now={NOW} />);
 }
 
 const panel = async () =>
-	within(await screen.findByRole("article", { name: "Cards" }));
+	within(await screen.findByRole("region", { name: "Cards" }));
+
+/** The rows of the table of cards on their own, its header row left out. */
+const tableRows = (cards: ReturnType<typeof within>) =>
+	within(cards.getByRole("table", { name: "Cards on their own" }))
+		.getAllByRole("row")
+		.slice(1);
 
 describe("the cards panel", () => {
-	test("lists each card with its number, title, state and reason, as the answer orders them", async () => {
+	test("lists each card with its number, title, state and reason, as the answer orders those changed together", async () => {
 		renderPanel({
 			features: [],
 			cards: [
@@ -76,9 +82,7 @@ describe("the cards panel", () => {
 		});
 		const cards = await panel();
 
-		const rows = within(
-			await cards.findByRole("list", { name: "Cards" }),
-		).getAllByRole("listitem");
+		const rows = tableRows(cards);
 		expect(
 			rows.map(
 				(row) => within(row).getByRole("link", { name: /^#\d+$/ }).textContent,
@@ -164,7 +168,10 @@ describe("the cards panel", () => {
 		const features = await cards.findByRole("list", { name: "Features" });
 		const items = [...features.children] as HTMLElement[];
 		expect(
-			items.map((item) => within(item).getAllByRole("link")[0]?.textContent),
+			items.map(
+				(item) =>
+					within(item).getAllByRole("link", { name: /^#\d+$/ })[0]?.textContent,
+			),
 		).toEqual(["#40", "#30"]);
 		const [held, queued] = items.map((item) => within(item));
 		if (held === undefined || queued === undefined)
@@ -198,10 +205,10 @@ describe("the cards panel", () => {
 		).toBe(`/devflow/projects/${ID}/cards/43`);
 		expect(queued.getByText("Waits for #9")).toBeTruthy();
 
-		// The card on its own is in the list of cards, and only it.
-		const alone = within(cards.getByRole("list", { name: "Cards" }));
-		expect(alone.getAllByRole("listitem").length).toBe(1);
-		expect(alone.getByText("Card 50")).toBeTruthy();
+		// The card on its own is in the table of cards on their own, and only it.
+		const alone = tableRows(cards);
+		expect(alone.length).toBe(1);
+		expect(within(alone[0] as HTMLElement).getByText("Card 50")).toBeTruthy();
 	});
 
 	test("a feature alone needs no list of cards on their own", async () => {
@@ -212,7 +219,9 @@ describe("the cards panel", () => {
 		const cards = await panel();
 
 		expect(await cards.findByRole("list", { name: "Features" })).toBeTruthy();
-		expect(cards.queryByRole("list", { name: "Cards" })).toBeNull();
+		expect(
+			cards.queryByRole("table", { name: "Cards on their own" }),
+		).toBeNull();
 		expect(cards.queryByText(NO_CARDS)).toBeNull();
 	});
 

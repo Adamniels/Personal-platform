@@ -1374,8 +1374,8 @@ def test_i_trust_another_account(
 
     def card():
         return (
-            page.get_by_role("list", name="Cards")
-            .get_by_role("listitem")
+            page.get_by_role("table", name="Cards on their own")
+            .locator("tbody tr")
             .filter(has=page.get_by_text("#12", exact=True))
         )
 
@@ -1448,11 +1448,11 @@ def test_a_card_i_label_shows_as_queued(
     assert refreshed.status == 204, refreshed.text()
     page.reload()
 
-    cards = page.get_by_role("list", name="Cards")
-    expect(cards.get_by_role("listitem")).to_have_count(5)
+    cards = page.get_by_role("table", name="Cards on their own")
+    expect(cards.locator("tbody tr")).to_have_count(5)
 
     def row(number: int):
-        return cards.get_by_role("listitem").filter(
+        return cards.locator("tbody tr").filter(
             has=page.get_by_text(f"#{number}", exact=True)
         )
 
@@ -1522,11 +1522,11 @@ def test_a_strangers_label_starts_nothing(
     assert refreshed.status == 204, refreshed.text()
     page.reload()
 
-    cards = page.get_by_role("list", name="Cards")
-    expect(cards.get_by_role("listitem")).to_have_count(2)
+    cards = page.get_by_role("table", name="Cards on their own")
+    expect(cards.locator("tbody tr")).to_have_count(2)
 
     def row(number: int):
-        return cards.get_by_role("listitem").filter(
+        return cards.locator("tbody tr").filter(
             has=page.get_by_text(f"#{number}", exact=True)
         )
 
@@ -1580,7 +1580,10 @@ def test_a_labelled_feature_shows_its_cards_in_order(
     expect(feature.get_by_role("link", name="#40", exact=True)).to_have_attribute(
         "href", "https://github.com/Adamniels/Personal-platform/issues/40"
     )
-    expect(feature.locator(":scope > div").first).to_contain_text("Queued")
+    # Its state, in its card's header beside its label.
+    expect(
+        feature.get_by_role("article").locator(":scope > div").first
+    ).to_contain_text("Queued")
 
     # Its three cards in sub-issue order, each with its state.
     cards = feature.get_by_role("list", name="Cards of #40", exact=True)
@@ -1593,8 +1596,8 @@ def test_a_labelled_feature_shows_its_cards_in_order(
     expect(rows.nth(2)).to_contain_text("Waits for #44")
 
     # Beneath the features, the card on its own, and the parent is not one.
-    own = page.get_by_role("list", name="Cards", exact=True)
-    expect(own.get_by_role("listitem")).to_have_count(1)
+    own = page.get_by_role("table", name="Cards on their own")
+    expect(own.locator("tbody tr")).to_have_count(1)
     expect(own).to_contain_text("A card on its own")
     expect(page.get_by_text("#40", exact=True)).to_have_count(1)
 
@@ -1665,7 +1668,10 @@ def test_a_features_cards_are_built_in_order(
 
     features = page.get_by_role("list", name="Features", exact=True)
     feature = features.locator(":scope > li").first
-    expect(feature.locator(":scope > div").first).to_contain_text("Building")
+    # Its state, in its card's header beside its label.
+    expect(
+        feature.get_by_role("article").locator(":scope > div").first
+    ).to_contain_text("Building")
     rows = feature.get_by_role("list", name="Cards of #60", exact=True).get_by_role(
         "listitem"
     )
@@ -2387,8 +2393,8 @@ def test_i_merge_a_card_from_the_list(
     # The card is done.
     page.goto(f"/devflow/projects/{project}")
     row = (
-        page.get_by_role("list", name="Cards")
-        .get_by_role("listitem")
+        page.get_by_role("table", name="Cards on their own")
+        .locator("tbody tr")
         .filter(has=page.get_by_text(f"#{CARD}", exact=True))
     )
     expect(row).to_contain_text("Done")
@@ -2403,7 +2409,9 @@ def test_a_cards_page_tells_its_story(
 
     # From the project's cards list to the card's page.
     page.goto(f"/devflow/projects/{project}")
-    page.get_by_role("list", name="Cards").get_by_role("link", name=CARD_TITLE).click()
+    page.get_by_role("table", name="Cards on their own").get_by_role(
+        "link", name=CARD_TITLE
+    ).click()
     expect(page).to_have_url(f"{base_url}/devflow/projects/{project}/cards/{CARD}")
     expect(page.get_by_role("heading", name=CARD_TITLE)).to_be_visible()
     expect(page.get_by_role("tab", name="Projects", selected=True)).to_be_visible()
@@ -3087,8 +3095,8 @@ def test_a_thin_card_is_refused_and_read_again(
     expect(page.get_by_role("region", name=re.compile("^Refused"))).to_have_count(0)
     page.goto(f"/devflow/projects/{project}")
     expect(
-        page.get_by_role("list", name="Cards")
-        .get_by_role("listitem")
+        page.get_by_role("table", name="Cards on their own")
+        .locator("tbody tr")
         .filter(has_text=CARD_TITLE)
     ).to_contain_text("Queued")
 
@@ -3173,8 +3181,8 @@ def test_an_edited_card_is_read_again(
         # While it is read, the card shows Reading.
         page.reload()
         row = (
-            page.get_by_role("list", name="Cards")
-            .get_by_role("listitem")
+            page.get_by_role("table", name="Cards on their own")
+            .locator("tbody tr")
             .filter(has_text=CARD_TITLE)
         )
         expect(row).to_contain_text("Reading")
@@ -3203,8 +3211,8 @@ def test_an_edited_card_is_read_again(
     # Read again as ready, it is Queued.
     page.reload()
     expect(
-        page.get_by_role("list", name="Cards")
-        .get_by_role("listitem")
+        page.get_by_role("table", name="Cards on their own")
+        .locator("tbody tr")
         .filter(has_text=CARD_TITLE)
     ).to_contain_text("Queued")
 
@@ -3376,8 +3384,8 @@ def test_i_answer_a_cards_questions(
     # The card is Queued, and my answers are on its issue as my comment.
     page.goto(f"/devflow/projects/{project}")
     row = (
-        page.get_by_role("list", name="Cards")
-        .get_by_role("listitem")
+        page.get_by_role("table", name="Cards on their own")
+        .locator("tbody tr")
         .filter(has=page.get_by_text(f"#{CARD}", exact=True))
     )
     expect(row).to_contain_text("Queued")
@@ -5257,7 +5265,7 @@ def test_a_project_is_checked_before_its_first_card(
     expect(steps.nth(3)).to_contain_text("The values its tests need")
     expect(steps.nth(4)).to_contain_text("To do")
     expect(steps.nth(5)).to_contain_text("To do")
-    expect(page.get_by_role("article", name="Cards")).to_have_count(0)
+    expect(page.get_by_role("region", name="Cards", exact=True)).to_have_count(0)
     assert (
         page.request.get(f"/devflow/api/projects/{project}/setup").json()["state"]
         == "setting_up"
@@ -5334,7 +5342,7 @@ def test_a_project_is_checked_before_its_first_card(
     assert read["kind"] == "read"
     assert read["card"] == CARD
     page.reload()
-    expect(page.get_by_role("article", name="Cards")).to_be_visible()
+    expect(page.get_by_role("region", name="Cards", exact=True)).to_be_visible()
     expect(page.get_by_role("article", name="Setting up")).to_have_count(0)
 
 

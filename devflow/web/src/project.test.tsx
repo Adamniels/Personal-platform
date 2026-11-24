@@ -472,7 +472,7 @@ describe("a project's setup", () => {
 		);
 		// Its features and cards are not shown, nor read.
 		expect(loadSetup).toHaveBeenCalledWith(ID);
-		expect(screen.queryByRole("article", { name: "Cards" })).toBeNull();
+		expect(screen.queryByRole("region", { name: "Cards" })).toBeNull();
 		expect(loadCards).not.toHaveBeenCalled();
 		// The workers are, since starting one is a step.
 		expect(
@@ -711,13 +711,13 @@ describe("a project's setup", () => {
 				"The newest version of this project's setup failed its check, so its workers on that version get no work.",
 			),
 		).toBeTruthy();
-		expect(await screen.findByRole("article", { name: "Cards" })).toBeTruthy();
+		expect(await screen.findByRole("region", { name: "Cards" })).toBeTruthy();
 	});
 
 	test("a registered project with nothing failed shows no setup", async () => {
 		renderPage();
 
-		expect(await screen.findByRole("article", { name: "Cards" })).toBeTruthy();
+		expect(await screen.findByRole("region", { name: "Cards" })).toBeTruthy();
 		expect(screen.queryByRole("article", { name: "Setting up" })).toBeNull();
 	});
 });
@@ -785,7 +785,7 @@ describe("a project's page", () => {
 		const { loadSettings, loadCards } = renderPage();
 
 		const settings = await screen.findByRole("article", { name: "Settings" });
-		const cards = await screen.findByRole("article", { name: "Cards" });
+		const cards = await screen.findByRole("region", { name: "Cards" });
 		const workers = await panel();
 		expect(loadSettings).toHaveBeenCalledWith(ID);
 		expect(loadCards).toHaveBeenCalledWith(ID);
