@@ -9,7 +9,7 @@ import struct
 import zlib
 from pathlib import Path
 
-from playwright.sync_api import Browser, Page, expect
+from playwright.sync_api import Browser, Locator, Page, expect
 
 from conftest import (
     account_in_access_cookie,
@@ -1221,7 +1221,35 @@ def _open_project(
     expect(page).to_have_url(
         re.compile(rf"{re.escape(base_url)}/devflow/projects/[0-9a-f-]{{36}}$")
     )
-    expect(page.get_by_role("heading", name=full_name)).to_be_visible()
+    expect(
+        page.get_by_role("heading", name=repository(world)["name"], exact=True)
+    ).to_be_visible()
+
+
+def _edit_settings(page: Page) -> Locator:
+    """Opens the Settings panel from the summary's "Edit settings", unless it
+    is open already, and answers it."""
+    edit = page.get_by_role("article", name="Settings", exact=True).get_by_role(
+        "button", name="Edit settings"
+    )
+    expect(edit).to_be_visible()
+    if edit.get_attribute("aria-expanded") == "false":
+        edit.click()
+    panel = page.get_by_role("article", name="Edit settings", exact=True)
+    expect(panel).to_be_visible()
+    return panel
+
+
+def _start_a_worker(page: Page) -> Locator:
+    """Shows the commands behind the Workers card's "Start a worker", unless
+    they show already, as they do once a key is made, and answers them."""
+    start = page.get_by_role("article", name="Workers", exact=True).get_by_role(
+        "button", name="Start a worker"
+    )
+    expect(start).to_be_visible()
+    if start.get_attribute("aria-expanded") == "false":
+        start.click()
+    return page.get_by_role("region", name="Start a worker")
 
 
 def _make_key(page: Page) -> str:
@@ -1315,7 +1343,7 @@ def test_i_set_a_projects_settings(
 ):
     register_and_log_in(page, invite_code, base_url)
     _open_project(page, base_url, devflow_world)
-    settings = page.get_by_role("article", name="Settings")
+    settings = _edit_settings(page)
 
     # A new project has the defaults.
     expect(settings.get_by_label("Pick-up label")).to_have_value("devflow")
@@ -1345,7 +1373,7 @@ def test_i_set_a_projects_settings(
 
     # Kept: a fresh load reads them back.
     page.reload()
-    settings = page.get_by_role("article", name="Settings")
+    settings = _edit_settings(page)
     expect(settings.get_by_label("Pick-up label")).to_have_value("agent: go")
     expect(settings.get_by_label("Hold label")).to_have_value("agent: wait")
     expect(settings.get_by_label("Attention label")).to_have_value("devflow-attention")
@@ -1386,7 +1414,7 @@ def test_i_trust_another_account(
     )
 
     # My own login is listed and cannot be removed; I add octo-friend.
-    settings = page.get_by_role("article", name="Settings")
+    settings = _edit_settings(page)
     trusted = settings.get_by_role("list", name="Trusted accounts")
     expect(trusted.get_by_role("listitem")).to_have_count(1)
     expect(trusted.get_by_role("listitem").first).to_contain_text("octo-owner")
@@ -1403,7 +1431,7 @@ def test_i_trust_another_account(
     # The next read queues the card octo-friend wrote.
     read_again()
     expect(card()).to_contain_text("Queued")
-    settings = page.get_by_role("article", name="Settings")
+    settings = _edit_settings(page)
     expect(
         settings.get_by_role("list", name="Trusted accounts").get_by_role("listitem")
     ).to_have_count(2)
@@ -1872,8 +1900,9 @@ def test_the_project_page_shows_how_to_start_a_worker(
     _open_project(page, base_url, devflow_world)
     workers = page.get_by_role("article", name="Workers")
 
-    # Before a key, the command that builds and starts a worker, never the
-    # one that saves a key.
+    # Before a key, behind "Start a worker", the command that builds and
+    # starts a worker, never the one that saves a key.
+    _start_a_worker(page)
     start = workers.get_by_role("region", name="Build and start the worker")
     expect(start).to_contain_text("~/.devflow/personal-platform.env")
     expect(workers.get_by_role("region", name="Save the key")).to_have_count(0)
@@ -3495,7 +3524,7 @@ def test_i_choose_a_preset(
     page.goto(f"/devflow/projects/{project}")
     header = page.locator("header").filter(has=page.get_by_role("heading", level=2))
     expect(header).to_contain_text("Only I merge")
-    settings = page.get_by_role("article", name="Settings")
+    settings = _edit_settings(page)
     alone = settings.get_by_role("region", name="How much happens alone")
     matched = alone.get_by_role("status", name="Preset")
     expect(matched).to_have_text("Only I merge")
@@ -3532,9 +3561,7 @@ def test_i_choose_a_preset(
     page.reload()
     expect(header).to_contain_text("Fully automatic")
     expect(
-        page.get_by_role("article", name="Settings").get_by_label(
-            "Pull requests wait for you"
-        )
+        _edit_settings(page).get_by_label("Pull requests wait for you")
     ).to_have_value("never")
     page.evaluate("document.fonts.ready.then(() => null)")
     for check in (assert_headings_are_capitals, assert_nothing_scrolls_sideways):
@@ -3681,7 +3708,7 @@ def test_i_set_the_models_and_limits(
 ):
     register_and_log_in(page, invite_code, base_url)
     _card_project(page, base_url, devflow_world)
-    settings = page.get_by_role("article", name="Settings")
+    settings = _edit_settings(page)
     runs = settings.get_by_role("region", name="Models and limits")
 
     # A new project's: opus for each job, 90 minutes, 200 turns, and 3 fix
@@ -3725,9 +3752,7 @@ def test_i_set_the_models_and_limits(
 
     # Kept: a fresh load reads them back.
     page.reload()
-    runs = page.get_by_role("article", name="Settings").get_by_role(
-        "region", name="Models and limits"
-    )
+    runs = _edit_settings(page).get_by_role("region", name="Models and limits")
     for label, value in (
         ("Reading model", "opus"),
         ("Building model", "sonnet"),
@@ -3783,7 +3808,7 @@ def test_i_set_sometimes(
 ):
     register_and_log_in(page, invite_code, base_url)
     _open_project(page, base_url, devflow_world)
-    settings = page.get_by_role("article", name="Settings")
+    settings = _edit_settings(page)
 
     # Sometimes shows its conditions, all three ticked, and an empty list of
     # paths; the review label it reads is with the other labels.
@@ -3820,7 +3845,7 @@ def test_i_set_sometimes(
 
     # Kept: a fresh load reads them back.
     page.reload()
-    settings = page.get_by_role("article", name="Settings")
+    settings = _edit_settings(page)
     expect(settings.get_by_label("Pull requests wait for you")).to_have_value(
         "sometimes"
     )
@@ -5657,7 +5682,7 @@ def test_i_accept_the_proposed_settings(
     step.get_by_role("button", name="Accept").click()
     expect(steps.nth(2)).to_contain_text("Done")
     expect(setup.get_by_role("region", name="The settings")).to_have_count(0)
-    settings = page.get_by_role("article", name="Settings")
+    settings = _edit_settings(page)
     expect(settings.locator("output")).to_have_text("Guided")
     expect(settings.get_by_label("Paths", exact=True)).to_have_value("migrations/**")
     saved = page.request.get(f"/devflow/api/projects/{project}/settings").json()

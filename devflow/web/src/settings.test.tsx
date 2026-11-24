@@ -102,7 +102,7 @@ function renderPanel(
 }
 
 const panel = async () =>
-	within(await screen.findByRole("article", { name: "Settings" }));
+	within(await screen.findByRole("article", { name: "Edit settings" }));
 
 describe("the settings panel", () => {
 	test("shows the models and limits and saves them with the rest", async () => {

@@ -761,8 +761,13 @@ describe("a project's page", () => {
 		);
 
 		// The form's choice is not the project's until it is saved.
+		fireEvent.click(
+			within(
+				await screen.findByRole("article", { name: "Settings" }),
+			).getByRole("button", { name: "Edit settings" }),
+		);
 		const settings = within(
-			await screen.findByRole("article", { name: "Settings" }),
+			await screen.findByRole("article", { name: "Edit settings" }),
 		);
 		fireEvent.click(settings.getByRole("button", { name: "Fully automatic" }));
 		expect(header()?.textContent).toContain("Only I merge");
@@ -781,21 +786,23 @@ describe("a project's page", () => {
 		expect(screen.queryByRole("article", { name: "Settings" })).toBeNull();
 	});
 
-	test("shows the project's settings, then its cards, then its workers", async () => {
+	test("shows its cards, then its workers and its settings beside them", async () => {
 		const { loadSettings, loadCards } = renderPage();
 
-		const settings = await screen.findByRole("article", { name: "Settings" });
 		const cards = await screen.findByRole("region", { name: "Cards" });
 		const workers = await panel();
+		const settings = await screen.findByRole("article", { name: "Settings" });
 		expect(loadSettings).toHaveBeenCalledWith(ID);
 		expect(loadCards).toHaveBeenCalledWith(ID);
 		expect(
-			settings.compareDocumentPosition(cards) &
-				Node.DOCUMENT_POSITION_FOLLOWING,
-		).toBeTruthy();
-		expect(
 			cards.compareDocumentPosition(workers) & Node.DOCUMENT_POSITION_FOLLOWING,
 		).toBeTruthy();
+		expect(
+			workers.compareDocumentPosition(settings) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		// The panel waits for "Edit settings".
+		expect(screen.queryByRole("article", { name: "Edit settings" })).toBeNull();
 	});
 
 	test("without a key or a worker, it offers to make the key", async () => {
@@ -856,10 +863,10 @@ describe("the worker key", () => {
 		});
 		const workers = within(await panel());
 
-		expect(await workers.findByText(/^Its key was made/)).toBeTruthy();
+		expect(await workers.findByText(/^Key made/)).toBeTruthy();
 		expect(
 			workers
-				.getByText(/^Its key was made/)
+				.getByText(/^Key made/)
 				.querySelector("time")
 				?.getAttribute("dateTime"),
 		).toBe("2026-11-17T08:30:00+00:00");
@@ -913,6 +920,9 @@ describe("the worker key", () => {
 describe("starting a worker", () => {
 	test("the start command is shown before a key, with a button that copies it", async () => {
 		const { copy } = renderPage();
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Start a worker" }),
+		);
 		const start = within(
 			await screen.findByRole("region", { name: "Start a worker" }),
 		);
@@ -959,6 +969,9 @@ describe("starting a worker", () => {
 
 	test("a command that could not be copied says so", async () => {
 		renderPage({ copy: () => Promise.reject(new Error("denied")) });
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Start a worker" }),
+		);
 		const command = within(
 			await screen.findByRole("region", { name: "Build and start the worker" }),
 		);
@@ -1030,7 +1043,7 @@ describe("the workers", () => {
 	test("a project that hands out work says nothing of it", async () => {
 		renderPage();
 		const workers = within(await panel());
-		await workers.findByText(PASTE);
+		await workers.findByText("It has no key yet.");
 		expect(workers.queryByText("No work")).toBeNull();
 	});
 
@@ -1538,16 +1551,17 @@ describe("a project's page, cards first", () => {
 			questions: true,
 			preset: "only_i_merge",
 		};
-		const { saveSettings } = renderPage({
+		const saveSettings = vi.fn((_id: string, request: SettingsRequest) =>
+			Promise.resolve({
+				...saved,
+				questions: request.questions ?? saved.questions,
+				waits_for_owner: request.waits_for_owner ?? saved.waits_for_owner,
+				preset: "fully_automatic" as const,
+			}),
+		);
+		renderPage({
 			loadSettings: vi.fn(() => Promise.resolve(saved)),
-			saveSettings: vi.fn((_id: string, request: SettingsRequest) =>
-				Promise.resolve({
-					...saved,
-					questions: request.questions ?? saved.questions,
-					waits_for_owner: request.waits_for_owner ?? saved.waits_for_owner,
-					preset: "fully_automatic" as const,
-				}),
-			),
+			saveSettings,
 		});
 
 		// A summary of label and value rows.

@@ -1,13 +1,16 @@
-// A project's page, /devflow/projects/<id>, opened from its row on the Projects tab: a header with
-// the repository's name and the preset its saved settings match, the Settings panel under it, the Cards panel, or while the
-// project is setting up its Setup panel in its place, and the Workers panel, with the project's worker key, the two commands
-// that start a worker, and the workers that have said hello with it, each saying when it needs
-// building again, and why no work is handed out when the user's Claude login is missing or past
-// its renewal. The key is shown once, as the answer that made it, with the command that saves
+// A project's page, /devflow/projects/<id>, opened from its row on the Projects tab, cards first:
+// a header with the way back, a mono caption with the repository, when it was read and the preset
+// its saved settings match, the name as the page title, a summary line and the stat pills; then
+// the cards column, its features and cards on their own, or while the project is setting up its
+// Setup panel in their place, and the Settings panel at its top once "Edit settings" opens it; and
+// beside it the side column, the Workers card and the settings summary. The Workers card shows
+// the workers that have said hello with the project's key, each saying when it needs building
+// again, why no work is handed out when none is, and, behind "Start a worker", the two commands
+// that start one. The key is shown once, as the answer that made it, with the command that saves
 // it, and never read back: after a reload the page knows only when it was made. See "The pages",
 // "Workers" and "Starting a worker" in devflow/README.md.
 import { Badge, Button, Card, Dialog, EmptyState, Status } from "@platform/ui";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { plainClick } from "./address";
 import type { GetAnswer } from "./api/client";
 import type { components } from "./api/schema";
@@ -24,9 +27,9 @@ import type { Project } from "./projects";
 import {
 	PRESET_FILLS,
 	PRESET_NAMES,
-	type Preset,
 	type ProjectSettings,
 	requestOf,
+	NOT_READ as SETTINGS_NOT_READ,
 	type SettingsApi,
 	SettingsPanel,
 } from "./settings";
@@ -121,7 +124,7 @@ const PILLS: { group: keyof CardCounts; label: string; tone: string }[] = [
 
 const clipboard = (text: string) => navigator.clipboard.writeText(text);
 
-/** The project's header, its Settings, Cards and Workers panels, or a not found state when the
+/** The project's header, its cards column and its side column, or a not found state when the
  * caller has no project by that id. Nothing before the projects answer. */
 export function ProjectPage({
 	id,
@@ -159,15 +162,15 @@ export function ProjectPage({
 			),
 		[id, loadSetup],
 	);
-	// The preset of the settings as last read or saved, never of the form
-	// while it is edited.
-	const [preset, setPreset] = useState<Preset>();
-	const showPreset = useCallback(
-		(settings: ProjectSettings) => setPreset(settings.preset),
-		[],
-	);
+	// The settings as last read or saved, never the form's while it is
+	// edited, which the summary and the preset's badge show: undefined before
+	// they answer, null when they could not be read.
+	const [settings, setSettings] = useState<ProjectSettings | null>();
+	// Whether "Edit settings" has opened the Settings panel.
+	const [editing, setEditing] = useState(false);
 	// Bumped when the settings are saved from outside the Settings panel, by
-	// accepting a setup run's proposal, so the panel reads them again.
+	// accepting a setup run's proposal, so the summary and the panel read
+	// them again.
 	const [settingsRead, setSettingsRead] = useState(0);
 	const acceptProposal = useCallback(
 		async (proposal: SetupProposal) => {
@@ -180,7 +183,7 @@ export function ProjectPage({
 					wait_paths: proposal.paths,
 				}),
 			);
-			setPreset(saved.preset);
+			setSettings(saved);
 			setSettingsRead((count) => count + 1);
 			await reloadSetup();
 		},
@@ -201,6 +204,22 @@ export function ProjectPage({
 			current = false;
 		};
 	}, [id, loadProjects]);
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: settingsRead is how a save from outside the summary asks it to read the settings again.
+	useEffect(() => {
+		let current = true;
+		loadSettings(id).then(
+			(answer) => {
+				if (current) setSettings(answer);
+			},
+			() => {
+				if (current) setSettings(null);
+			},
+		);
+		return () => {
+			current = false;
+		};
+	}, [id, loadSettings, settingsRead]);
 
 	useEffect(() => {
 		let current = true;
@@ -279,6 +298,7 @@ export function ProjectPage({
 	}
 
 	const counts = cardsShown && cards ? countCards(cards) : undefined;
+	const preset = settings?.preset;
 	return (
 		<>
 			<header className={styles.header}>
@@ -313,20 +333,25 @@ export function ProjectPage({
 					)}
 				</div>
 			</header>
-			<SettingsPanel
-				key={settingsRead}
-				id={id}
-				loadSettings={loadSettings}
-				saveSettings={saveSettings}
-				onSettings={showPreset}
-				onSaved={reloadSetup}
-			/>
-			{/* While the project is setting up, its steps stand in place of its
-			    cards; a registered project whose newer version failed its check
-			    shows them above its cards. Nothing before the setup answers. */}
-			{setup === undefined ? null : (
-				<>
-					{setup !== null && setupShows(setup) ? (
+			{/* The cards column, then the side column, which stacks under it on
+			    phone. */}
+			<div className={styles.columns}>
+				<div className={styles.main}>
+					{editing ? (
+						<SettingsPanel
+							key={settingsRead}
+							id={id}
+							loadSettings={loadSettings}
+							saveSettings={saveSettings}
+							onSettings={setSettings}
+							onSaved={reloadSetup}
+						/>
+					) : null}
+					{/* While the project is setting up, its steps stand in place of
+					    its cards; a registered project whose newer version failed its
+					    check shows them above its cards. Nothing before the setup
+					    answers. */}
+					{setup !== undefined && setup !== null && setupShows(setup) ? (
 						<SetupPanel
 							id={id}
 							setup={setup}
@@ -341,17 +366,87 @@ export function ProjectPage({
 						/>
 					) : null}
 					{cardsShown ? <CardsPanel id={id} list={cards} now={now()} /> : null}
-				</>
-			)}
-			<WorkersPanel
-				id={id}
-				project={project.name}
-				now={now}
-				copy={copy}
-				loadWorkers={loadWorkers}
-				makeKey={makeKey}
-			/>
+				</div>
+				<div className={styles.side}>
+					<WorkersPanel
+						id={id}
+						project={project.name}
+						now={now}
+						copy={copy}
+						loadWorkers={loadWorkers}
+						makeKey={makeKey}
+					/>
+					<SettingsSummary
+						settings={settings}
+						editing={editing}
+						edit={() => setEditing((open) => !open)}
+					/>
+				</div>
+			</div>
 		</>
+	);
+}
+
+/** How the summary says whether pull requests wait, as the panel's select
+ * names each choice. */
+const WAITS: Record<string, string> = {
+	never: "Never",
+	sometimes: "Sometimes",
+	always: "Always",
+};
+
+/** The settings in the side column: the preset, questions before starting,
+ * whether pull requests wait, and the four labels, as label and value rows,
+ * and "Edit settings", which opens the Settings panel at the top of the
+ * cards column and closes it again. */
+function SettingsSummary({
+	settings,
+	editing,
+	edit,
+}: {
+	settings: ProjectSettings | null | undefined;
+	editing: boolean;
+	edit: () => void;
+}) {
+	const rows: [string, string][] = settings
+		? [
+				["Preset", PRESET_NAMES[settings.preset]],
+				["Questions before starting", settings.questions ? "On" : "Off"],
+				[
+					"Pull requests wait for you",
+					WAITS[settings.waits_for_owner] ?? settings.waits_for_owner,
+				],
+				["Pick-up label", settings.pickup_label],
+				["Hold label", settings.hold_label],
+				["Attention label", settings.attention_label],
+				["Review label", settings.review_label],
+			]
+		: [];
+	return (
+		<Card
+			title="Settings"
+			className={styles.card}
+			footer={
+				<Button kind="secondary" aria-expanded={editing} onClick={edit}>
+					Edit settings
+				</Button>
+			}
+		>
+			{settings === null ? (
+				<p className={styles.error} role="alert">
+					{SETTINGS_NOT_READ}
+				</p>
+			) : settings === undefined ? null : (
+				<dl className={styles.facts}>
+					{rows.map(([label, value]) => (
+						<div key={label} className={styles.fact}>
+							<dt className={styles.factLabel}>{label}</dt>
+							<dd className={styles.factValue}>{value}</dd>
+						</div>
+					))}
+				</dl>
+			)}
+		</Card>
 	);
 }
 
@@ -364,9 +459,12 @@ type WorkersPanelProps = Pick<
 	copy: (text: string) => Promise<void>;
 };
 
-/** The Workers panel: what the key is for, the key when it has just been
- * made, the commands that start a worker, the workers, and "Make a key", or
- * "Make a new key" behind a warning once there is one. */
+/** The Workers card: Running while a worker was seen in the last ten
+ * minutes, else Idle; why no work is handed out, when none is; how many
+ * workers have said hello, in thin numerals, each an inset; the key when it
+ * has just been made, or the date it was made; and "Start a worker", which
+ * shows the commands that start one, with "Make a key", or "Make a new key"
+ * behind a warning once there is one. */
 function WorkersPanel({
 	id,
 	project,
@@ -381,6 +479,9 @@ function WorkersPanel({
 	const [making, setMaking] = useState(false);
 	const [confirming, setConfirming] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	// Whether "Start a worker" shows its commands.
+	const [starting, setStarting] = useState(false);
+	const commands = useId();
 
 	const reload = useCallback(
 		() =>
@@ -414,6 +515,9 @@ function WorkersPanel({
 		setMaking(true);
 		try {
 			setKey(await makeKey(id));
+			// The command that saves the key is shown only now, so the commands
+			// open with it rather than wait behind "Start a worker".
+			setStarting(true);
 			setError(null);
 			await reload();
 		} catch {
@@ -422,33 +526,54 @@ function WorkersPanel({
 		setMaking(false);
 	};
 
+	const at = now();
+	const running =
+		list?.workers.some(
+			(worker) => at - Date.parse(worker.last_seen_at) < QUIET_MS,
+		) ?? false;
 	const hasKey = key !== null || (list?.key_made_at ?? null) !== null;
-	const action = hasKey ? (
-		<Button
-			kind="secondary"
-			disabled={making || list === undefined}
-			onClick={() => setConfirming(true)}
-		>
-			Make a new key
-		</Button>
-	) : (
-		<Button
-			kind="primary"
-			disabled={making || list === undefined}
-			onClick={make}
-		>
-			Make a key
-		</Button>
-	);
+	const actions =
+		list === undefined ? undefined : (
+			<div className={styles.actions}>
+				<Button
+					kind="secondary"
+					aria-expanded={starting}
+					aria-controls={commands}
+					onClick={() => setStarting((open) => !open)}
+				>
+					Start a worker
+				</Button>
+				{hasKey ? (
+					<Button
+						kind="ghost"
+						disabled={making}
+						onClick={() => setConfirming(true)}
+					>
+						Make a new key
+					</Button>
+				) : (
+					<Button kind="primary" disabled={making} onClick={make}>
+						Make a key
+					</Button>
+				)}
+			</div>
+		);
 
 	return (
 		<>
-			<Card title="Workers" className={styles.card} footer={action}>
+			<Card
+				title="Workers"
+				className={styles.card}
+				aside={
+					list === undefined ? undefined : running ? (
+						<Status tone="running">Running</Status>
+					) : (
+						<Status tone="idle">Idle</Status>
+					)
+				}
+				footer={actions}
+			>
 				<div className={styles.body}>
-					<p className={styles.line}>
-						A worker holds this project's key, and asks Dev flow for work with
-						it.
-					</p>
 					{list?.held ? (
 						<p className={styles.held}>
 							<Status tone="needs-you">No work</Status>
@@ -469,17 +594,53 @@ function WorkersPanel({
 							{error}
 						</p>
 					)}
+					{readFailed ? (
+						<p className={styles.error} role="alert">
+							{NOT_READ}
+						</p>
+					) : list === undefined ? null : list.workers.length === 0 ? (
+						<p className={styles.muted}>{NO_WORKER}</p>
+					) : (
+						<>
+							<p className={styles.counted}>
+								<span className={styles.count}>{list.workers.length}</span>
+								<span className={styles.countCaption}>
+									{list.workers.length === 1
+										? "worker has said hello"
+										: "workers have said hello"}
+								</span>
+							</p>
+							<ul className={styles.workers} aria-label="Workers">
+								{list.workers.map((worker) => (
+									<WorkerRow
+										key={worker.id}
+										worker={worker}
+										project={project}
+										now={at}
+									/>
+								))}
+							</ul>
+						</>
+					)}
 					{key !== null ? (
 						<ShownKey value={key.key} copy={copy} />
 					) : list?.key_made_at ? (
 						<p className={styles.line}>
-							Its key was made <When at={list.key_made_at} />.
+							Key made <When at={list.key_made_at} />.
 						</p>
 					) : list ? (
 						<p className={styles.line}>It has no key yet.</p>
 					) : null}
-					{list === undefined ? null : (
-						<section className={styles.start} aria-label="Start a worker">
+					{list === undefined || !starting ? null : (
+						<section
+							id={commands}
+							className={styles.start}
+							aria-label="Start a worker"
+						>
+							<p className={styles.line}>
+								A worker holds this project's key, and asks Dev flow for work
+								with it.
+							</p>
 							<p className={styles.line}>{PASTE}</p>
 							{key !== null ? (
 								<Command
@@ -496,24 +657,6 @@ function WorkersPanel({
 								copy={copy}
 							/>
 						</section>
-					)}
-					{readFailed ? (
-						<p className={styles.error} role="alert">
-							{NOT_READ}
-						</p>
-					) : list === undefined ? null : list.workers.length === 0 ? (
-						<p className={styles.muted}>{NO_WORKER}</p>
-					) : (
-						<ul className={styles.workers} aria-label="Workers">
-							{list.workers.map((worker) => (
-								<WorkerRow
-									key={worker.id}
-									worker={worker}
-									project={project}
-									now={now()}
-								/>
-							))}
-						</ul>
 					)}
 				</div>
 			</Card>

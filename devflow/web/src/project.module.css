@@ -1,5 +1,5 @@
-/* A project's page under the Projects tab: its header and the Workers panel.
- * Tokens only. */
+/* A project's page under the Projects tab: its header, its two columns, the
+ * Workers card and the settings summary. Tokens only. */
 
 /* The page header of section 2 of design/DESIGN.md: the way back, then the
  * mono caption, the page title and the one summary line on the left, and the
@@ -153,8 +153,100 @@
 	}
 }
 
+/* "Main plus side panel" of section 2 of design/DESIGN.md: a wrapping row,
+ * the cards column taking the room and the side column at least 300px, both
+ * free to shrink, so the side column stacks under the cards on phone without
+ * a breakpoint. */
+.columns {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	gap: var(--space-4);
+}
+
+.main {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	flex: 999 1 560px;
+	min-width: 0;
+}
+
+.side {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	flex: 1 1 300px;
+	min-width: 0;
+}
+
 .card {
 	margin: 0;
+}
+
+/* A card's actions, wrapping in the narrow column rather than overflowing. */
+.actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+/* The number the Workers card is about, in thin numerals, with its two line
+ * caption to its right, as "Card" in section 4 of design/DESIGN.md has it. */
+.counted {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	margin: 0;
+}
+
+.count {
+	color: var(--text);
+	font-family: var(--font-ui);
+	font-size: var(--text-num-l-size);
+	line-height: var(--text-num-l-line);
+	font-weight: 300;
+	letter-spacing: var(--tracking-num);
+	font-variant-numeric: tabular-nums;
+}
+
+.countCaption {
+	max-width: 9rem;
+	color: var(--text-2);
+}
+
+/* The settings summary: a label and a value alone, so plain rows 36px high
+ * with a 1px --border under each, the label in --text-2 and the value in the
+ * mono font, as "Inset list row" in section 4 of design/DESIGN.md says. */
+.facts {
+	display: flex;
+	flex-direction: column;
+	margin: 0;
+}
+
+.fact {
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-3);
+	min-height: 36px;
+	border-bottom: 1px solid var(--border);
+}
+
+.factLabel {
+	color: var(--text-2);
+}
+
+.factValue {
+	margin: 0;
+	min-width: 0;
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	text-align: right;
+	overflow-wrap: anywhere;
 }
 
 /* The panel's parts, a card's parts apart. */
