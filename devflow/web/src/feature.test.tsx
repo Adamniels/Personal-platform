@@ -11,6 +11,7 @@ import { ApiError } from "./api/client";
 import { App } from "./app";
 import type { DecisionAnswer, FeatureApi, FeatureStory } from "./feature";
 import { checkout, NOT_ANSWERED } from "./feature";
+import own from "./feature.module.css";
 import type { FeatureMergeConfirmation } from "./feature-merge";
 import { cardPath, featureAt, featurePath } from "./sections";
 import type { Status } from "./status";
@@ -23,6 +24,8 @@ const RUN = "01a3185c-5000-7000-8000-000000000002";
 function story(overrides: Partial<FeatureStory> = {}): FeatureStory {
 	return {
 		number: 38,
+		repository: "Adamniels/Fodr",
+		default_branch: "main",
 		title: "Feeding plan, version 2",
 		web_url: "https://github.com/Adamniels/Fodr/issues/38",
 		state: "building",
@@ -1024,5 +1027,470 @@ describe("merging the feature", () => {
 			),
 		).toBeTruthy();
 		expect(screen.queryByRole("button", { name: /^Merge into/ })).toBeNull();
+	});
+});
+
+type Review = FeatureStory["reviews"][number];
+type Run = FeatureStory["runs"][number];
+
+/** A review of the whole feature, approving COMMIT and covering the head
+ * unless overridden. */
+function review(overrides: Partial<Review> = {}): Review {
+	return {
+		run_id: "019a0000-0000-7000-8000-0000000000f3",
+		commit: COMMIT,
+		verdict: "approve",
+		summary: "The plan and its page fit together.",
+		findings: [],
+		for_owner: [],
+		reviewed_at: "2026-11-21T09:40:00+00:00",
+		posted: true,
+		current: true,
+		...overrides,
+	};
+}
+
+/** A run of the feature's own, a review of it that succeeded unless
+ * overridden. */
+function run(overrides: Partial<Run> = {}): Run {
+	return {
+		id: "019a0000-0000-7000-8000-0000000000f3",
+		kind: "feature_review",
+		worker: "fodr-worker",
+		started_at: "2026-11-21T09:35:00+00:00",
+		finished_at: "2026-11-21T09:40:00+00:00",
+		duration_ms: 291000,
+		result: "succeeded",
+		reason: null,
+		in_card: null,
+		auth_method: "oauth_token",
+		input_tokens: 30,
+		output_tokens: 1200,
+		check: null,
+		head_commit: COMMIT,
+		stderr_tail: null,
+		...overrides,
+	};
+}
+
+describe("the page puts merging and the decisions first", () => {
+	test("the merge card shows CI, the review and the decisions as tiles with Merge into main as the primary", async () => {
+		open({
+			loadFeature: () =>
+				Promise.resolve({
+					...ready(),
+					reason: "Every card has landed, and the review approved it.",
+					reviews: [review()],
+				}),
+		});
+
+		// The header: the state and the mono caption, the title as the page
+		// title, the reason, and the links.
+		const title = await screen.findByRole("heading", {
+			level: 2,
+			name: "Feeding plan, version 2",
+		});
+		const header = title.closest("header") as HTMLElement;
+		expect(within(header).getByText("Ready for you")).toBeTruthy();
+		expect(
+			within(header).getByText("ADAMNIELS/FODR · FEATURE #38 · 2 CARDS"),
+		).toBeTruthy();
+		expect(
+			within(header).getByText(
+				"Every card has landed, and the review approved it.",
+			),
+		).toBeTruthy();
+		expect(
+			within(header)
+				.getByRole("link", { name: "Pull request #51" })
+				.getAttribute("href"),
+		).toBe("https://github.com/Adamniels/Fodr/pull/51");
+		expect(
+			within(header).getByRole("link", { name: "Issue #38" }),
+		).toBeTruthy();
+
+		// The merge card, mine, with the head it merges and three tiles.
+		const merging = screen.getByRole("article", { name: "Merging into main" });
+		expect(within(merging).getByText("Needs you")).toBeTruthy();
+		expect(within(merging).getByText("head abc1234")).toBeTruthy();
+		const tiles = within(
+			within(merging).getByRole("list", { name: "At a glance" }),
+		).getAllByRole("listitem");
+		expect(tiles.map((tile) => tile.textContent)).toEqual([
+			"CIPassedon abc1234",
+			"The review of the whole featureApprovedcovers the head · 0 open",
+			"Decisions for you0 of 1 answeredbelow",
+		]);
+
+		// Merge into main, the page's one primary, then the whole feature sent
+		// back as a secondary, and what merging confirms.
+		const merge = within(merging).getByRole("button", {
+			name: "Merge into main",
+		});
+		expect(merge.className).toMatch(/primary/);
+		expect(
+			screen
+				.getAllByRole("button")
+				.filter((button) => /primary/.test(button.className)),
+		).toEqual([merge]);
+		const back = within(merging).getByRole("button", {
+			name: "Send the whole feature back",
+		});
+		expect(back.className).not.toMatch(/primary/);
+		expect(merge.compareDocumentPosition(back)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING,
+		);
+		expect(
+			within(merging).getByText(
+				"Merging confirms 1 decision you have not answered.",
+			),
+		).toBeTruthy();
+
+		// The merge card comes before the decisions and the cards.
+		const wants = screen.getByRole("article", {
+			name: "What the agents want you to know",
+		});
+		const cards = screen.getByRole("article", { name: "Cards" });
+		expect(merging.compareDocumentPosition(wants)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING,
+		);
+		expect(wants.compareDocumentPosition(cards)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING,
+		);
+	});
+
+	test("without the offer the merge card shows its tiles and no Merge", async () => {
+		open();
+
+		const merging = await screen.findByRole("article", {
+			name: "Merging into main",
+		});
+		expect(within(merging).queryByText("Needs you")).toBeNull();
+		expect(within(merging).getByText("head abc1234")).toBeTruthy();
+		const tiles = within(
+			within(merging).getByRole("list", { name: "At a glance" }),
+		).getAllByRole("listitem");
+		expect(tiles.map((tile) => tile.textContent)).toEqual([
+			"CINot passedmerging waits for it",
+			"The review of the whole featureNot reviewednot yet",
+			"Decisions for you0 of 1 answeredbelow",
+		]);
+		expect(screen.queryByRole("button", { name: /^Merge into/ })).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Send the whole feature back" }),
+		).toBeNull();
+		expect(screen.queryByText(/^Merging confirms/)).toBeNull();
+	});
+
+	test("an open decision shows its card, the chosen, instead, because and the reviewer, with Fine as it is and Send back; an answered one is one line", async () => {
+		const both = story();
+		both.cards.push({
+			number: 41,
+			title: "Merging a plan",
+			web_url: "https://github.com/Adamniels/Fodr/issues/41",
+			state: "done",
+			reason: null,
+			fix_rounds: 0,
+			input_tokens: 10,
+			output_tokens: 900,
+			screenshots: null,
+			decisions: [
+				{
+					run_id: "01a3185c-5000-7000-8000-000000000041",
+					position: 0,
+					chosen: "Refuse the merge when the head moved",
+					alternative: "Merge the newer head",
+					why: "Nothing unseen is merged",
+					reviewer_view: null,
+					answer: {
+						answer: "fine",
+						answered_at: "2026-11-21T10:12:00+00:00",
+					},
+				},
+			],
+			can_send_back: true,
+			sent_back: null,
+		});
+		open({ loadFeature: () => Promise.resolve(both) });
+
+		const wants = await screen.findByRole("article", {
+			name: "What the agents want you to know",
+		});
+		expect(within(wants).getByText("Needs you")).toBeTruthy();
+		expect(within(wants).getByText("1 open · 1 answered")).toBeTruthy();
+		const [waiting, answered] = within(
+			within(wants).getByRole("list", { name: "Decisions for you" }),
+		).getAllByRole("listitem") as [HTMLElement, HTMLElement];
+
+		// The open one: its card in mono, the chosen, instead of, because and
+		// the reviewer's view, then the two answers.
+		const card = within(waiting).getByText("#39 · Plan model and its rules");
+		expect(card.classList.contains(own.cardLine as string)).toBe(true);
+		const chosen = within(waiting).getByText(/^Round amounts to/);
+		expect(chosen.classList.contains(own.chosen as string)).toBe(true);
+		expect(within(chosen).getByText("0.5 kg").tagName).toBe("CODE");
+		expect(waiting.textContent).toContain(
+			"Instead of 0.1 kg, as the old plan showed",
+		);
+		expect(waiting.textContent).toContain(
+			"Because A scale in a stable is not finer than that",
+		);
+		expect(waiting.textContent).toContain("Reviewer: Agrees.");
+		const fine = within(waiting).getByRole("button", {
+			name: /^Fine as it is/,
+		});
+		const sendBack = within(waiting).getByRole("button", {
+			name: /^Send back #39/,
+		});
+		expect(sendBack.textContent).toBe("Send back #39");
+		expect(fine.className).not.toMatch(/primary/);
+		expect(sendBack.className).not.toMatch(/primary/);
+
+		// The answered one: one line, its answer as a status label and when.
+		expect(within(answered).queryByRole("button")).toBeNull();
+		expect(answered.textContent).toContain("#41 · Merging a plan");
+		expect(answered.textContent).toContain(
+			"Refuse the merge when the head moved",
+		);
+		expect(answered.textContent).not.toContain("Instead of");
+		expect(within(answered).getByText("Fine as it is")).toBeTruthy();
+		expect(within(answered).getByText(/^answered /)).toBeTruthy();
+	});
+
+	test("the cards are in order with a steps bar, Landed and Send back on each that can be sent back", async () => {
+		const sent = story();
+		sent.cards.push({
+			number: 42,
+			title: "The plan's history",
+			web_url: "https://github.com/Adamniels/Fodr/issues/42",
+			state: "queued",
+			reason: null,
+			fix_rounds: 0,
+			input_tokens: 0,
+			output_tokens: 0,
+			screenshots: null,
+			decisions: [],
+			can_send_back: false,
+			sent_back: {
+				times: 1,
+				pull_request: {
+					number: 44,
+					url: "https://github.com/Adamniels/Fodr/pull/44",
+				},
+				comments: ["Keep the history's log on the run."],
+			},
+		});
+		const sendBackCard = vi.fn(() => Promise.resolve());
+		open({ loadFeature: () => Promise.resolve(sent), sendBackCard });
+
+		const cards = await screen.findByRole("article", { name: "Cards" });
+		expect(within(cards).getByText("1 of 3 landed")).toBeTruthy();
+		expect(
+			within(cards).getByRole("img", { name: "Cards: 1 of 3 landed" }),
+		).toBeTruthy();
+		const rows = within(
+			within(cards).getByRole("list", { name: "Cards of the feature" }),
+		).getAllByRole("listitem") as [HTMLElement, HTMLElement, HTMLElement];
+		expect(rows).toHaveLength(3);
+
+		// The landed card: its number, its title linked to its page, its open
+		// decision as a badge, Landed, and Send back as a ghost.
+		const [landed, building, queued] = rows;
+		expect(within(landed).getByText("#39")).toBeTruthy();
+		expect(
+			within(landed)
+				.getByRole("link", { name: "Plan model and its rules" })
+				.getAttribute("href"),
+		).toBe(cardPath(PROJECT, 39));
+		expect(within(landed).getByText("1 decision")).toBeTruthy();
+		expect(within(landed).getByText("Landed")).toBeTruthy();
+		const sendBack = within(landed).getByRole("button", {
+			name: "Send back #39",
+		});
+		expect(sendBack.textContent).toBe("Send back");
+		expect(sendBack.className).toMatch(/ghost/);
+
+		// One still building, and one sent back, showing what I wrote under
+		// its row; neither can be sent back.
+		expect(within(building).getByText("Building")).toBeTruthy();
+		expect(within(building).queryByRole("button")).toBeNull();
+		expect(within(queued).queryByRole("button")).toBeNull();
+		const said = within(queued).getByText("Keep the history's log on the run.");
+		expect(said.classList.contains(own.said as string)).toBe(true);
+		expect(queued.textContent).toContain(
+			"You sent it back once, from pull request #44:",
+		);
+
+		// Send back opens the comment box under its row.
+		fireEvent.click(sendBack);
+		fireEvent.change(
+			within(landed).getByLabelText("What should the developer change in #39?"),
+			{ target: { value: "Round to 0.25 kg." } },
+		);
+		fireEvent.click(within(landed).getByRole("button", { name: "Send" }));
+		await waitFor(() =>
+			expect(sendBackCard).toHaveBeenCalledWith(
+				PROJECT,
+				39,
+				"Round to 0.25 kg.",
+			),
+		);
+
+		// The screenshots by card, under the cards.
+		const shots = screen.getByRole("article", { name: "Screenshots" });
+		expect(within(shots).getByText("1 card with pictures")).toBeTruthy();
+		expect(cards.compareDocumentPosition(shots)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING,
+		);
+	});
+
+	test("the side column shows the branch with its command, the fix rounds and the reviews", async () => {
+		const asked = "019a0000-0000-7000-8000-0000000000f0";
+		const fix = "019a0000-0000-7000-8000-0000000000f2";
+		const api = open({
+			loadFeature: () =>
+				Promise.resolve({
+					...ready(),
+					fix_rounds: 1,
+					reviews: [
+						review(),
+						review({
+							run_id: asked,
+							commit: "5".repeat(40),
+							verdict: "changes",
+							summary: "The page reads the plan twice.",
+							findings: [
+								{
+									blocking: true,
+									file: "src/plan.ts",
+									line: 12,
+									what: "Two cards read the plan",
+									why: "One will drift",
+								},
+							],
+							reviewed_at: "2026-11-21T09:05:00+00:00",
+							current: false,
+						}),
+						review({
+							run_id: "019a0000-0000-7000-8000-0000000000ef",
+							commit: "4".repeat(40),
+							verdict: "changes",
+							summary: "The first look.",
+							reviewed_at: "2026-11-21T08:00:00+00:00",
+							current: false,
+						}),
+					],
+					rounds: [
+						{
+							run_id: fix,
+							round: 1,
+							review_run_id: asked,
+							comments: [],
+							result: "succeeded",
+							replies: [
+								{ finding: "Two cards read the plan", answer: "One reader." },
+							],
+							fixed_commit: COMMIT,
+							review_after_run_id: "019a0000-0000-7000-8000-0000000000f3",
+						},
+					],
+					runs: [
+						run(),
+						run({
+							id: fix,
+							kind: "feature_fix",
+							started_at: "2026-11-21T09:15:00+00:00",
+							duration_ms: 420000,
+						}),
+						run({
+							id: "019a0000-0000-7000-8000-0000000000f9",
+							kind: "conflict",
+							started_at: "2026-11-21T08:30:00+00:00",
+							duration_ms: 124000,
+						}),
+					],
+				}),
+		});
+
+		// The branch, when it is watched, and the command to check it out.
+		const branch = await screen.findByRole("article", { name: "The branch" });
+		expect(within(branch).getByText(BRANCH)).toBeTruthy();
+		expect(
+			within(branch).getByText(
+				"Watched while the feature is open. Check it out to try it yourself:",
+			),
+		).toBeTruthy();
+		expect(
+			within(branch).getByRole("region", { name: "Check out the branch" })
+				.textContent,
+		).toContain(checkout(BRANCH));
+		fireEvent.click(
+			within(branch).getByRole("button", { name: "Copy the command" }),
+		);
+		await waitFor(() =>
+			expect(api.copy).toHaveBeenCalledWith(checkout(BRANCH)),
+		);
+
+		// Reviews and rounds: the fix rounds as steps, and the newest three of
+		// the reviews and rounds, newest first.
+		const reviews = screen.getByRole("article", { name: "Reviews and rounds" });
+		expect(within(reviews).getByText("1 of 3 used")).toBeTruthy();
+		expect(
+			within(reviews).getByRole("img", { name: "Fix rounds: 1 of 3 used" }),
+		).toBeTruthy();
+		const latest = within(
+			within(reviews).getByRole("list", {
+				name: "The latest reviews and rounds",
+			}),
+		).getAllByRole("listitem");
+		expect(latest).toHaveLength(3);
+		expect(latest[0]?.textContent).toContain("Review of abc1234");
+		expect(latest[0]?.textContent).toContain("Approved");
+		expect(latest[0]?.textContent).toContain("covers the head");
+		expect(latest[1]?.textContent).toContain("Round 1 of 3");
+		expect(latest[1]?.textContent).toContain("Succeeded");
+		expect(latest[1]?.textContent).toContain("left abc1234");
+		expect(latest[2]?.textContent).toContain("Review of 5555555");
+		expect(latest[2]?.textContent).toContain("Changes asked for");
+		expect(latest[2]?.textContent).toContain("1 finding, older commit");
+		expect(reviews.textContent).not.toContain("4444444");
+
+		// Read every review and round opens them all in place, each in full.
+		const every = within(reviews).getByRole("button", {
+			name: "Read every review and round",
+		});
+		expect(every.getAttribute("aria-expanded")).toBe("false");
+		fireEvent.click(every);
+		expect(every.getAttribute("aria-expanded")).toBe("true");
+		const all = within(reviews).getByRole("list", {
+			name: "Every review and round",
+		});
+		expect(all.children).toHaveLength(4);
+		expect(all.textContent).toContain("4444444");
+		expect(all.textContent).toContain("The first look.");
+		expect(all.textContent).toContain("One reader.");
+
+		// Its own runs, each a label and a value.
+		const runs = screen.getByRole("article", { name: "Its own runs" });
+		expect(
+			within(runs)
+				.getAllByRole("term")
+				.map((term) => term.textContent),
+		).toEqual(["Review of the feature", "Fix of the feature", "Conflict"]);
+		expect(
+			within(runs)
+				.getAllByRole("definition")
+				.map((value) => value.textContent),
+		).toEqual([
+			"Succeeded · 4 min 51 s",
+			"Succeeded · 7 min 0 s",
+			"Succeeded · 2 min 4 s",
+		]);
+
+		// The side column follows the cards, so it stacks under them on phone.
+		const cards = screen.getByRole("article", { name: "Cards" });
+		expect(cards.compareDocumentPosition(branch)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING,
+		);
 	});
 });
