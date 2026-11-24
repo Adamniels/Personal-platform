@@ -147,8 +147,8 @@ features" in `High-level/docs/platform-architecture.md`.
   authenticates a request with `PlatformAuth` and with a worker's key, and the libraries it is built
   on
 - `devflow/docs/devflow-architecture.md` — what Dev flow is, what of it exists, the code host seam
-  and why its fake sits there, acting as the owner on GitHub, projects and how a loop learns whose
-  they are, reading this repository's runner and the conventions it knows, reading every project
+  and why its fake sits there, acting as the owner on GitHub, projects, a project's summary and its card groups, and how a
+  loop learns whose they are, reading this repository's runner and the conventions it knows, reading every project
   into a stored picture the pages read instead of GitHub, cards and how one is picked, with why only
   the owner's own count and why the settings table holds only what is read, acting from the page as the owner and
   never as the app, the program's own writes as the app with a key narrowed to one purpose,

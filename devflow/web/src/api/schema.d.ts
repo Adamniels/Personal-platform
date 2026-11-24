@@ -163,7 +163,7 @@ export interface paths {
         };
         /**
          * The caller's projects
-         * @description Each connected repository, by owner and name. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description Each connected repository, by owner and name, with its summary, computed from what Dev flow stored: cards, its cards counted by group, needs_you (needs_answers, waiting_for_owner, stopped and refused), in_progress (reading, building, checking, reviewing and fixing), queued (queued and held) and done, an ignored card in none; workers, how many have said hello, last_seen_at, when the one seen last was seen, null with none, and held and cannot_run, the values listWorkers answers; setting_up, its setup steps done of total, six, while its state is setting_up, null once it is registered; and feature, its open feature, neither merged, closed nor ignored, with the most cards landed, the lowest number among equals, its number, title, landed, its cards in done, and total, its cards but an ignored one, null with none open. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         get: operations["listProjects"];
         put?: never;
@@ -928,6 +928,16 @@ export interface components {
             /** Format: int32 */
             exit_code: number;
         };
+        CardCounts: {
+            /** Format: int32 */
+            done: number;
+            /** Format: int32 */
+            in_progress: number;
+            /** Format: int32 */
+            needs_you: number;
+            /** Format: int32 */
+            queued: number;
+        };
         CardFeature: {
             /** Format: int32 */
             number: number;
@@ -1276,6 +1286,15 @@ export interface components {
             head_commit: string;
             into: string;
         };
+        FeatureProgress: {
+            /** Format: int32 */
+            landed: number;
+            /** Format: int32 */
+            number: number;
+            title: string;
+            /** Format: int32 */
+            total: number;
+        };
         FeatureStoryView: {
             branch: null | components["schemas"]["FeatureBranch"];
             cards: components["schemas"]["FeatureCard"][];
@@ -1462,6 +1481,19 @@ export interface components {
             /** Format: uri */
             authorize_url: string;
         };
+        ListedProject: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: int64 */
+            installation_id: number;
+            name: string;
+            owner: string;
+            /** Format: int64 */
+            repository_id: number;
+            summary: components["schemas"]["ProjectSummary"];
+        };
         MergeRequest: {
             head_commit: null | string;
         };
@@ -1529,7 +1561,7 @@ export interface components {
             stale: boolean;
         };
         ProjectList: {
-            projects: components["schemas"]["Project"][];
+            projects: components["schemas"]["ListedProject"][];
         };
         ProjectSettings: {
             attention_label: string;
@@ -1568,6 +1600,12 @@ export interface components {
             setup_command: string;
             state: string;
             steps: components["schemas"]["SetupStep"][];
+        };
+        ProjectSummary: {
+            cards: components["schemas"]["CardCounts"];
+            feature: null | components["schemas"]["FeatureProgress"];
+            setting_up: null | components["schemas"]["SetupProgress"];
+            workers: components["schemas"]["WorkersHealth"];
         };
         ProjectValueList: {
             done: boolean;
@@ -1775,6 +1813,12 @@ export interface components {
         };
         /** @enum {unknown} */
         SetupPreset: "fully_automatic" | "guided" | "only_i_merge";
+        SetupProgress: {
+            /** Format: int32 */
+            done: number;
+            /** Format: int32 */
+            total: number;
+        };
         SetupProject: {
             /** Format: date-time */
             checked_at: string;
@@ -1953,6 +1997,14 @@ export interface components {
             recipe_version: null | string;
             start_command: string;
             workers: components["schemas"]["Worker"][];
+        };
+        WorkersHealth: {
+            cannot_run: null | string;
+            /** Format: int32 */
+            count: number;
+            held: null | string;
+            /** Format: date-time */
+            last_seen_at: null | string;
         };
     };
     responses: never;

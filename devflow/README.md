@@ -1156,7 +1156,19 @@ and the origin check:
   not list there, or an installation the caller cannot reach, is `404`; one already a project of
   theirs is `409`; a field missing or not a positive number is `422` naming it. Nothing is stored
   for any of them.
-- `GET /devflow/api/projects` answers `{"projects": [...]}`, each as above, by owner and name.
+- `GET /devflow/api/projects` answers `{"projects": [...]}`, each as above, by owner and name, with
+  its `summary`, which the Projects tab draws each project's card from:
+  `{"cards": {"needs_you", "in_progress", "queued", "done"}, "workers": {"count", "last_seen_at", "held", "cannot_run"}, "setting_up": {"done", "total"} | null, "feature": {"number", "title", "landed", "total"} | null}`.
+  `cards` counts its cards by group, an ignored one in none; `workers` says how many have said
+  hello with its key, when the one seen last was seen, null with none, and `held` and `cannot_run`
+  as `GET /devflow/api/projects/{id}/workers` answers them, see "Workers"; `setting_up` is its
+  setup steps done of six while its state is `setting_up`, see "Setting up a project", and null
+  once it is registered; `feature` is its open feature, neither merged, closed nor ignored, with
+  the most cards landed, in `done`, the lowest number among equals, `total` counting its cards but
+  an ignored one, and null with none open. It is `ProjectStore.List`, computed as it is read from
+  the tables below and those of "Cards", "Features", "Workers" and "Stops", one query each for the
+  projects, the cards and the features, and nothing is stored for it. The groups, and why it is
+  computed, are "Projects" in `docs/devflow-architecture.md`.
 - `DELETE /devflow/api/projects/{id}` answers `204`, or `404` for a project the caller does not
   have, another user's among them.
 
