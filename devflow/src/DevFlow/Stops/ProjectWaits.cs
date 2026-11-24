@@ -114,16 +114,23 @@ public static class ProjectWaits
     {
         ArgumentNullException.ThrowIfNull(database);
         var row = await database.InUserTransaction(userId, transaction => transaction.Connection!.QuerySingleOrDefaultAsync<Failing>(new CommandDefinition(
-            "SELECT p.name AS Name, w.reason AS Reason FROM project_waits w JOIN projects p ON p.id = w.project_id WHERE w.project_id = @projectId AND w.failures >= @shown",
-            new { projectId, shown = Shown },
+            $"SELECT p.name AS Name, {CannotRunReasonSql} AS Reason FROM projects p WHERE p.id = @projectId",
+            new { projectId },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);
-        return row is { } failing ? CannotRun(failing.Name, failing.Reason) : null;
+        return row is { Reason: { } reason } ? CannotRun(row.Name, reason) : null;
     }
+
+    /// <summary>The last reason of project <c>p</c>'s failures outside a card, once
+    /// <see cref="Shown"/> in a row are counted, as SQL; null before then. What
+    /// <see cref="CannotRun"/> says it with, for the workers list and each project's
+    /// summary.</summary>
+    internal static readonly string CannotRunReasonSql = string.Create(CultureInfo.InvariantCulture,
+        $"(SELECT pw.reason FROM project_waits pw WHERE pw.project_id = p.id AND pw.failures >= {Shown})");
 
     private static DateTimeOffset Utc(DateTime at) => new(DateTime.SpecifyKind(at, DateTimeKind.Utc));
 
-    private sealed record Failing(string Name, string Reason);
+    private sealed record Failing(string Name, string? Reason);
 
     private sealed record Row(int Failures, string Reason, DateTime Since, DateTime WaitUntil);
 }

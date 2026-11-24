@@ -1,7 +1,13 @@
 using Dapper;
 
+using DevFlow.ClaudeLogin;
 using DevFlow.CodeHost;
+using DevFlow.Jobs;
 using DevFlow.Link;
+using DevFlow.Recipes;
+using DevFlow.Setup;
+using DevFlow.Stops;
+using DevFlow.Watching;
 
 using PlatformData;
 
@@ -17,7 +23,7 @@ namespace DevFlow.Projects;
 public sealed record Project(Guid Id, long InstallationId, long RepositoryId, string Owner, string Name, DateTimeOffset CreatedAt);
 
 /// <summary>What <c>GET /devflow/api/projects</c> answers.</summary>
-public sealed record ProjectList(IReadOnlyList<Project> Projects);
+public sealed record ProjectList(IReadOnlyList<ListedProject> Projects);
 
 /// <summary>A repository the person can reach, and whether it is one of their projects.</summary>
 public sealed record ConnectableRepository(long Id, string Owner, string Name, bool Connected);
@@ -70,9 +76,11 @@ public abstract record ProjectOutcome<T>
 /// connected is what the code host lists for the person, read with their own token through
 /// <see cref="UserTokens.For"/>, so a repository is connected only when they can reach it; a
 /// project is stored with the owner and name the code host gave. Every query goes through the
-/// door as the user. See "Connecting a repository" in devflow/README.md.
+/// door as the user, and listing answers each project with its summary, from
+/// <paramref name="logins"/> and <paramref name="start"/> as the workers list and the setup route
+/// answer them. See "Connecting a repository" in devflow/README.md.
 /// </summary>
-public sealed class ProjectStore(UserDb database, UserTokens tokens, ICodeHost host, TimeProvider time)
+public sealed class ProjectStore(UserDb database, UserTokens tokens, ICodeHost host, TimeProvider time, ClaudeLogins logins, WorkerStart start)
 {
     /// <summary>The installations the person can reach, each with its repositories, sorted by
     /// account and by owner and name, each marked when it is already a project; and where to
@@ -166,18 +174,103 @@ public sealed class ProjectStore(UserDb database, UserTokens tokens, ICodeHost h
             : new ProjectOutcome<Project>.Done(new Project(id, repository.Installation, repository.Id, repository.Owner, repository.Name, now));
     }
 
-    /// <summary>The user's projects, by owner and name.</summary>
-    public async Task<IReadOnlyList<Project>> List(Guid userId, CancellationToken cancellationToken)
+    /// <summary>
+    /// The user's projects, by owner and name, each with its summary, under row level security:
+    /// the projects with their workers' health, the cards counted by group and the open features,
+    /// one query each in one transaction. <c>held</c> is the workers list's, the project's hold and
+    /// then the user's Claude login, and <c>cannot_run</c> its too; setting up is
+    /// <see cref="SetupStore.Of"/>, asked only for a project not registered, since its values step
+    /// is worked out from the newest setup report in C#. See "Projects" in
+    /// devflow/docs/devflow-architecture.md.
+    /// </summary>
+    public async Task<IReadOnlyList<ListedProject>> List(Guid userId, CancellationToken cancellationToken)
     {
-        var rows = await database.InUserTransaction(userId, transaction => transaction.Connection!.QueryAsync<Row>(new CommandDefinition(
-            """
-            SELECT id AS Id, installation_id AS InstallationId, repository_id AS RepositoryId, owner AS Owner, name AS Name, created_at AS CreatedAt
-            FROM projects
-            ORDER BY lower(owner), lower(name), id
-            """,
-            transaction: transaction,
-            cancellationToken: cancellationToken)), cancellationToken);
-        return [.. rows.Select(row => new Project(row.Id, row.InstallationId, row.RepositoryId, row.Owner, row.Name, GitHubLink.Utc(row.CreatedAt)))];
+        var (projects, cards, features) = await database.InUserTransaction(userId, async transaction =>
+        {
+            var projects = await transaction.Connection!.QueryAsync<Row>(new CommandDefinition(
+                $"""
+                SELECT p.id AS Id, p.installation_id AS InstallationId, p.repository_id AS RepositoryId, p.owner AS Owner, p.name AS Name, p.created_at AS CreatedAt,
+                       (SELECT count(*)::int FROM workers w WHERE w.project_id = p.id) AS Workers,
+                       (SELECT max(w.last_seen_at) FROM workers w WHERE w.project_id = p.id) AS LastSeenAt,
+                       {WatchStore.HoldSql} AS Held,
+                       {ProjectWaits.CannotRunReasonSql} AS CannotRunReason,
+                       {SetupStore.RegisteredSql} AS Registered
+                FROM projects p
+                ORDER BY lower(p.owner), lower(p.name), p.id
+                """,
+                new { watchedSince = time.GetUtcNow() - BranchWatch.UnwatchedAfter },
+                transaction,
+                cancellationToken: cancellationToken));
+            var cards = await transaction.Connection!.QueryAsync<CountsRow>(new CommandDefinition(
+                """
+                SELECT project_id AS ProjectId,
+                       count(*) FILTER (WHERE state = ANY(@needsYou))::int AS NeedsYou,
+                       count(*) FILTER (WHERE state = ANY(@inProgress))::int AS InProgress,
+                       count(*) FILTER (WHERE state = ANY(@queued))::int AS Queued,
+                       count(*) FILTER (WHERE state = ANY(@done))::int AS Done
+                FROM cards
+                GROUP BY project_id
+                """,
+                new
+                {
+                    needsYou = ProjectSummaries.Groups[ProjectSummaries.NeedsYou],
+                    inProgress = ProjectSummaries.Groups[ProjectSummaries.InProgress],
+                    queued = ProjectSummaries.Groups[ProjectSummaries.Queued],
+                    done = ProjectSummaries.Groups[ProjectSummaries.Done],
+                },
+                transaction,
+                cancellationToken: cancellationToken));
+            // Each project's open feature with the most cards landed, the lowest number among
+            // equals. Open is neither merged nor closed, and picked: an ignored parent is not his.
+            var features = await transaction.Connection!.QueryAsync<FeatureRow>(new CommandDefinition(
+                """
+                SELECT DISTINCT ON (f.project_id) f.project_id AS ProjectId, f.number AS Number, f.title AS Title,
+                       count(c.id) FILTER (WHERE c.state = ANY(@done))::int AS Landed,
+                       count(c.id) FILTER (WHERE c.state = ANY(@counted))::int AS Total
+                FROM features f LEFT JOIN cards c ON c.feature_id = f.id
+                WHERE f.state NOT IN ('merged', 'closed', 'ignored')
+                GROUP BY f.id
+                ORDER BY f.project_id, landed DESC, f.number
+                """,
+                new { done = ProjectSummaries.Groups[ProjectSummaries.Done], counted = ProjectSummaries.Counted },
+                transaction,
+                cancellationToken: cancellationToken));
+            return (projects.ToList(), cards.ToDictionary(row => row.ProjectId), features.ToDictionary(row => row.ProjectId));
+        }, cancellationToken);
+
+        // Asked once, and only when a project's own hold does not already say why.
+        string? login = null;
+        if (projects.Any(row => row.Held is null))
+        {
+            login = Dispatcher.HeldFor(await logins.Status(userId, cancellationToken));
+        }
+
+        var listed = new List<ListedProject>(projects.Count);
+        foreach (var row in projects)
+        {
+            SetupProgress? settingUp = null;
+            if (!row.Registered
+                && await SetupStore.Of(database, userId, row.Id, start, cancellationToken) is { State: SetupStore.SettingUp, Steps: var steps })
+            {
+                settingUp = new SetupProgress(steps.Count(step => step.Done), steps.Count);
+            }
+
+            var counts = cards.TryGetValue(row.Id, out var counted)
+                ? new CardCounts(counted.NeedsYou, counted.InProgress, counted.Queued, counted.Done)
+                : new CardCounts(0, 0, 0, 0);
+            var feature = features.TryGetValue(row.Id, out var open)
+                ? new FeatureProgress(open.Number, open.Title, open.Landed, open.Total)
+                : null;
+            var workers = new WorkersHealth(
+                row.Workers,
+                row.LastSeenAt is { } seen ? GitHubLink.Utc(seen) : null,
+                row.Held ?? login,
+                row.CannotRunReason is { } reason ? ProjectWaits.CannotRun(row.Name, reason) : null);
+            listed.Add(new ListedProject(row.Id, row.InstallationId, row.RepositoryId, row.Owner, row.Name, GitHubLink.Utc(row.CreatedAt),
+                new ProjectSummary(counts, workers, settingUp, feature)));
+        }
+
+        return listed;
     }
 
     /// <summary>Disconnects the project, and by its foreign keys everything stored for it. Nothing
@@ -203,5 +296,10 @@ public sealed class ProjectStore(UserDb database, UserTokens tokens, ICodeHost h
         _ => throw new ArgumentException("a usable token is not a refusal", nameof(token)),
     };
 
-    private sealed record Row(Guid Id, long InstallationId, long RepositoryId, string Owner, string Name, DateTime CreatedAt);
+    private sealed record Row(Guid Id, long InstallationId, long RepositoryId, string Owner, string Name, DateTime CreatedAt,
+        int Workers, DateTime? LastSeenAt, string? Held, string? CannotRunReason, bool Registered);
+
+    private sealed record CountsRow(Guid ProjectId, int NeedsYou, int InProgress, int Queued, int Done);
+
+    private sealed record FeatureRow(Guid ProjectId, int Number, string Title, int Landed, int Total);
 }

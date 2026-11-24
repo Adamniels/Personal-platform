@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Dapper;
 
 using DevFlow.ClaudeLogin;
+using DevFlow.Projects;
 using DevFlow.Tests.Link;
 using DevFlow.Tests.Reading;
 
@@ -65,6 +66,22 @@ public sealed class ProjectSummaryTests
             (await Summary(routes, project))["cards"]));
     }
 
+    /// <summary>Every group names only card states, each in exactly one group, and every state the
+    /// cards table allows but <c>ignored</c> is in one.</summary>
+    [Fact]
+    public void EveryCardStateIsInOneGroupButIgnored()
+    {
+        string[] allowed =
+        [
+            "queued", "reading", "needs_answers", "building", "checking", "reviewing", "fixing", "waiting_for_owner",
+            "done", "stopped", "refused", "held", "ignored",
+        ];
+        var grouped = ProjectSummaries.Groups.SelectMany(group => group.Value).ToList();
+
+        Assert.Equal(grouped.Count, grouped.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(allowed.Where(state => state != "ignored").Order(StringComparer.Ordinal), grouped.Order(StringComparer.Ordinal));
+    }
+
     [Fact]
     public async Task SaysTheWorkersHealth()
     {
@@ -87,9 +104,16 @@ public sealed class ProjectSummaryTests
         await routes.App.Services.GetRequiredService<ClaudeLogins>().Set(User, Jobs.Jobs.ClaudeToken, Ct);
         await SameAsTheWorkersList(routes, project, count: 2, lastSeenAt: newest, held: null, cannotRun: null);
 
-        // The login past its renewal, the default branch read again so only the login holds it.
-        routes.Time.Advance(ClaudeLogins.Lasts);
-        await Watched(routes, project);
+        // The login past its renewal, given that long ago, since moving the clock a year on would
+        // expire the test's token too.
+        await using (var admin = await routes.Database.OpenAdmin(Ct))
+        {
+            await admin.ExecuteAsync(new CommandDefinition(
+                "UPDATE claude_logins SET given_at = given_at - @lasts WHERE user_id = @user",
+                new { lasts = ClaudeLogins.Lasts, user = User },
+                cancellationToken: Ct));
+        }
+
         await SameAsTheWorkersList(routes, project, count: 2, lastSeenAt: newest, held: "claude_login_expired", cannotRun: null);
 
         // Something landed that Dev flow did not put there, and six runs in a row failed outside
@@ -213,6 +237,12 @@ public sealed class ProjectSummaryTests
             JsonNode.Parse("""{"number": 120, "title": "Feature 120", "landed": 1, "total": 1}"""),
             only["summary"]!["feature"]));
 
+        // Bob's own list, read as him, counts only his.
+        var store = routes.App.Services.GetRequiredService<ProjectStore>();
+        var his = Assert.Single(await store.List(bob, Ct));
+        Assert.Equal(bobs, his.Id);
+        Assert.Equal(new CardCounts(5, 0, 0, 4), his.Summary.Cards);
+        Assert.Equal(new FeatureProgress(120, "Feature 120", 4, 4), his.Summary.Feature);
     }
 
     /// <summary>The project's summary and its workers list agree, and say what is expected.</summary>
