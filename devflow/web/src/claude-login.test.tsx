@@ -75,7 +75,13 @@ function renderLogin(
 
 const section = () => screen.findByRole("article", { name: "Claude login" });
 
-describe("the Claude login on the Projects tab", () => {
+/** Opens the token field with the line's one action. */
+function open(login: HTMLElement, action: string) {
+	fireEvent.click(within(login).getByRole("button", { name: action }));
+	return within(login).getByLabelText("Claude token");
+}
+
+describe("the Claude login is one line, and giving a token opens its field", () => {
 	test("nothing shows before the status answers", () => {
 		render(
 			<ClaudeLogin
@@ -88,28 +94,41 @@ describe("the Claude login on the Projects tab", () => {
 		expect(screen.queryByRole("article")).toBeNull();
 	});
 
-	test("not set, it says what it is for and offers a password field", async () => {
+	test("not set, it says so, and its field is hidden until Give a token opens it below the line", async () => {
 		renderLogin(NONE);
 		const login = await section();
 
-		expect(login.textContent).toContain(PURPOSE);
-		expect(within(login).getByText("Not set yet.")).toBeTruthy();
-		const field = within(login).getByLabelText("Claude token");
+		expect(within(login).getByText("Not set")).toBeTruthy();
+		expect(
+			within(login).getByText("make one with claude setup-token"),
+		).toBeTruthy();
+		expect(within(login).queryByLabelText("Claude token")).toBeNull();
+		expect(login.textContent).not.toContain("Needs you");
+		const give = within(login).getByRole("button", { name: "Give a token" });
+		expect(give.className).toMatch(/ghost/);
+
+		const field = open(login, "Give a token");
 		expect(field.getAttribute("type")).toBe("password");
 		expect(field.getAttribute("autocomplete")).toBe("off");
+		// Below the line, and what it is for said as its help.
+		expect(
+			give.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(login.textContent).toContain(PURPOSE);
 		// Nothing to save until something is typed, and nothing to remove.
 		const save = within(login).getByRole("button", { name: "Save" });
 		expect((save as HTMLButtonElement).disabled).toBe(true);
 		expect(within(login).queryByRole("button", { name: "Remove" })).toBeNull();
-		// Not the page's primary, which the GitHub link or "Connect a
-		// repository" holds.
-		expect(login.textContent).not.toContain("Needs you");
+
+		// Cancel closes it again.
+		fireEvent.click(within(login).getByRole("button", { name: "Cancel" }));
+		expect(within(login).queryByLabelText("Claude token")).toBeNull();
 	});
 
-	test("saving sends the token, empties the field and never shows it", async () => {
+	test("saving sends the token as today, empties and closes the field, and never shows it", async () => {
 		const { saveLogin, container } = renderLogin(NONE);
 		const login = await section();
-		const field = within(login).getByLabelText("Claude token");
+		const field = open(login, "Give a token");
 
 		fireEvent.change(field, { target: { value: TOKEN } });
 		await act(async () => {
@@ -118,15 +137,16 @@ describe("the Claude login on the Projects tab", () => {
 
 		expect(saveLogin).toHaveBeenCalledWith(TOKEN);
 		expect((field as HTMLInputElement).value).toBe("");
-		expect(login.textContent).toContain(
-			`Set on ${day(GIVEN)}, renew by ${day(RENEW_BY)}.`,
-		);
+		expect(within(login).queryByLabelText("Claude token")).toBeNull();
+		expect(
+			within(login).getByText(`given ${day(GIVEN)} · due ${day(RENEW_BY)}`),
+		).toBeTruthy();
+		expect(within(login).getByText("Given")).toBeTruthy();
 		expect(within(login).getByRole("button", { name: "Replace" })).toBeTruthy();
-		expect(within(login).getByRole("button", { name: "Remove" })).toBeTruthy();
 		expect(container.innerHTML).not.toContain(TOKEN.slice(10));
 	});
 
-	test("a token that is not a setup token is refused on the field", async () => {
+	test("a token that is not a setup token is refused on the field, which stays open", async () => {
 		const { container } = renderLogin(NONE, {
 			saveLogin: () =>
 				Promise.reject(
@@ -138,7 +158,7 @@ describe("the Claude login on the Projects tab", () => {
 				),
 		});
 		const login = await section();
-		const field = within(login).getByLabelText("Claude token");
+		const field = open(login, "Give a token");
 
 		fireEvent.change(field, { target: { value: "sk-ant-api03-a-key" } });
 		await act(async () => {
@@ -148,7 +168,7 @@ describe("the Claude login on the Projects tab", () => {
 		expect(login.textContent).toContain(NOT_A_TOKEN);
 		expect(field.getAttribute("aria-invalid")).toBe("true");
 		expect((field as HTMLInputElement).value).toBe("");
-		expect(within(login).getByText("Not set yet.")).toBeTruthy();
+		expect(within(login).getByText("Not set")).toBeTruthy();
 		expect(container.innerHTML).not.toContain("sk-ant-api03-a-key");
 	});
 
@@ -161,7 +181,7 @@ describe("the Claude login on the Projects tab", () => {
 		});
 		const login = await section();
 
-		fireEvent.change(within(login).getByLabelText("Claude token"), {
+		fireEvent.change(open(login, "Give a token"), {
 			target: { value: TOKEN },
 		});
 		await act(async () => {
@@ -171,25 +191,36 @@ describe("the Claude login on the Projects tab", () => {
 		expect(within(login).getByRole("alert").textContent).toBe(NOT_SAVED);
 	});
 
-	test("set, it says when it was given and when it is due", async () => {
-		renderLogin(at("ok"));
+	test("set, it shows given and due, with Replace, which opens the field", async () => {
+		const { saveLogin } = renderLogin(at("ok"));
 		const login = await section();
 
-		expect(login.textContent).toContain(
-			`Set on ${day(GIVEN)}, renew by ${day(RENEW_BY)}.`,
-		);
-		expect(within(login).getByRole("button", { name: "Replace" })).toBeTruthy();
+		expect(within(login).getByText("Given")).toBeTruthy();
+		expect(
+			within(login).getByText(`given ${day(GIVEN)} · due ${day(RENEW_BY)}`),
+		).toBeTruthy();
 		expect(login.textContent).not.toContain("Needs you");
+		expect(within(login).queryByLabelText("Claude token")).toBeNull();
+		const replace = within(login).getByRole("button", { name: "Replace" });
+		expect(replace.className).toMatch(/ghost/);
+
+		fireEvent.change(open(login, "Replace"), { target: { value: TOKEN } });
+		await act(async () => {
+			fireEvent.click(within(login).getByRole("button", { name: "Save" }));
+		});
+		expect(saveLogin).toHaveBeenCalledWith(TOKEN);
 	});
 
-	test("a month before it is due, it warns in the attention style", async () => {
+	test("due within a month, it says Due in the warning style", async () => {
 		renderLogin(at("due_soon"));
 		const login = await section();
 
 		expect(login.textContent).toContain("Needs you");
-		expect(login.textContent).toContain(
-			`Set on ${day(GIVEN)}. Renew it by ${day(RENEW_BY)}: agents cannot run once it runs out.`,
-		);
+		expect(within(login).getByText("Due")).toBeTruthy();
+		expect(
+			within(login).getByText(`given ${day(GIVEN)} · due ${day(RENEW_BY)}`),
+		).toBeTruthy();
+		expect(within(login).getByRole("button", { name: "Replace" })).toBeTruthy();
 	});
 
 	test("expired, it says it ran out", async () => {
@@ -197,14 +228,16 @@ describe("the Claude login on the Projects tab", () => {
 		const login = await section();
 
 		expect(login.textContent).toContain("Needs you");
-		expect(login.textContent).toContain(
-			`It ran out on ${day(RENEW_BY)}: agents cannot run until you replace it.`,
-		);
+		expect(within(login).getByText("Expired")).toBeTruthy();
+		expect(
+			within(login).getByText(`given ${day(GIVEN)} · ran out ${day(RENEW_BY)}`),
+		).toBeTruthy();
 	});
 
-	test("removing it asks first, and then it is not set", async () => {
+	test("removing it asks first, behind Remove the Claude login?, and then it is not set", async () => {
 		const { removeLogin } = renderLogin(at("ok"));
 		const login = await section();
+		open(login, "Replace");
 
 		fireEvent.click(within(login).getByRole("button", { name: "Remove" }));
 		expect(removeLogin).not.toHaveBeenCalled();
@@ -219,14 +252,17 @@ describe("the Claude login on the Projects tab", () => {
 
 		expect(removeLogin).toHaveBeenCalledTimes(1);
 		await waitFor(() =>
-			expect(within(login).getByText("Not set yet.")).toBeTruthy(),
+			expect(within(login).getByText("Not set")).toBeTruthy(),
 		);
-		expect(within(login).getByRole("button", { name: "Save" })).toBeTruthy();
+		expect(
+			within(login).getByRole("button", { name: "Give a token" }),
+		).toBeTruthy();
 	});
 
 	test("cancelling the confirmation removes nothing", async () => {
 		const { removeLogin } = renderLogin(at("ok"));
 		const login = await section();
+		open(login, "Replace");
 
 		fireEvent.click(within(login).getByRole("button", { name: "Remove" }));
 		fireEvent.click(
@@ -236,12 +272,13 @@ describe("the Claude login on the Projects tab", () => {
 		);
 
 		expect(removeLogin).not.toHaveBeenCalled();
-		expect(within(login).getByRole("button", { name: "Remove" })).toBeTruthy();
+		expect(within(login).getByText("Given")).toBeTruthy();
 	});
 
 	test("a removal that fails says so and keeps the login", async () => {
 		renderLogin(at("ok"), { removeLogin: () => Promise.reject(new Error()) });
 		const login = await section();
+		open(login, "Replace");
 
 		fireEvent.click(within(login).getByRole("button", { name: "Remove" }));
 		await act(async () => {

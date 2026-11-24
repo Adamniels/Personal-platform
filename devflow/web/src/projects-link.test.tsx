@@ -26,10 +26,7 @@ HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
 	this.dispatchEvent(new Event("close"));
 };
 
-const INVITE =
-	"Link your GitHub account to connect repositories and to merge and comment as yourself.";
 const FAILED = "GitHub was not linked. Try again.";
-const EXPIRED = "Your GitHub link has expired.";
 
 afterEach(cleanup);
 
@@ -60,37 +57,27 @@ function renderLink(props: Partial<GitHubLinkProps>) {
 	return actions;
 }
 
-describe("the link on the Projects tab", () => {
-	test("unlinked, it invites a link and leads to the code host", async () => {
-		const { start, go } = renderLink({
-			github: { state: "none", login: null },
-		});
-
-		expect(screen.getByText(INVITE)).toBeTruthy();
-		expect(screen.queryByText(FAILED)).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Link GitHub" }));
-
-		await waitFor(() =>
-			expect(go).toHaveBeenCalledWith(
-				"https://platform.test/devflow/fake-github/authorize",
-			),
-		);
-		expect(start).toHaveBeenCalledTimes(1);
-	});
-
-	test("linked, it names the login and unlinks behind a confirmation", async () => {
+describe("GitHub is one line with its state and its action", () => {
+	test("linked, it shows the login and Unlink, behind a confirmation", async () => {
 		const { unlink } = renderLink({
 			github: { state: "linked", login: "octo-owner" },
 		});
 
-		expect(screen.getByText("Linked as @octo-owner")).toBeTruthy();
-		expect(screen.queryByText(INVITE)).toBeNull();
-		expect(screen.queryByRole("button", { name: "Link GitHub" })).toBeNull();
+		const item = screen.getByRole("article", { name: "GitHub" });
+		expect(within(item).getByText("linked as @octo-owner")).toBeTruthy();
+		expect(within(item).getByText("Linked")).toBeTruthy();
+		expect(within(item).queryByText("Needs you")).toBeNull();
+		expect(
+			within(item).queryByRole("button", { name: "Link GitHub" }),
+		).toBeNull();
+		const action = within(item).getByRole("button", { name: "Unlink" });
+		// One action on the line, so Connect a repository stays the one primary.
+		expect(within(item).getAllByRole("button")).toHaveLength(1);
+		expect(action.className).toMatch(/ghost/);
 
-		fireEvent.click(screen.getByRole("button", { name: "Unlink" }));
+		fireEvent.click(action);
 		expect(unlink).not.toHaveBeenCalled();
 		const dialog = screen.getByRole("dialog", { name: "Unlink GitHub?" });
-
 		await act(async () => {
 			fireEvent.click(
 				within(dialog).getByRole("button", { name: "Unlink GitHub" }),
@@ -115,25 +102,55 @@ describe("the link on the Projects tab", () => {
 		expect(unlink).not.toHaveBeenCalled();
 	});
 
-	test("expired, it asks for the link again in the attention style", async () => {
+	test("not linked, it says so and Link GitHub, a secondary button, leads to the code host", async () => {
+		const { start, go } = renderLink({
+			github: { state: "none", login: null },
+		});
+
+		const item = screen.getByRole("article", { name: "GitHub" });
+		expect(within(item).getByText("Not linked")).toBeTruthy();
+		expect(within(item).queryByRole("alert")).toBeNull();
+		const action = within(item).getByRole("button", { name: "Link GitHub" });
+		expect(action.className).toMatch(/secondary/);
+		expect(action.className).not.toMatch(/primary/);
+		fireEvent.click(action);
+
+		await waitFor(() =>
+			expect(go).toHaveBeenCalledWith(
+				"https://platform.test/devflow/fake-github/authorize",
+			),
+		);
+		expect(start).toHaveBeenCalledTimes(1);
+	});
+
+	test("needs relink, it says the link expired, needs you, and Link again is a secondary button", async () => {
 		const { go } = renderLink({
 			github: { state: "needs_relink", login: "octo-owner" },
 		});
 
-		const card = screen.getByRole("article", { name: "GitHub" });
-		expect(within(card).getByText(EXPIRED)).toBeTruthy();
-		// The card's mark for assistive technology, so it is not colour alone.
-		expect(within(card).getByText("Needs you")).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Link again" }));
+		const item = screen.getByRole("article", { name: "GitHub" });
+		expect(within(item).getByText("Expired")).toBeTruthy();
+		expect(within(item).getByText("your link has expired")).toBeTruthy();
+		// The item's mark for assistive technology, so it is not colour alone.
+		expect(within(item).getByText("Needs you")).toBeTruthy();
+		const action = within(item).getByRole("button", { name: "Link again" });
+		expect(action.className).toMatch(/secondary/);
+		fireEvent.click(action);
 
 		await waitFor(() => expect(go).toHaveBeenCalled());
 	});
 
-	test("after a return that did not link, it says so beside the invitation", () => {
+	test("after a return that did not link, its error is a line under the item", () => {
 		renderLink({ github: { state: "none", login: null }, failed: true });
 
-		expect(screen.getByRole("alert").textContent).toBe(FAILED);
-		expect(screen.getByRole("button", { name: "Link GitHub" })).toBeTruthy();
+		const item = screen.getByRole("article", { name: "GitHub" });
+		const error = within(item).getByRole("alert");
+		expect(error.textContent).toBe(FAILED);
+		// Under the line, after the action.
+		const action = within(item).getByRole("button", { name: "Link GitHub" });
+		expect(action.compareDocumentPosition(error)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING,
+		);
 	});
 
 	test("a start that fails says so, and goes nowhere", async () => {
@@ -163,7 +180,7 @@ describe("on the page", () => {
 		github,
 	});
 
-	test("the Projects tab shows the link above its list, and Waiting for you does not", async () => {
+	test("the Projects tab shows the link in Connections above its list, and Waiting for you does not", async () => {
 		window.history.pushState(null, "", "/devflow/projects");
 		const answer = Promise.resolve(status({ state: "none", login: null }));
 		render(<App loadStatus={() => answer} projects={NO_PROJECTS} />);
@@ -172,8 +189,11 @@ describe("on the page", () => {
 		});
 
 		const panel = within(screen.getByRole("tabpanel"));
-		expect(panel.getByRole("article", { name: "GitHub" })).toBeTruthy();
-		expect(panel.getByText(INVITE)).toBeTruthy();
+		const connections = panel.getByRole("region", { name: "Connections" });
+		expect(
+			within(connections).getByRole("article", { name: "GitHub" }),
+		).toBeTruthy();
+		expect(within(connections).getByText("Not linked")).toBeTruthy();
 		expect(await panel.findByText("No project connected yet")).toBeTruthy();
 
 		fireEvent.click(screen.getByRole("tab", { name: "Waiting for you" }));
