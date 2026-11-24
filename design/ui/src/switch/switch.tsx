@@ -47,6 +47,7 @@ export function Switch({
 				<input
 					{...rest}
 					type="checkbox"
+					// biome-ignore lint/a11y/useAriaPropsForRole: a native checkbox says its state through checked, and ARIA in HTML forbids aria-checked where checked applies; a copy would go stale on an uncontrolled switch.
 					role="switch"
 					aria-labelledby={labelId}
 					aria-describedby={described}
