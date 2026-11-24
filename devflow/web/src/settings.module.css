@@ -395,6 +395,22 @@
 		display: none;
 	}
 
+	/* The preset's track as Tabs on phone: the full width, equal segments,
+	 * 13px labels with 4px side padding, cut with an ellipsis if one does not
+	 * fit, so it stays one line. */
+	.track {
+		align-self: stretch;
+		flex-wrap: nowrap;
+	}
+
+	.segment {
+		flex: 1 1 0;
+		padding: 0 4px;
+		font-size: 13px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
 	.bar {
 		position: sticky;
 		bottom: calc(
