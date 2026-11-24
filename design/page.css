@@ -5,10 +5,12 @@
  * body:has(> platform-nav) and no page changes its markup for it. A page
  * without the bar, such as login, gets the page container alone.
  *
- * On desktop body is the shell: padded --page-pad on every side and, on the
- * left, by the rail's width and a gap either side of it, at most the rail,
- * the content column and three gaps wide, centred. nav.js fixes the rail to
- * the window in that room; the element, in the page's flow, is the top bar.
+ * On desktop body is the shell, the window's full width: padded --page-pad
+ * on every side and, on the left, by the rail's width and a gap either side
+ * of it. nav.js fixes the rail to the window in that room, --page-pad from
+ * its left edge; the element, in the page's flow, is the top bar, so it runs
+ * from right of the rail to --page-pad from the window's right edge. The
+ * page container centres itself in the room beside the rail.
  * On phone body keeps room for the tab bar at the bottom, and the top bar
  * and the content have --page-pad at their sides. All of it is held before
  * /design/nav.js runs, so nothing moves when the bar draws. The bar's own
@@ -24,11 +26,10 @@ platform-nav {
   min-height: var(--top-bar-h);
 }
 
-/* Desktop: the rail's room on the left, and the shell centred. */
+/* Desktop: the whole window, with the rail's room on the left. */
 body:has(> platform-nav) {
   box-sizing: border-box;
-  max-width: calc(var(--rail-w) + var(--content-max) + 3 * var(--page-pad));
-  margin: 0 auto;
+  margin: 0;
   padding: var(--page-pad) var(--page-pad) var(--page-pad)
     calc(var(--rail-w) + 2 * var(--page-pad));
 }
@@ -37,7 +38,6 @@ body:has(> platform-nav) {
    tab bar fixed there covers nothing. */
 @media (max-width: 639.98px) {
   body:has(> platform-nav) {
-    max-width: none;
     padding: 0 0 calc(var(--tab-bar-h) + env(safe-area-inset-bottom, 0px));
   }
 }
@@ -54,8 +54,9 @@ body:has(> platform-nav) {
   padding: var(--space-6) var(--page-pad);
 }
 
-/* Inside the shell the shell holds the content column's width and sides,
-   so on desktop the container adds no sides of its own. */
+/* Inside the shell the shell holds the content column's sides and the
+   container its width, centred in the room beside the rail, so on desktop
+   the container adds no sides of its own. */
 body:has(> platform-nav) .page {
   padding: var(--space-4) 0 var(--space-6);
 }
