@@ -300,6 +300,10 @@ sub-issue does not hold a feature short of its total. An open feature is one nei
 closed nor ignored, the last being a parent that failed the rules a card is held to, and the one
 named is the one with the most cards landed, the lowest number among equals.
 
+A project's page counts its own cards into the same groups for its summary line, from the cards it
+reads, as its slice settled, so the groups have a second copy, `CARD_GROUPS` in
+`web/src/cards.tsx`. The two are kept the same by hand; a change to one is a change to both.
+
 **A person connects only what GitHub lists for them.** The repositories to choose from are read as
 the person, with their user token, `GET /user/installations` and each installation's
 repositories, never as the app: the app may be installed where the person cannot reach, and the
