@@ -136,7 +136,8 @@ describe("the Claude login is one line, and giving a token opens its field", () 
 		});
 
 		expect(saveLogin).toHaveBeenCalledWith(TOKEN);
-		expect((field as HTMLInputElement).value).toBe("");
+		// The field is gone with the token in it.
+		expect(field.isConnected).toBe(false);
 		expect(within(login).queryByLabelText("Claude token")).toBeNull();
 		expect(
 			within(login).getByText(`given ${day(GIVEN)} · due ${day(RENEW_BY)}`),
