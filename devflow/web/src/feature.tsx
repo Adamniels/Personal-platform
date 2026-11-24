@@ -26,7 +26,15 @@ import { type ReactNode, useCallback, useEffect, useId, useState } from "react";
 import { describe, EXPIRED, type LinkState, UNLINKED } from "./actions";
 import { navigate, plainClick } from "./address";
 import type { components } from "./api/schema";
-import { ReviewRow, RoundRow, RunRow, verdictWord } from "./card";
+import {
+	KINDS,
+	LAY,
+	ReviewRow,
+	RoundRow,
+	resultOf,
+	took,
+	verdictWord,
+} from "./card";
 import styles from "./card.module.css";
 import { StepsBar, stateWord } from "./cards";
 import { CommentBox } from "./comment-box";
@@ -107,6 +115,13 @@ export type FeaturePageProps = FeatureApi & {
 const DATE_TIME = new Intl.DateTimeFormat("en-GB", {
 	dateStyle: "medium",
 	timeStyle: "short",
+});
+
+const SHORT = new Intl.DateTimeFormat("en-GB", {
+	day: "numeric",
+	month: "short",
+	hour: "2-digit",
+	minute: "2-digit",
 });
 
 const clipboard = (text: string) => navigator.clipboard.writeText(text);
@@ -289,166 +304,105 @@ export function FeaturePage({
 					)}
 				</div>
 			</Panel>
-			{decisions.length === 0 ? null : (
-				<Panel
-					title="What the agents want you to know"
-					aside={
-						<span className={styles.aside}>
-							{unanswered} open · {decisions.length - unanswered} answered
-						</span>
-					}
-					className={styles.panel}
-					attention={unanswered > 0}
-				>
-					<ul className={own.decisions} aria-label="Decisions for you">
-						{decisions.map(({ card, decision }) => (
-							<DecisionRow
-								key={`${decision.run_id}/${decision.position}`}
-								card={card}
-								decision={decision}
-								link={link}
-								sendBack={
-									card.can_send_back
-										? (comment) =>
-												sendBackDecision(
+			{/* The main column, then the side column, which stacks under it on
+			    phone. */}
+			<div className={styles.columns}>
+				<div className={styles.main}>
+					{decisions.length === 0 ? null : (
+						<Panel
+							title="What the agents want you to know"
+							aside={
+								<span className={styles.aside}>
+									{unanswered} open · {decisions.length - unanswered} answered
+								</span>
+							}
+							attention={unanswered > 0}
+						>
+							<ul className={own.decisions} aria-label="Decisions for you">
+								{decisions.map(({ card, decision }) => (
+									<DecisionRow
+										key={`${decision.run_id}/${decision.position}`}
+										card={card}
+										decision={decision}
+										link={link}
+										sendBack={
+											card.can_send_back
+												? (comment) =>
+														sendBackDecision(
+															project,
+															number,
+															decision.run_id,
+															decision.position,
+															comment,
+														)
+												: null
+										}
+										reload={load}
+										answer={async () => {
+											try {
+												const kept = await answerFine(
 													project,
 													number,
 													decision.run_id,
 													decision.position,
-													comment,
-												)
-										: null
-								}
-								reload={load}
-								answer={async () => {
-									try {
-										const kept = await answerFine(
-											project,
-											number,
-											decision.run_id,
-											decision.position,
-										);
-										setStory((shown) => answered(shown, decision, kept));
-									} catch (error) {
-										await load();
-										throw error;
-									}
-								}}
-							/>
-						))}
-					</ul>
-				</Panel>
-			)}
-			<CardsPanel
-				project={project}
-				cards={story.cards}
-				link={link}
-				sendBack={(card, comment) => sendBackCard(project, card, comment)}
-				reload={load}
-			/>
-			{pictured.length === 0 ? null : (
-				<Panel
-					title="Screenshots"
-					aside={
-						<span className={styles.aside}>
-							{count(pictured.length, "card")} with pictures
-						</span>
-					}
-					className={styles.panel}
-				>
-					<div className={own.shots}>
-						{pictured.map((card) => (
-							<section
-								key={card.number}
-								className={styles.section}
-								aria-label={`Screenshots of #${card.number}`}
-							>
-								<h3 className={styles.label}>
-									#{card.number} {card.title}
-								</h3>
-								<Screenshots
-									titled={false}
-									address={(name) => cardScreenshot(project, card.number, name)}
-									groups={card.screenshots?.groups ?? []}
-									note={card.screenshots?.note ?? null}
-								/>
-							</section>
-						))}
-					</div>
-				</Panel>
-			)}
-			{story.reviews.length === 0 ? null : (
-				<Panel title="The review of the whole feature" className={styles.panel}>
-					<ul className={styles.runs} aria-label="Reviews of the feature">
-						{story.reviews.map((review) => (
-							<ReviewRow key={review.run_id} review={review} />
-						))}
-					</ul>
-				</Panel>
-			)}
-			{story.rounds.length === 0 ? null : (
-				<Panel
-					title={`Fix rounds, ${story.fix_rounds} of ${story.most_rounds} used`}
-					className={styles.panel}
-				>
-					<ul className={styles.runs} aria-label="Fix rounds of the feature">
-						{story.rounds.map((round) => (
-							<RoundRow
-								key={round.run_id}
-								round={round}
-								reviews={story.reviews}
-								most={story.most_rounds}
-							/>
-						))}
-					</ul>
-				</Panel>
-			)}
-			<Panel title="The branch" className={styles.panel}>
-				<div className={styles.body}>
-					{story.branch === null ? (
-						<p className={styles.muted}>
-							Its branch is made when its first card starts.
-						</p>
-					) : story.state === "merged" ? (
-						<p className={styles.text}>
-							The feature is merged, and its branch is no longer watched.
-						</p>
-					) : (
-						<>
-							<p className={styles.text}>
-								{story.state === "closed"
-									? "Its pull request was closed without merging, so the feature is not in main. "
-									: "The feature is not in main yet. "}
-								To try it, check out its branch
-								{story.branch.commit === null ? null : (
-									<>
-										, at{" "}
-										<code className={styles.code}>
-											{story.branch.commit.slice(0, 7)}
-										</code>
-									</>
-								)}
-								, or look at what the worker captured.
-							</p>
-							<Command
-								label="Check out the branch"
-								copyLabel="Copy the command"
-								text={checkout(story.branch.name)}
-								copy={copy}
-							/>
-						</>
+												);
+												setStory((shown) => answered(shown, decision, kept));
+											} catch (error) {
+												await load();
+												throw error;
+											}
+										}}
+									/>
+								))}
+							</ul>
+						</Panel>
+					)}
+					<CardsPanel
+						project={project}
+						cards={story.cards}
+						link={link}
+						sendBack={(card, comment) => sendBackCard(project, card, comment)}
+						reload={load}
+					/>
+					{pictured.length === 0 ? null : (
+						<Panel
+							title="Screenshots"
+							aside={
+								<span className={styles.aside}>
+									{count(pictured.length, "card")} with pictures
+								</span>
+							}
+						>
+							<div className={own.shots}>
+								{pictured.map((card) => (
+									<section
+										key={card.number}
+										className={styles.section}
+										aria-label={`Screenshots of #${card.number}`}
+									>
+										<h3 className={styles.label}>
+											#{card.number} {card.title}
+										</h3>
+										<Screenshots
+											titled={false}
+											address={(name) =>
+												cardScreenshot(project, card.number, name)
+											}
+											groups={card.screenshots?.groups ?? []}
+											note={card.screenshots?.note ?? null}
+										/>
+									</section>
+								))}
+							</div>
+						</Panel>
 					)}
 				</div>
-			</Panel>
-			{story.runs.length === 0 ? null : (
-				<Panel title="Runs" className={styles.panel}>
-					<ul className={styles.runs} aria-label="Runs of the feature">
-						{story.runs.map((run) => (
-							<RunRow key={run.id} run={run} of="feature" />
-						))}
-					</ul>
-				</Panel>
-			)}
+				<div className={styles.side}>
+					<TheBranch story={story} copy={copy} />
+					<ReviewsAndRounds story={story} />
+					{story.runs.length === 0 ? null : <OwnRuns runs={story.runs} />}
+				</div>
+			</div>
 		</>
 	);
 }
@@ -555,6 +509,259 @@ function answered(
 			),
 		})),
 	};
+}
+
+/** The branch: its name in mono, when it is watched and the command that
+ * checks it out with "Copy the command"; before it is made, or once the
+ * feature is merged, a line saying so. */
+function TheBranch({
+	story,
+	copy,
+}: {
+	story: FeatureStory;
+	copy: (text: string) => Promise<void>;
+}) {
+	const into = story.default_branch ?? "the default branch";
+	return (
+		<Panel title="The branch">
+			<div className={styles.body}>
+				{story.branch === null ? (
+					<p className={styles.muted}>
+						Its branch is made when its first card starts.
+					</p>
+				) : story.state === "merged" ? (
+					<p className={styles.text}>
+						The feature is merged, and its branch is no longer watched.
+					</p>
+				) : (
+					<>
+						<p className={own.branchName}>{story.branch.name}</p>
+						<p className={styles.muted}>
+							{story.state === "closed"
+								? `Its pull request was closed without merging, so the feature is not in ${into}. Check it out to try it yourself:`
+								: "Watched while the feature is open. Check it out to try it yourself:"}
+						</p>
+						<Command
+							label="Check out the branch"
+							copyLabel="Copy the command"
+							text={checkout(story.branch.name)}
+							copy={copy}
+						/>
+					</>
+				)}
+			</div>
+		</Panel>
+	);
+}
+
+/** A review or a fix round of the whole feature, with when it happened, so
+ * the two are told newest first together. */
+type Moment =
+	| { kind: "review"; at: string; review: FeatureStory["reviews"][number] }
+	| { kind: "round"; at: string; round: FeatureStory["rounds"][number] };
+
+/** How many of the newest reviews and rounds the panel shows before "Read
+ * every review and round". */
+const LATEST = 3;
+
+/** Reviews and rounds: the fix rounds used of the project's as a steps bar,
+ * then the newest three reviews and rounds as insets, newest first, and
+ * "Read every review and round", which opens them all in place, each in
+ * full as a card's page shows it. */
+function ReviewsAndRounds({ story }: { story: FeatureStory }) {
+	const [every, setEvery] = useState(false);
+	const listId = useId();
+	const used = story.fix_rounds;
+	const most = story.most_rounds;
+	const running = story.rounds.some(
+		(round) => round.round === used && round.result === null,
+	);
+	const started = new Map(story.runs.map((run) => [run.id, run.started_at]));
+	// A round is when its run started; one whose run is not among the
+	// feature's own is told after every review.
+	const moments: Moment[] = [
+		...story.reviews.map(
+			(review): Moment => ({ kind: "review", at: review.reviewed_at, review }),
+		),
+		...story.rounds.map(
+			(round): Moment => ({
+				kind: "round",
+				at: started.get(round.run_id) ?? "",
+				round,
+			}),
+		),
+	].sort((one, other) => other.at.localeCompare(one.at));
+	return (
+		<Panel title="Reviews and rounds">
+			<div className={styles.body}>
+				<div className={own.roundsLine}>
+					<span className={styles.muted}>Fix rounds</span>
+					<span className={own.mono}>
+						{used} of {most} used
+					</span>
+				</div>
+				<StepsBar
+					label={`Fix rounds: ${used} of ${most} used`}
+					className={styles.steps}
+					steps={Array.from({ length: most }, (_, index) => {
+						const step = index + 1;
+						return step < used || (step === used && !running)
+							? "done"
+							: step === used
+								? "current"
+								: "to-do";
+					})}
+				/>
+				{moments.length === 0 ? (
+					<p className={styles.muted}>
+						The whole feature has not been reviewed yet.
+					</p>
+				) : every ? (
+					<ul
+						id={listId}
+						className={styles.runs}
+						aria-label="Every review and round"
+					>
+						{moments.map((moment) =>
+							moment.kind === "review" ? (
+								<ReviewRow key={moment.review.run_id} review={moment.review} />
+							) : (
+								<RoundRow
+									key={moment.round.run_id}
+									round={moment.round}
+									reviews={story.reviews}
+									most={most}
+								/>
+							),
+						)}
+					</ul>
+				) : (
+					<ul
+						id={listId}
+						className={styles.runs}
+						aria-label="The latest reviews and rounds"
+					>
+						{moments.slice(0, LATEST).map((moment) => (
+							<MomentRow
+								key={
+									moment.kind === "review"
+										? moment.review.run_id
+										: moment.round.run_id
+								}
+								moment={moment}
+								most={most}
+							/>
+						))}
+					</ul>
+				)}
+				{moments.length === 0 ? null : (
+					<button
+						type="button"
+						className={styles.show}
+						aria-expanded={every}
+						aria-controls={listId}
+						onClick={() => setEvery((shown) => !shown)}
+					>
+						{every ? "Show the latest only" : "Read every review and round"}
+					</button>
+				)}
+			</div>
+		</Panel>
+	);
+}
+
+/** A review or a round in short, on an inset: what it is with its status
+ * label, then when and what it found or left, in mono. */
+function MomentRow({ moment, most }: { moment: Moment; most: number }) {
+	if (moment.kind === "review") {
+		const { review } = moment;
+		const verdict = verdictWord(review.verdict);
+		return (
+			<li className={styles.run}>
+				<span className={own.momentHead}>
+					<span className={styles.kind}>
+						Review of{" "}
+						<code className={styles.code}>{short(review.commit)}</code>
+					</span>
+					<Status tone={verdict.tone}>{verdict.word}</Status>
+				</span>
+				<span className={styles.meta}>
+					<span>
+						<time dateTime={review.reviewed_at}>
+							{SHORT.format(new Date(review.reviewed_at))}
+						</time>{" "}
+						·{" "}
+						{review.current
+							? "covers the head"
+							: `${count(review.findings.length, "finding")}, older commit`}
+					</span>
+				</span>
+			</li>
+		);
+	}
+	const { round } = moment;
+	const result = resultOf(round.result);
+	return (
+		<li className={styles.run}>
+			<span className={own.momentHead}>
+				<span className={styles.kind}>
+					{round.round === null
+						? "Your comment"
+						: `Round ${round.round} of ${most}`}
+				</span>
+				<Status tone={result.tone}>{result.word}</Status>
+			</span>
+			<span className={styles.meta}>
+				<span>
+					{moment.at === "" ? null : (
+						<>
+							<time dateTime={moment.at}>
+								{SHORT.format(new Date(moment.at))}
+							</time>
+							{round.fixed_commit === null ? null : " · "}
+						</>
+					)}
+					{round.fixed_commit === null
+						? null
+						: `left ${short(round.fixed_commit)}`}
+				</span>
+			</span>
+		</li>
+	);
+}
+
+/** Its own runs, a label and a value each: its kind, then its result and how
+ * long it took, and for a failure why and where it lay. */
+function OwnRuns({ runs }: { runs: FeatureStory["runs"] }) {
+	return (
+		<Panel title="Its own runs">
+			<dl className={styles.facts}>
+				{runs.map((run) => {
+					const { word } = resultOf(run.result);
+					return (
+						<div key={run.id} className={styles.fact}>
+							<dt>{KINDS[run.kind] ?? run.kind}</dt>
+							<dd>
+								{run.duration_ms === null
+									? word
+									: `${word} · ${took(run.duration_ms)}`}
+							</dd>
+							{run.reason === null ? null : (
+								<dd className={own.runReason}>
+									{run.reason}
+									{run.in_card === null
+										? null
+										: run.in_card
+											? LAY.feature.in
+											: LAY.feature.outside}
+								</dd>
+							)}
+						</div>
+					);
+				})}
+			</dl>
+		</Panel>
+	);
 }
 
 /** A card's title, linking to its page. */
@@ -770,7 +977,6 @@ function CardsPanel({
 		<Panel
 			title="Cards"
 			aside={<span className={styles.aside}>{progress}</span>}
-			className={styles.panel}
 		>
 			<div className={styles.body}>
 				{counted.length === 0 ? null : (

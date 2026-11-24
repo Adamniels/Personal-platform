@@ -4401,6 +4401,14 @@ def _feature_header(page: Page) -> Locator:
     return page.locator("header").filter(has=page.locator("h2"))
 
 
+def _every_review_and_round(page: Page) -> Locator:
+    """Every review and round of a feature, opened in place in its side
+    column, newest first."""
+    panel = page.get_by_role("article", name="Reviews and rounds")
+    panel.get_by_role("button", name="Read every review and round").click()
+    return panel.get_by_role("list", name="Every review and round")
+
+
 def _look(page: Page, name: str) -> None:
     """The look checks every page is held to, the accessibility check, and its
     screenshot."""
@@ -4845,15 +4853,9 @@ def test_a_conflict_is_resolved_by_an_agent(
     page.goto(f"/devflow/projects/{project}/features/60")
     feature = _feature_header(page)
     expect(feature).to_contain_text("Reviewing")
-    runs = page.get_by_role("article", name="Runs").get_by_role(
-        "list", name="Runs of the feature"
-    )
-    expect(runs.get_by_role("listitem")).to_have_count(2)
-    run = runs.get_by_role("listitem").first
-    expect(run).to_contain_text("Conflict")
-    expect(run).to_contain_text("Succeeded")
-    expect(run).to_contain_text(f"on {resolved.json()['head_commit'][:7]}")
-    expect(run).to_contain_text("Tokens 12 in, 3,400 out")
+    runs = page.get_by_role("article", name="Its own runs")
+    expect(runs.locator("dt")).to_have_text(["Conflict", "Reading"])
+    expect(runs.locator("dd").first).to_contain_text("Succeeded · ")
     _look(page, "devflow-feature-conflict-resolved")
 
 
@@ -5063,8 +5065,8 @@ def test_a_reviewed_feature_is_ready_for_me(
     expect(page).to_have_url(re.compile(rf"/devflow/projects/{project}/features/60$"))
     feature = _feature_header(page)
     expect(feature).to_contain_text("Ready for you")
-    reviews = page.get_by_role("list", name="Reviews of the feature")
-    latest = reviews.get_by_role("listitem").first
+    reviews = _every_review_and_round(page)
+    latest = reviews.locator(":scope > li").first
     expect(latest).to_contain_text(head[:7])
     expect(latest).to_contain_text("Approved")
     expect(latest).to_contain_text("For the pull request's head")
@@ -5101,11 +5103,7 @@ def test_a_feature_is_fixed_after_its_review(
     expect(feature).to_contain_text(
         "Round 1 of 3: the review of the whole feature asked for changes; a fix runs next"
     )
-    latest = (
-        page.get_by_role("list", name="Reviews of the feature")
-        .get_by_role("listitem")
-        .first
-    )
+    latest = _every_review_and_round(page).locator(":scope > li").first
     expect(latest).to_contain_text("The card and the end both read the branch's head")
     _look(page, "devflow-feature-fixing")
 
@@ -5151,8 +5149,12 @@ def test_a_feature_is_fixed_after_its_review(
     # commit it left and the review of it.
     page.reload()
     expect(_feature_header(page)).to_contain_text("Ready for you")
-    expect(page.get_by_text("Fix rounds, 1 of 3 used")).to_be_visible()
-    round_one = page.get_by_role("list", name="Fix rounds of the feature").get_by_role(
+    expect(
+        page.get_by_role("article", name="Reviews and rounds").get_by_role(
+            "img", name="Fix rounds: 1 of 3 used"
+        )
+    ).to_be_visible()
+    round_one = _every_review_and_round(page).get_by_role(
         "listitem", name="Round 1 of 3"
     )
     expect(round_one).to_contain_text(reviewed_head[:7])

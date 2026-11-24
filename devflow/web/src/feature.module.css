@@ -205,3 +205,51 @@
 		justify-content: flex-start;
 	}
 }
+
+/* The branch's name, an id, in mono (hard rule 8); a name has no spaces, so
+ * it may break anywhere rather than scroll sideways. */
+.branchName {
+	margin: 0;
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	overflow-wrap: anywhere;
+}
+
+/* "Fix rounds" with its count at the end of the line, over its steps. */
+.roundsLine {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: var(--space-1) var(--space-3);
+}
+
+.mono {
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+}
+
+/* A review's or a round's name and its status label, the label at the end
+ * of the line, wrapping under the name where the column is narrow. */
+.momentHead {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-1) var(--space-2);
+}
+
+/* Why a run failed, under its label and value, in the UI font: a second dd,
+ * so it outranks card.module.css's `.fact dd` by its element. */
+div > dd.runReason {
+	flex-basis: 100%;
+	padding-bottom: var(--space-2);
+	color: var(--text-2);
+	font-family: var(--font-ui);
+	font-size: var(--text-body-size);
+	line-height: var(--text-body-line);
+	overflow-wrap: anywhere;
+}

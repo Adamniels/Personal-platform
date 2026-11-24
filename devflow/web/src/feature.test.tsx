@@ -141,6 +141,18 @@ HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
 
 afterEach(cleanup);
 
+/** Every review and round of the whole feature, opened in place in the
+ * side column, once the feature is read. */
+async function everyReviewAndRound(): Promise<HTMLElement> {
+	const panel = await screen.findByRole("article", {
+		name: "Reviews and rounds",
+	});
+	fireEvent.click(
+		within(panel).getByRole("button", { name: "Read every review and round" }),
+	);
+	return within(panel).getByRole("list", { name: "Every review and round" });
+}
+
 /** The page's header, once the feature is read: its way back, its state and
  * caption, its title, its reason and its links. */
 async function header(): Promise<HTMLElement> {
@@ -209,7 +221,7 @@ describe("a feature's page", () => {
 		expect(checkout(BRANCH)).toBe(
 			`git fetch origin ${BRANCH} && git switch ${BRANCH}`,
 		);
-		expect(screen.getByText("abc1234")).toBeTruthy();
+		expect(screen.getByText("head abc1234")).toBeTruthy();
 
 		// The screenshots by card, read through the card's route.
 		const shots = screen.getByRole("region", { name: "Screenshots of #39" });
@@ -378,21 +390,23 @@ describe("a feature's page", () => {
 		expect(
 			within(await header()).getByText("Resolving a conflict"),
 		).toBeTruthy();
-		const runs = within(
-			screen.getByRole("article", { name: "Runs" }),
-		).getByRole("list", { name: "Runs of the feature" });
-		const items = within(runs).getAllByRole("listitem");
-		expect(items).toHaveLength(2);
-		const [resolved, failed] = items as [HTMLElement, HTMLElement];
-		expect(within(resolved).getByText("Conflict")).toBeTruthy();
-		expect(resolved.textContent).toContain(
-			`Check exit 0 on ${COMMIT.slice(0, 7)}`,
-		);
-		expect(resolved.textContent).toContain("Tokens 12 in, 3,400 out");
-		// A feature's run says where its failure lay in its own words.
-		expect(failed.textContent).toContain(
+		const runs = screen.getByRole("article", { name: "Its own runs" });
+		expect(
+			within(runs)
+				.getAllByRole("term")
+				.map((term) => term.textContent),
+		).toEqual(["Conflict", "Conflict"]);
+		// Each its result and how long it took; a failed one also why, and
+		// where its failure lay in a feature's own words.
+		expect(
+			within(runs)
+				.getAllByRole("definition")
+				.map((value) => value.textContent),
+		).toEqual([
+			"Succeeded · 12 min 0 s",
+			"Failed · 1 min 0 s",
 			"Claude's API did not answer It lay outside the job, so it runs again.",
-		);
+		]);
 	});
 
 	test("shows the review of the whole feature, and whether it covers the head", async () => {
@@ -441,9 +455,7 @@ describe("a feature's page", () => {
 				),
 		});
 
-		const reviews = await screen.findByRole("list", {
-			name: "Reviews of the feature",
-		});
+		const reviews = await everyReviewAndRound();
 		// The reviews are the list's own items; each review's findings are a list
 		// of their own inside it.
 		const [latest, older] = Array.from(reviews.children) as [
@@ -470,16 +482,20 @@ describe("a feature's page", () => {
 	test("a feature not reviewed yet shows no review", async () => {
 		open();
 
-		await screen.findByRole("heading", { name: "Feeding plan, version 2" });
+		const panel = await screen.findByRole("article", {
+			name: "Reviews and rounds",
+		});
 		expect(
-			screen.queryByRole("list", { name: "Reviews of the feature" }),
-		).toBeNull();
+			within(panel).getByText("The whole feature has not been reviewed yet."),
+		).toBeTruthy();
+		expect(within(panel).queryByRole("list")).toBeNull();
+		expect(within(panel).queryByRole("button")).toBeNull();
 	});
 
 	test("a feature with no run of its own shows no runs", async () => {
 		open();
 		await header();
-		expect(screen.queryByRole("article", { name: "Runs" })).toBeNull();
+		expect(screen.queryByRole("article", { name: "Its own runs" })).toBeNull();
 	});
 
 	test("a feature the caller does not have is not found", async () => {
@@ -593,10 +609,8 @@ describe("a feature's page", () => {
 				),
 		});
 
-		const rounds = await screen.findByRole("list", {
-			name: "Fix rounds of the feature",
-		});
-		expect(screen.getByText("Fix rounds, 1 of 3 used")).toBeTruthy();
+		const rounds = await everyReviewAndRound();
+		expect(screen.getByText("1 of 3 used")).toBeTruthy();
 		const round = within(
 			within(rounds).getByRole("listitem", { name: "Round 1 of 3" }),
 		);
