@@ -26,6 +26,7 @@ import {
 	SECTIONS,
 	type Section,
 	sectionAt,
+	settingsAt,
 } from "./sections";
 import type { ProjectSettings } from "./settings";
 import { loadStatus as readStatus, type Status, useStatus } from "./status";
@@ -331,13 +332,14 @@ function Frame({
 	now = Date.now,
 }: AppProps) {
 	const pathname = usePathname();
-	// A project's page, and a card's page and a feature's page under it, are
-	// under the Projects tab, which stays selected there.
+	// A project's page, and its settings page, a card's page and a feature's
+	// page under it, are under the Projects tab, which stays selected there.
 	const projectId = projectAt(pathname);
+	const settingsOf = settingsAt(pathname);
 	const cardOf = cardAt(pathname);
 	const featureOf = featureAt(pathname);
 	const current =
-		projectId || cardOf || featureOf
+		projectId || settingsOf || cardOf || featureOf
 			? SECTIONS.find((section) => section.key === "projects")
 			: sectionAt(pathname);
 	useCrumb(current);
