@@ -40,6 +40,9 @@ public sealed record RunCheck(int ExitCode, string Output);
 /// <param name="OutputTokens">The tokens it wrote, null when Claude gave none.</param>
 /// <param name="Check">The check, null when it did not run.</param>
 /// <param name="HeadCommit">The commit the run left on the branch, null when it left none.</param>
+/// <param name="StderrTail">For a run that failed, the last <see cref="CardStory.StderrLines"/> lines of
+/// what its worker sent of Claude Code's stderr, stored scrubbed and shown as text; empty when it sent
+/// none, and null for a run that succeeded or still runs.</param>
 public sealed record CardRun(
     Guid Id,
     string Kind,
@@ -54,7 +57,8 @@ public sealed record CardRun(
     long? InputTokens,
     long? OutputTokens,
     RunCheck? Check,
-    string? HeadCommit);
+    string? HeadCommit,
+    string? StderrTail);
 
 /// <summary>A review of the card, as its page shows it: the verdict Dev flow kept, for the commit the
 /// worker reviewed. Every text of the reviewer's is shown as text.</summary>
@@ -130,6 +134,8 @@ public sealed record CardRound(
 
 /// <summary>What <c>GET /devflow/api/projects/{id}/cards/{number}</c> answers: a card's whole story
 /// so far.</summary>
+/// <param name="Repository">The project's repository as <c>owner/name</c>, which the page's header
+/// names.</param>
 /// <param name="Title">The issue's title as last read.</param>
 /// <param name="WebUrl">Where the issue is on the code host.</param>
 /// <param name="State">The card's state, as the cards list says it.</param>
@@ -155,6 +161,7 @@ public sealed record CardRound(
 /// carried into its brief.</param>
 public sealed record CardStoryView(
     int Number,
+    string Repository,
     string Title,
     string WebUrl,
     string State,
@@ -196,6 +203,10 @@ public static class CardStory
     /// past.</summary>
     private static readonly string[] OutsideCard = ["failed_outside_card", "lost"];
 
+    /// <summary>The most lines of a failed run's stderr its page shows, the last ones of the
+    /// <see cref="Jobs.RunStore.MostLines"/> the run keeps.</summary>
+    public const int StderrLines = 50;
+
     /// <summary>The user's card with the number in their project, or null when they have no such
     /// project or card.</summary>
     public static async Task<CardStoryView?> Of(UserDb database, Guid userId, Guid projectId, int number, CancellationToken cancellationToken)
@@ -207,8 +218,10 @@ public static class CardStory
                 $"""
                 SELECT cards.number AS Number, cards.title AS Title, cards.web_url AS WebUrl, cards.state AS State,
                        {CardStore.ShownReason} AS Reason, cards.pull_request_number AS PullRequestNumber,
-                       cards.pull_request_url AS PullRequestUrl, f.number AS FeatureNumber, f.title AS FeatureTitle
-                FROM cards LEFT JOIN features f ON f.project_id = cards.project_id AND f.id = cards.feature_id
+                       cards.pull_request_url AS PullRequestUrl, f.number AS FeatureNumber, f.title AS FeatureTitle,
+                       p.owner || '/' || p.name AS Repository
+                FROM cards JOIN projects p ON p.id = cards.project_id
+                LEFT JOIN features f ON f.project_id = cards.project_id AND f.id = cards.feature_id
                 WHERE cards.project_id = @projectId AND cards.number = @number
                 """,
                 new { projectId, number },
@@ -246,6 +259,7 @@ public static class CardStory
             var readings = await Readings.ReadingStore.All(transaction, projectId, number, cancellationToken);
             return new CardStoryView(
                 card.Number,
+                card.Repository,
                 card.Title,
                 card.WebUrl,
                 card.State,
@@ -288,7 +302,7 @@ public static class CardStory
                r.input_tokens AS InputTokens, r.output_tokens AS OutputTokens, r.check_exit_code AS CheckExitCode,
                r.check_output AS CheckOutput, r.head_commit AS HeadCommit, r.report::text AS Report,
                r.fix_round AS FixRound, r.fix_review_id AS FixReviewId, r.owner_comments::text AS OwnerComments,
-               r.screenshots::text AS Screenshots, r.screenshots_note AS ScreenshotsNote
+               r.screenshots::text AS Screenshots, r.screenshots_note AS ScreenshotsNote, r.stderr AS Stderr
         FROM runs r JOIN workers w ON w.project_id = r.project_id AND w.id = r.worker_id
         """;
 
@@ -381,7 +395,16 @@ public static class CardStory
         row.InputTokens,
         row.OutputTokens,
         row.CheckExitCode is { } exit ? new RunCheck(exit, row.CheckOutput ?? "") : null,
-        row.HeadCommit);
+        row.HeadCommit,
+        row.Result is null or "succeeded" ? null : LastLines(row.Stderr ?? "", StderrLines));
+
+    /// <summary>The last <paramref name="count"/> lines of <paramref name="text"/>, all of it when it
+    /// has no more.</summary>
+    private static string LastLines(string text, int count)
+    {
+        var lines = text.Split('\n');
+        return lines.Length > count ? string.Join('\n', lines[^count..]) : text;
+    }
 
     /// <summary>A stored report read into its form, or null when there is none or it does not
     /// read, which the run then says.</summary>
@@ -401,7 +424,7 @@ public static class CardStory
     private sealed record MergeRow(string Commit, DateTime MergedAt, string? Base);
 
     private sealed record CardRow(
-        int Number, string Title, string WebUrl, string State, string? Reason, int? PullRequestNumber, string? PullRequestUrl, int? FeatureNumber, string? FeatureTitle);
+        int Number, string Title, string WebUrl, string State, string? Reason, int? PullRequestNumber, string? PullRequestUrl, int? FeatureNumber, string? FeatureTitle, string Repository);
 
     private sealed record RunRow(
         Guid Id,
@@ -423,7 +446,8 @@ public static class CardStory
         Guid? FixReviewId,
         string? OwnerComments,
         string? Screenshots,
-        string? ScreenshotsNote);
+        string? ScreenshotsNote,
+        string? Stderr);
 
     private sealed record SourceRow(long Installation, long RepositoryId, string Owner, string Name, string HeadCommit, string? Screenshots);
 }

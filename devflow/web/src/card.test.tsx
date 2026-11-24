@@ -1048,7 +1048,9 @@ async function entries(): Promise<HTMLElement[]> {
 
 /** Each entry's title, in the order shown. */
 function titles(items: HTMLElement[]): (string | undefined)[] {
-	return items.map((item) => item.querySelector("h3")?.textContent ?? undefined);
+	return items.map(
+		(item) => item.querySelector("h3")?.textContent ?? undefined,
+	);
 }
 
 describe("a card's page tells its story in order", () => {
@@ -1076,9 +1078,7 @@ describe("a card's page tells its story in order", () => {
 		// A run: its kind and result, and its check with the output behind
 		// Show output.
 		expect(build.getByText("Succeeded")).toBeTruthy();
-		expect(build.getByText(/Check exit 0 on/).textContent).toContain(
-			"abc1234",
-		);
+		expect(build.getByText(/Check exit 0 on/).textContent).toContain("abc1234");
 		expect(build.queryByText("Tests: 12 passed")).toBeNull();
 		fireEvent.click(build.getByRole("button", { name: "Show output" }));
 		expect(build.getByText("Tests: 12 passed")).toBeTruthy();
@@ -1248,7 +1248,10 @@ describe("a card's page tells its story in order", () => {
 
 		open(() =>
 			Promise.resolve(
-				story({ state: "stopped", reason: "The check failed with exit code 2" }),
+				story({
+					state: "stopped",
+					reason: "The check failed with exit code 2",
+				}),
 			),
 		);
 		const banner = (

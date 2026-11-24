@@ -1057,6 +1057,7 @@ export interface components {
             result: null | string;
             /** Format: date-time */
             started_at: string;
+            stderr_tail: null | string;
             worker: string;
         };
         CardScreenshots: {
@@ -1082,6 +1083,7 @@ export interface components {
             reading: null | components["schemas"]["CardReadingView"];
             reason: null | string;
             report: null | components["schemas"]["Report"];
+            repository: string;
             reviews: components["schemas"]["CardReview"][];
             rounds: components["schemas"]["CardRound"][];
             runs: components["schemas"]["CardRun"][];
