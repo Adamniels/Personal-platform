@@ -823,7 +823,7 @@ export function WaitingSetupRun({ project }: { project: SetupRunItem }) {
 				stopped ? (
 					<Status tone="failed">Stopped</Status>
 				) : (
-					<Status tone="needs-you">Needs you</Status>
+					<Status tone="needs-you">Waiting for you</Status>
 				)
 			}
 			needsYou={!stopped}

@@ -285,8 +285,10 @@ describe("the list and its groups", () => {
 		const group = await screen.findByRole("region", { name: "Setup" });
 		expect(within(group).getAllByRole("link")).toHaveLength(1);
 		const item = await choose("fodr's setup waits for you");
-		// Its status label, beside the words read out for the accent border.
-		expect(within(item).getAllByText("Needs you")).toHaveLength(2);
+		// Its status label, as a runner item's, and the words read out for the
+		// accent border, once.
+		expect(within(item).getByText("Waiting for you")).toBeTruthy();
+		expect(within(item).getAllByText("Needs you")).toHaveLength(1);
 		expect(
 			within(item).getByText("Approved; it waits for you to merge it."),
 		).toBeTruthy();
