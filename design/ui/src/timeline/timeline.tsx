@@ -5,7 +5,9 @@ import {
 	isValidElement,
 	type ReactNode,
 	useContext,
+	useId,
 } from "react";
+import { Status, type StatusTone } from "../status/status";
 import hidden from "../visually-hidden.module.css";
 import styles from "./timeline.module.css";
 
@@ -43,10 +45,18 @@ export function Timeline({ className, children, ...rest }: TimelineProps) {
 }
 
 export type TimelineEntryProps = Omit<ComponentProps<"li">, "children"> & {
-	/** When it happened, already formatted, shown in the mono font. */
+	/** When it happened, already formatted, shown in the mono font. It may
+	 * carry more facts after the time, such as where it ran. */
 	time: string;
-	/** The entry's one line. */
-	children: ReactNode;
+	/** What happened, as a short title at weight 500 under the time, which
+	 * also names the entry for assistive technology. */
+	title?: ReactNode;
+	/** A status label on the title's line, after the title; only with a
+	 * title. */
+	status?: { tone: StatusTone; word: string };
+	/** The entry's one line, or with a title its body, which may hold blocks
+	 * such as insets and lists; none renders no body. */
+	children?: ReactNode;
 	/** An optional small line under it. */
 	detail?: ReactNode;
 	/** The entry needs the user: the filled accent dot, and "Needs you" for
@@ -54,11 +64,14 @@ export type TimelineEntryProps = Omit<ComponentProps<"li">, "children"> & {
 	attention?: boolean;
 };
 
-/** One entry of a `Timeline`: the rail with its ring, and the time, the line
- * and the detail. The rail is drawn, so it is hidden from assistive
+/** One entry of a `Timeline`: the rail with its ring, and the time, the
+ * title with its status label when it has one, the line or the body, and the
+ * detail. The rail is drawn, so it is hidden from assistive
  * technology. */
 export function TimelineEntry({
 	time,
+	title,
+	status,
 	detail,
 	attention = false,
 	className,
@@ -66,11 +79,16 @@ export function TimelineEntry({
 	...rest
 }: TimelineEntryProps) {
 	const last = useContext(LastContext);
+	const titleId = useId();
 	const classes = [styles.entry, attention && styles.attention, className]
 		.filter(Boolean)
 		.join(" ");
 	return (
-		<li className={classes} {...rest}>
+		<li
+			className={classes}
+			aria-labelledby={title === undefined ? undefined : titleId}
+			{...rest}
+		>
 			<span className={styles.rail} aria-hidden="true">
 				<span className={styles.dot} />
 				{last ? null : <span className={styles.line} />}
@@ -78,7 +96,22 @@ export function TimelineEntry({
 			<div className={styles.content}>
 				<span className={styles.time}>{time}</span>
 				{attention ? <span className={hidden.hidden}>Needs you</span> : null}
-				<p className={styles.body}>{children}</p>
+				{title === undefined ? null : (
+					<div className={styles.head}>
+						<h3 id={titleId} className={styles.title}>
+							{title}
+						</h3>
+						{status === undefined ? null : (
+							<Status tone={status.tone}>{status.word}</Status>
+						)}
+					</div>
+				)}
+				{children === undefined || children === null ? null : title ===
+					undefined ? (
+					<p className={styles.body}>{children}</p>
+				) : (
+					<div className={styles.body}>{children}</div>
+				)}
 				{detail === undefined ? null : (
 					<p className={styles.detail}>{detail}</p>
 				)}
