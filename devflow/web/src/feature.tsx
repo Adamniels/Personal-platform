@@ -14,22 +14,21 @@
 // from the code host or an agent and is shown as text. See "A feature's page", "Sending a card
 // back" and "Merging a feature" in devflow/README.md.
 import {
+	Badge,
 	Button,
 	EmptyState,
 	Card as Panel,
 	Status,
 	type StatusTone,
-	Table,
-	type TableColumn,
 	useToast,
 } from "@platform/ui";
-import { useCallback, useEffect, useId, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useId, useState } from "react";
 import { describe, EXPIRED, type LinkState, UNLINKED } from "./actions";
 import { navigate, plainClick } from "./address";
 import type { components } from "./api/schema";
 import { ReviewRow, RoundRow, RunRow, verdictWord } from "./card";
 import styles from "./card.module.css";
-import { stateWord } from "./cards";
+import { StepsBar, stateWord } from "./cards";
 import { CommentBox } from "./comment-box";
 import { short, type Tile, Tiles } from "./detail";
 import own from "./feature.module.css";
@@ -109,8 +108,6 @@ const DATE_TIME = new Intl.DateTimeFormat("en-GB", {
 	dateStyle: "medium",
 	timeStyle: "short",
 });
-
-const COUNT = new Intl.NumberFormat("en-GB");
 
 const clipboard = (text: string) => navigator.clipboard.writeText(text);
 
@@ -292,39 +289,18 @@ export function FeaturePage({
 					)}
 				</div>
 			</Panel>
-			{story.reviews.length === 0 ? null : (
-				<Panel title="The review of the whole feature" className={styles.panel}>
-					<ul className={styles.runs} aria-label="Reviews of the feature">
-						{story.reviews.map((review) => (
-							<ReviewRow key={review.run_id} review={review} />
-						))}
-					</ul>
-				</Panel>
-			)}
-			{story.rounds.length === 0 ? null : (
-				<Panel
-					title={`Fix rounds, ${story.fix_rounds} of ${story.most_rounds} used`}
-					className={styles.panel}
-				>
-					<ul className={styles.runs} aria-label="Fix rounds of the feature">
-						{story.rounds.map((round) => (
-							<RoundRow
-								key={round.run_id}
-								round={round}
-								reviews={story.reviews}
-								most={story.most_rounds}
-							/>
-						))}
-					</ul>
-				</Panel>
-			)}
 			{decisions.length === 0 ? null : (
 				<Panel
 					title="What the agents want you to know"
+					aside={
+						<span className={styles.aside}>
+							{unanswered} open · {decisions.length - unanswered} answered
+						</span>
+					}
 					className={styles.panel}
-					attention={decisions.some(({ decision }) => !decision.answer)}
+					attention={unanswered > 0}
 				>
-					<ul className={styles.runs} aria-label="Decisions for you">
+					<ul className={own.decisions} aria-label="Decisions for you">
 						{decisions.map(({ card, decision }) => (
 							<DecisionRow
 								key={`${decision.run_id}/${decision.position}`}
@@ -358,6 +334,70 @@ export function FeaturePage({
 										throw error;
 									}
 								}}
+							/>
+						))}
+					</ul>
+				</Panel>
+			)}
+			<CardsPanel
+				project={project}
+				cards={story.cards}
+				link={link}
+				sendBack={(card, comment) => sendBackCard(project, card, comment)}
+				reload={load}
+			/>
+			{pictured.length === 0 ? null : (
+				<Panel
+					title="Screenshots"
+					aside={
+						<span className={styles.aside}>
+							{count(pictured.length, "card")} with pictures
+						</span>
+					}
+					className={styles.panel}
+				>
+					<div className={own.shots}>
+						{pictured.map((card) => (
+							<section
+								key={card.number}
+								className={styles.section}
+								aria-label={`Screenshots of #${card.number}`}
+							>
+								<h3 className={styles.label}>
+									#{card.number} {card.title}
+								</h3>
+								<Screenshots
+									titled={false}
+									address={(name) => cardScreenshot(project, card.number, name)}
+									groups={card.screenshots?.groups ?? []}
+									note={card.screenshots?.note ?? null}
+								/>
+							</section>
+						))}
+					</div>
+				</Panel>
+			)}
+			{story.reviews.length === 0 ? null : (
+				<Panel title="The review of the whole feature" className={styles.panel}>
+					<ul className={styles.runs} aria-label="Reviews of the feature">
+						{story.reviews.map((review) => (
+							<ReviewRow key={review.run_id} review={review} />
+						))}
+					</ul>
+				</Panel>
+			)}
+			{story.rounds.length === 0 ? null : (
+				<Panel
+					title={`Fix rounds, ${story.fix_rounds} of ${story.most_rounds} used`}
+					className={styles.panel}
+				>
+					<ul className={styles.runs} aria-label="Fix rounds of the feature">
+						{story.rounds.map((round) => (
+							<RoundRow
+								key={round.run_id}
+								round={round}
+								reviews={story.reviews}
+								most={story.most_rounds}
 							/>
 						))}
 					</ul>
@@ -400,36 +440,6 @@ export function FeaturePage({
 					)}
 				</div>
 			</Panel>
-			{pictured.length === 0 ? null : (
-				<Panel title="Screenshots" className={styles.panel}>
-					<div className={styles.body}>
-						{pictured.map((card) => (
-							<section
-								key={card.number}
-								className={styles.section}
-								aria-label={`Screenshots of #${card.number}`}
-							>
-								<h3 className={styles.label}>
-									#{card.number} {card.title}
-								</h3>
-								<Screenshots
-									titled={false}
-									address={(name) => cardScreenshot(project, card.number, name)}
-									groups={card.screenshots?.groups ?? []}
-									note={card.screenshots?.note ?? null}
-								/>
-							</section>
-						))}
-					</div>
-				</Panel>
-			)}
-			<CardsPanel
-				project={project}
-				cards={story.cards}
-				link={link}
-				sendBack={(card, comment) => sendBackCard(project, card, comment)}
-				reload={load}
-			/>
 			{story.runs.length === 0 ? null : (
 				<Panel title="Runs" className={styles.panel}>
 					<ul className={styles.runs} aria-label="Runs of the feature">
@@ -547,53 +557,7 @@ function answered(
 	};
 }
 
-/** The cards' table: the card, linked to its page, its state, its fix
- * rounds, its tokens and its decisions for you, the numbers folded under the
- * card on phone. */
-function columns(project: string): TableColumn<FeatureCard>[] {
-	return [
-		{
-			key: "card",
-			header: "Card",
-			cell: (card) => <CardLink project={project} card={card} />,
-		},
-		{
-			key: "state",
-			header: "State",
-			cell: (card) => {
-				const { word, tone } = stateWord(card.state);
-				return <Status tone={tone}>{word}</Status>;
-			},
-		},
-		{
-			key: "rounds",
-			header: "Fix rounds",
-			numeric: true,
-			priority: 2,
-			cell: (card) => card.fix_rounds,
-			fold: (card) =>
-				`${card.fix_rounds} ${card.fix_rounds === 1 ? "fix round" : "fix rounds"}`,
-		},
-		{
-			key: "tokens",
-			header: "Tokens",
-			numeric: true,
-			priority: 2,
-			cell: (card) => COUNT.format(card.input_tokens + card.output_tokens),
-			fold: (card) =>
-				`${COUNT.format(card.input_tokens + card.output_tokens)} tokens`,
-		},
-		{
-			key: "decisions",
-			header: "For you",
-			numeric: true,
-			priority: 3,
-			cell: (card) => card.decisions.length,
-		},
-	];
-}
-
-/** A card's number and title, linking to its page. */
+/** A card's title, linking to its page. */
 function CardLink({ project, card }: { project: string; card: FeatureCard }) {
 	const page = cardPath(project, card.number);
 	return (
@@ -607,15 +571,16 @@ function CardLink({ project, card }: { project: string; card: FeatureCard }) {
 				}
 			}}
 		>
-			#{card.number} {card.title}
+			{card.title}
 		</a>
 	);
 }
 
-/** One decision on an inset: the card it is of, what was chosen, the
- * alternative and why, the reviewer's view, and "Fine as it is" and, while
- * its card can be sent back, "Send back" with a comment box; or the answer
- * once given. */
+/** One decision. Open, an inset: its card's number and title in mono, what
+ * was chosen in body large, the alternative and why, the reviewer's view,
+ * and "Fine as it is" and, while its card can be sent back, "Send back #N"
+ * with a comment box. Answered, one plain line: its card, what was chosen,
+ * the answer as a status label and when. */
 function DecisionRow({
 	card,
 	decision,
@@ -641,35 +606,56 @@ function DecisionRow({
 	const [writing, setWriting] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const line = linkLine(link);
-	const word =
-		decision.answer?.answer === "sent_back"
-			? "Sent back"
-			: decision.answer?.answer === "merged"
-				? "Confirmed by merging"
-				: "Fine as it is";
-	return (
-		<li className={`${styles.run} ${styles.review}`}>
-			<span className={styles.kind}>
-				#{card.number}: <Inline text={decision.chosen} />
-			</span>
-			{decision.alternative.trim() === "" ? null : (
-				<span className={styles.sub}>
-					Instead of <Inline text={decision.alternative} />
+	const of = `#${card.number} · ${card.title}`;
+	if (decision.answer) {
+		const word =
+			decision.answer.answer === "sent_back"
+				? "Sent back"
+				: decision.answer.answer === "merged"
+					? "Confirmed by merging"
+					: "Fine as it is";
+		return (
+			<li className={own.answered}>
+				<span className={own.cardLine}>{of}</span>
+				<span className={own.answeredLine}>
+					<span className={own.answeredChosen}>
+						<Inline text={decision.chosen} />
+					</span>
+					<Status tone="done">{word}</Status>
+					<span className={own.when}>
+						answered{" "}
+						<time dateTime={decision.answer.answered_at}>
+							{DATE_TIME.format(new Date(decision.answer.answered_at))}
+						</time>
+					</span>
 				</span>
+			</li>
+		);
+	}
+	return (
+		<li className={own.decision}>
+			<span className={own.cardLine}>{of}</span>
+			<p className={own.chosen}>
+				<Inline text={decision.chosen} />
+			</p>
+			{decision.alternative.trim() === "" ? null : (
+				<p className={own.because}>
+					Instead of <Inline text={decision.alternative} />
+				</p>
 			)}
 			{decision.why.trim() === "" ? null : (
-				<span className={styles.sub}>
+				<p className={own.because}>
 					Because <Inline text={decision.why} />
-				</span>
+				</p>
 			)}
-			<span className={styles.text}>
+			<p className={own.because}>
 				<span className={styles.mark}>Reviewer:</span>{" "}
 				{decision.reviewer_view === null ? (
-					<span className={styles.reason}>gave no view on it.</span>
+					"gave no view on it."
 				) : (
 					<Inline text={decision.reviewer_view} />
 				)}
-			</span>
+			</p>
 			{failed ? (
 				<p className={styles.error} role="alert">
 					{NOT_ANSWERED}
@@ -680,17 +666,7 @@ function DecisionRow({
 					{refusal}
 				</p>
 			)}
-			{decision.answer ? (
-				<span className={styles.meta}>
-					<Status tone="done">{word}</Status>
-					<span>
-						answered{" "}
-						<time dateTime={decision.answer.answered_at}>
-							{DATE_TIME.format(new Date(decision.answer.answered_at))}
-						</time>
-					</span>
-				</span>
-			) : writing && sendBack !== null ? (
+			{writing && sendBack !== null ? (
 				<CommentBox
 					label={`What should the developer change in #${card.number}?`}
 					cancel={() => setWriting(false)}
@@ -734,16 +710,16 @@ function DecisionRow({
 						<Button
 							kind="secondary"
 							disabled={busy || link !== "linked"}
-							aria-label={`Send back: #${card.number}, ${decision.chosen}`}
+							aria-label={`Send back #${card.number}: ${decision.chosen}`}
 							aria-describedby={line === null ? undefined : lineId}
 							onClick={() => setWriting(true)}
 						>
-							Send back
+							Send back #{card.number}
 						</Button>
 					)}
 				</div>
 			)}
-			{decision.answer || sendBack === null || line === null ? null : (
+			{sendBack === null || line === null ? null : (
 				<p id={lineId} className={styles.sub}>
 					{line}
 				</p>
@@ -759,10 +735,11 @@ function linkLine(link: LinkState): string | null {
 }
 
 /**
- * The Cards panel: the cards in order, then "Send back #<card>" for each
- * that has landed while the feature is open, kept out of the table so its
- * rows stay readable at phone width, and the comment box for the one pressed; then each card you sent back, how many times, the
- * pull request it had landed in and your words.
+ * The Cards panel: how many landed of those counted, an ignored card in
+ * neither, in mono and as a steps bar, one step per card; then each card in
+ * its order as a row, "Send back" as a ghost on each that can be sent back,
+ * which opens the comment box under its row, and under a card sent back what
+ * you wrote.
  */
 function CardsPanel({
 	project,
@@ -783,107 +760,153 @@ function CardsPanel({
 	const [writing, setWriting] = useState<number | null>(null);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const line = linkLine(link);
-	const sendable = cards.filter((card) => card.can_send_back);
-	const sentBack = cards.filter((card) => card.sent_back !== null);
+	const counted = cards.filter((card) => card.state !== "ignored");
+	const landed = counted.filter((card) => card.state === "done").length;
+	const progress = `${landed} of ${counted.length} landed`;
+	// A feature's cards are built one at a time, in order: the first not
+	// landed is the current one.
+	const current = counted.findIndex((card) => card.state !== "done");
 	return (
-		<Panel title="Cards" className={styles.panel}>
+		<Panel
+			title="Cards"
+			aside={<span className={styles.aside}>{progress}</span>}
+			className={styles.panel}
+		>
 			<div className={styles.body}>
-				<Table
-					label="Cards of the feature"
-					columns={columns(project)}
-					rows={cards}
-					rowKey={(card) => String(card.number)}
-				/>
-				{sendable.length === 0 ? null : (
-					<div className={own.actions}>
-						{sendable.map((card) => (
-							<Button
-								key={card.number}
-								kind="secondary"
-								disabled={link !== "linked" || writing === card.number}
-								aria-describedby={line === null ? undefined : lineId}
-								onClick={() => {
-									setRefusal(null);
-									setWriting(card.number);
-								}}
-							>
-								Send back #{card.number}
-							</Button>
-						))}
-					</div>
+				{counted.length === 0 ? null : (
+					<StepsBar
+						label={`Cards: ${progress}`}
+						steps={counted.map((card, at) =>
+							card.state === "done"
+								? "done"
+								: at === current
+									? "current"
+									: "to-do",
+						)}
+					/>
 				)}
-				{sendable.length > 0 && line !== null ? (
+				{cards.some((card) => card.can_send_back) && line !== null ? (
 					<p id={lineId} className={styles.muted}>
 						{line}
 					</p>
 				) : null}
-				{refusal === null ? null : (
-					<p className={styles.error} role="alert">
-						{refusal}
-					</p>
-				)}
-				{writing === null ? null : (
-					<CommentBox
-						key={writing}
-						label={`What should the developer change in #${writing}?`}
-						cancel={() => setWriting(null)}
-						send={async (comment) => {
-							const card = writing;
-							let sent = false;
-							try {
-								await sendBack(card, comment);
+				<ol className={own.rows} aria-label="Cards of the feature">
+					{cards.map((card) => (
+						<CardRow
+							key={card.number}
+							project={project}
+							card={card}
+							canPress={link === "linked" && writing !== card.number}
+							lineId={line === null ? undefined : lineId}
+							open={() => {
 								setRefusal(null);
-								setWriting(null);
-								toast.success(`Sent back #${card}`);
-								sent = true;
-							} catch (error) {
-								setRefusal(describe(error));
-							}
-							await reload();
-							askNavAgain();
-							return sent;
-						}}
-					/>
-				)}
-				{sentBack.length === 0 ? null : (
-					<section className={styles.section} aria-label="Sent back">
-						<h3 className={styles.label}>Sent back</h3>
-						<ul className={styles.runs} aria-label="Cards you sent back">
-							{sentBack.map((card) => (
-								<SentBackRow key={card.number} card={card} />
-							))}
-						</ul>
-					</section>
-				)}
+								setWriting(card.number);
+							}}
+						>
+							{refusal === null || writing !== card.number ? null : (
+								<p className={styles.error} role="alert">
+									{refusal}
+								</p>
+							)}
+							{writing !== card.number ? null : (
+								<CommentBox
+									label={`What should the developer change in #${card.number}?`}
+									cancel={() => setWriting(null)}
+									send={async (comment) => {
+										let sent = false;
+										try {
+											await sendBack(card.number, comment);
+											setRefusal(null);
+											setWriting(null);
+											toast.success(`Sent back #${card.number}`);
+											sent = true;
+										} catch (error) {
+											setRefusal(describe(error));
+										}
+										await reload();
+										askNavAgain();
+										return sent;
+									}}
+								/>
+							)}
+						</CardRow>
+					))}
+				</ol>
 			</div>
 		</Panel>
 	);
 }
 
-/** A card you sent back: its number and title, where it had landed, how many
- * times, and your words as you wrote them. */
-function SentBackRow({ card }: { card: FeatureCard }) {
+/** A card as a row: its number in mono, its title linked to its page, a
+ * badge with its open decisions, its state, "Landed" once done, and "Send
+ * back" as a ghost while it can be sent back; on phone the state and Send
+ * back drop under the title. Under the row, what it holds, the comment box
+ * among them, and, for a card sent back, what you wrote, as you wrote it. */
+function CardRow({
+	project,
+	card,
+	canPress,
+	lineId,
+	open,
+	children,
+}: {
+	project: string;
+	card: FeatureCard;
+	/** Whether Send back can be pressed now. */
+	canPress: boolean;
+	/** The line saying why Send back cannot be pressed, when there is one. */
+	lineId?: string;
+	/** Opens the comment box under the row. */
+	open: () => void;
+	children?: ReactNode;
+}) {
+	const { word, tone } =
+		card.state === "done"
+			? { word: "Landed", tone: stateWord(card.state).tone }
+			: stateWord(card.state);
+	const waiting = card.decisions.filter(
+		(decision) => decision.answer === null,
+	).length;
 	const sent = card.sent_back;
-	if (sent === null) return null;
 	return (
-		<li className={styles.run}>
-			<span className={styles.kind}>
-				#{card.number} {card.title}
-			</span>
-			<span className={styles.sub}>
-				Sent back from pull request #{sent.pull_request.number}
-				{sent.times === 1 ? "" : `, ${sent.times} times in all`}
-			</span>
-			<span className={styles.mark}>What you wrote</span>
-			<ul className={styles.items}>
-				{sent.comments.map((comment, at) => (
-					// The same words may be written twice, so their place keys them.
-					// biome-ignore lint/suspicious/noArrayIndexKey: comments have no id
-					<li key={at} className={styles.item}>
-						<span className={styles.said}>{comment}</span>
-					</li>
-				))}
-			</ul>
+		<li className={own.row}>
+			<div className={own.rowHead}>
+				<span className={own.number}>#{card.number}</span>
+				<span className={own.rowTitle}>
+					<CardLink project={project} card={card} />
+					{waiting === 0 ? null : <Badge>{count(waiting, "decision")}</Badge>}
+				</span>
+				<span className={own.rowEnd}>
+					<Status tone={tone}>{word}</Status>
+					{card.can_send_back ? (
+						<Button
+							kind="ghost"
+							disabled={!canPress}
+							aria-label={`Send back #${card.number}`}
+							aria-describedby={lineId}
+							onClick={open}
+						>
+							Send back
+						</Button>
+					) : null}
+				</span>
+			</div>
+			{children}
+			{sent === null ? null : (
+				<div className={own.sentBack}>
+					<p className={styles.muted}>
+						You sent it back {sent.times === 1 ? "once" : `${sent.times} times`}
+						, from pull request #{sent.pull_request.number}:
+					</p>
+					{sent.comments.map((comment, at) => (
+						// The same words may be written twice, so their place keys them.
+						// biome-ignore lint/suspicious/noArrayIndexKey: comments have no id
+						<p key={at} className={own.said}>
+							{comment}
+						</p>
+					))}
+				</div>
+			)}
 		</li>
 	);
 }

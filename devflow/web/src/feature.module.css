@@ -1,17 +1,8 @@
 /* What a feature's page adds to the card page's styles, card.module.css, which it shares. Tokens
  * only, design/DESIGN.md. */
 
-/* How many cards are done: a count, hard rule 8. */
-.count {
-	color: var(--text-2);
-	font-family: var(--font-mono);
-	font-size: var(--text-mono-size);
-	line-height: var(--text-mono-line);
-	font-variant-numeric: tabular-nums;
-}
-
-/* A card in the table, its number and title, which wraps rather than
- * widening the table at phone width (hard rule 13). */
+/* A card's title in its row, linking to its page, which wraps rather than
+ * scrolling sideways at phone width (hard rule 13). */
 .card {
 	border-radius: var(--radius-sm);
 	color: var(--info);
@@ -47,4 +38,170 @@
 	line-height: var(--text-mono-line);
 	font-variant-numeric: tabular-nums;
 	overflow-wrap: anywhere;
+}
+
+/* The decisions, open ones on insets and answered ones plain, the inset
+ * gap apart. */
+.decisions,
+.rows {
+	display: flex;
+	flex-direction: column;
+	gap: var(--inset-gap);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+/* An open decision: an inset, hard rule 3, its parts a small step apart. */
+.decision {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	min-width: 0;
+	padding: 12px;
+	border-radius: var(--radius-md);
+	background: var(--surface-2);
+	overflow-wrap: anywhere;
+}
+
+/* An answered decision: the plain row beside the inset that is current
+ * ("Inset list row"), its border keeping it a row of its own. */
+.answered {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-width: 0;
+	padding: 8px 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	overflow-wrap: anywhere;
+}
+
+/* The card a decision is of: its number and title in mono, hard rule 8. */
+.cardLine {
+	color: var(--text-2);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+}
+
+/* What was chosen, in body large at weight 500. */
+.chosen {
+	margin: 0;
+	font-size: var(--text-body-lg-size);
+	line-height: var(--text-body-lg-line);
+	font-weight: 500;
+}
+
+/* Instead of, because and the reviewer's view. */
+.because {
+	margin: 0;
+	color: var(--text-2);
+}
+
+/* An answered decision's line: what was chosen, the answer and when,
+ * wrapping at phone width. */
+.answeredLine {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-1) var(--space-2);
+}
+
+.answeredChosen {
+	font-weight: 500;
+}
+
+.when {
+	color: var(--text-2);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+}
+
+/* A card's row: an inset, hard rule 3, a row tall. */
+.row {
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	gap: var(--space-2);
+	min-height: var(--row-h);
+	min-width: 0;
+	padding: 4px 12px;
+	border-radius: var(--radius-md);
+	background: var(--surface-2);
+}
+
+/* The number, the title and its badge, then the state and Send back at the
+ * end of the line. */
+.rowHead {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	gap: var(--space-1) var(--space-3);
+}
+
+.number {
+	color: var(--text-2);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+}
+
+.rowTitle {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-1) var(--space-2);
+	min-width: 0;
+}
+
+.rowEnd {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: var(--space-2);
+}
+
+/* What you wrote when you sent a card back, under its row, from where its
+ * title starts. */
+.sentBack {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	padding-bottom: var(--space-2);
+}
+
+/* Your own words, as you wrote them, in mono and in the attention text. */
+.said {
+	margin: 0;
+	color: var(--accent-text);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/* The screenshots by card, a grid of cards' sections. */
+.shots {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+	gap: var(--space-4);
+}
+
+/* On phone the state and Send back drop to a second line, under the title. */
+@media (max-width: 639.98px) {
+	.rowHead {
+		grid-template-columns: auto minmax(0, 1fr);
+	}
+
+	.rowEnd {
+		grid-column: 2;
+		justify-content: flex-start;
+	}
 }

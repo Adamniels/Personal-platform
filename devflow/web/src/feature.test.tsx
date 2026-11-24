@@ -192,7 +192,8 @@ describe("a feature's page", () => {
 		const decision = within(
 			within(wants).getByRole("list", { name: "Decisions for you" }),
 		).getByRole("listitem");
-		expect(decision.textContent).toContain("#39: Round amounts to 0.5 kg");
+		expect(decision.textContent).toContain("#39 · Plan model and its rules");
+		expect(decision.textContent).toContain("Round amounts to 0.5 kg");
 		expect(within(decision).getByText("0.5 kg").tagName).toBe("CODE");
 		expect(decision.textContent).toContain(
 			"Instead of 0.1 kg, as the old plan showed",
@@ -220,16 +221,17 @@ describe("a feature's page", () => {
 			screen.queryByRole("region", { name: "Screenshots of #40" }),
 		).toBeNull();
 
-		// The cards in order, linked to their pages, with rounds and tokens.
-		const table = screen.getByRole("table");
-		const rows = within(table).getAllByRole("row").slice(1);
+		// The cards in order, each title linked to its page.
+		const rows = within(
+			screen.getByRole("list", { name: "Cards of the feature" }),
+		).getAllByRole("listitem");
 		expect(rows).toHaveLength(2);
 		const link = within(rows[0] as HTMLElement).getByRole("link", {
-			name: "#39 Plan model and its rules",
+			name: "Plan model and its rules",
 		});
 		expect(link.getAttribute("href")).toBe(cardPath(PROJECT, 39));
-		expect(rows[0]?.textContent).toContain("6,154");
-		expect(rows[1]?.textContent).toContain("#40 The plan page");
+		expect(rows[0]?.textContent).toContain("#39");
+		expect(rows[1]?.textContent).toContain("#40The plan page");
 	});
 
 	test("copies the checkout command", async () => {
@@ -682,7 +684,7 @@ describe("sending a card back", () => {
 			name: "What the agents want you to know",
 		});
 		fireEvent.click(
-			within(wants).getByRole("button", { name: /^Send back: #39/ }),
+			within(wants).getByRole("button", { name: /^Send back #39:/ }),
 		);
 		fireEvent.change(
 			within(wants).getByLabelText("What should the developer change in #39?"),
@@ -753,13 +755,14 @@ describe("sending a card back", () => {
 		open({ loadFeature: () => Promise.resolve(sent) });
 
 		const list = await screen.findByRole("list", {
-			name: "Cards you sent back",
+			name: "Cards of the feature",
 		});
-		expect(list.textContent).toContain("#39 Plan model and its rules");
-		expect(list.textContent).toContain(
-			"Sent back from pull request #44, 2 times in all",
+		const row = within(list).getAllByRole("listitem")[0] as HTMLElement;
+		expect(row.textContent).toContain("#39Plan model and its rules");
+		expect(row.textContent).toContain(
+			"You sent it back 2 times, from pull request #44:",
 		);
-		expect(list.textContent).toContain(
+		expect(within(row).getByText(/^Round to 0.25 kg\./).textContent).toBe(
 			"Round to 0.25 kg.\nAnd say so on the page.",
 		);
 		expect(screen.queryByRole("button", { name: "Send back #39" })).toBeNull();
@@ -1262,7 +1265,7 @@ describe("the page puts merging and the decisions first", () => {
 		);
 		expect(answered.textContent).not.toContain("Instead of");
 		expect(within(answered).getByText("Fine as it is")).toBeTruthy();
-		expect(within(answered).getByText(/^answered /)).toBeTruthy();
+		expect(within(answered).getByText(/^answered/)).toBeTruthy();
 	});
 
 	test("the cards are in order with a steps bar, Landed and Send back on each that can be sent back", async () => {

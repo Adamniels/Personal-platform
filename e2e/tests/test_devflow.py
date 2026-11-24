@@ -4443,7 +4443,8 @@ def test_a_features_page_shows_its_cards_and_decisions(
         "listitem"
     )
     expect(decisions).to_have_count(1)
-    expect(decisions.first).to_contain_text("#61: Show it on every list")
+    expect(decisions.first).to_contain_text("#61 · Read the sub-issues")
+    expect(decisions.first).to_contain_text("Show it on every list")
     expect(decisions.first).to_contain_text("Instead of Only on habits")
     expect(decisions.first).to_contain_text("Because The lists look the same")
     expect(decisions.first).to_contain_text(
@@ -4474,18 +4475,22 @@ def test_a_features_page_shows_its_cards_and_decisions(
         )
 
     # The cards in order, each with its state and a link to its page.
-    rows = page.get_by_role("table", name="Cards of the feature").get_by_role("row")
-    expect(rows).to_have_count(4)
-    expect(rows.nth(1)).to_contain_text("#61 Read the sub-issues")
-    expect(rows.nth(1)).to_contain_text("Done")
-    expect(rows.nth(2)).to_contain_text("#62 Show each feature")
-    expect(rows.nth(2)).to_contain_text("Building")
-    expect(rows.nth(3)).to_contain_text("#63 The feature's page")
-    expect(rows.nth(3)).to_contain_text("Queued")
+    cards = page.get_by_role("article", name="Cards")
+    expect(cards).to_contain_text("1 of 3 landed")
+    rows = cards.get_by_role("list", name="Cards of the feature").get_by_role(
+        "listitem"
+    )
+    expect(rows).to_have_count(3)
+    expect(rows.nth(0)).to_contain_text("#61Read the sub-issues")
+    expect(rows.nth(0)).to_contain_text("Landed")
+    expect(rows.nth(1)).to_contain_text("#62Show each feature")
+    expect(rows.nth(1)).to_contain_text("Building")
+    expect(rows.nth(2)).to_contain_text("#63The feature's page")
+    expect(rows.nth(2)).to_contain_text("Queued")
     _look(page, "devflow-feature-page")
 
     # A card's page links back to its feature.
-    rows.nth(1).get_by_role("link", name="#61 Read the sub-issues").click()
+    rows.nth(0).get_by_role("link", name="Read the sub-issues", exact=True).click()
     expect(page).to_have_url(f"{base_url}/devflow/projects/{project}/cards/61")
     page.get_by_role("link", name="Feature #60: The feature's branch").click()
     expect(page).to_have_url(f"{base_url}/devflow/projects/{project}/features/60")
@@ -4531,8 +4536,10 @@ def test_i_send_a_card_back_from_the_features_page(
     # From the feature's page, on the card that landed, with a comment.
     page.goto(f"/devflow/projects/{project}/features/60")
     cards = page.get_by_role("article", name="Cards")
-    expect(cards.get_by_role("button", name="Send back #62")).to_have_count(0)
-    cards.get_by_role("button", name="Send back #61").click()
+    expect(cards.get_by_role("button", name="Send back #62", exact=True)).to_have_count(
+        0
+    )
+    cards.get_by_role("button", name="Send back #61", exact=True).click()
     said = "Read the sub-issues a hundred at a time, not all at once."
     cards.get_by_role("textbox", name="What should the developer change in #61?").fill(
         said
@@ -4551,13 +4558,13 @@ def test_i_send_a_card_back_from_the_features_page(
 
     # The read that followed took it: the card is queued with my words, and
     # the feature builds again.
-    rows = page.get_by_role("table", name="Cards of the feature").get_by_role("row")
-    expect(rows.nth(1)).to_contain_text("Queued")
+    rows = cards.get_by_role("list", name="Cards of the feature").get_by_role(
+        "listitem"
+    )
+    expect(rows.nth(0)).to_contain_text("Queued")
     expect(_feature_header(page)).to_contain_text("Building")
-    sent = cards.get_by_role("list", name="Cards you sent back")
-    expect(sent).to_contain_text("#61 Read the sub-issues")
-    expect(sent).to_contain_text("Sent back from pull request #")
-    expect(sent).to_contain_text(said)
+    expect(rows.nth(0)).to_contain_text("You sent it back once, from pull request #")
+    expect(rows.nth(0)).to_contain_text(said)
     _look(page, "devflow-feature-card-sent-back")
 
     # The fake worker takes it next, on a new branch from the feature's, and
@@ -4573,8 +4580,12 @@ def test_i_send_a_card_back_from_the_features_page(
         "devflow/61-read-the-sub-issues-2",
     )
     page.reload()
-    rows = page.get_by_role("table", name="Cards of the feature").get_by_role("row")
-    expect(rows.nth(1)).to_contain_text("Building")
+    rows = (
+        page.get_by_role("article", name="Cards")
+        .get_by_role("list", name="Cards of the feature")
+        .get_by_role("listitem")
+    )
+    expect(rows.nth(0)).to_contain_text("Building")
     expect(_feature_header(page)).to_contain_text("Building")
 
 
