@@ -266,29 +266,10 @@
 	font-variant-numeric: tabular-nums;
 }
 
-/* "Progress bar and meter", steps: one 8px pill per round, 4px apart; used
- * rounds --accent, the round under way outlined, the rest --surface-3. */
+/* The fix rounds' steps bar, `StepsBar` from cards.tsx, pulled up to the
+ * label above it. */
 .steps {
-	display: flex;
-	gap: 4px;
 	margin-top: calc(-1 * var(--space-2));
-}
-
-.step {
-	box-sizing: border-box;
-	flex: 1 1 0;
-	height: 8px;
-	border-radius: var(--radius-full);
-	background: var(--surface-3);
-}
-
-.stepDone {
-	background: var(--accent);
-}
-
-.stepCurrent {
-	border: 1px solid var(--accent-border);
-	background: none;
 }
 
 /* Each panel a section gap below the one before. */

@@ -19,7 +19,7 @@ import { useEffect, useId, useState } from "react";
 import { navigate, plainClick } from "./address";
 import type { components } from "./api/schema";
 import styles from "./card.module.css";
-import { stateWord } from "./cards";
+import { StepsBar, stateWord } from "./cards";
 import { Inline } from "./format";
 import { cardScreenshot, Screenshots } from "./screenshots";
 import { featurePath } from "./sections";
@@ -974,37 +974,27 @@ function roundsUsed(rounds: Round[]): number {
 	return rounds.reduce((most, round) => Math.max(most, round.round ?? 0), 0);
 }
 
-/** The steps bar of section 4: one pill per round the project gives, those
- * used done, the round under way current. Named by the number it shows. */
+/** The steps bar of section 4, `StepsBar`: one pill per round the project
+ * gives, those used done, the round under way current. Named by the number
+ * it shows. */
 function RoundSteps({ rounds, most }: { rounds: Round[]; most: number }) {
 	const used = roundsUsed(rounds);
 	const running = rounds.some(
 		(round) => round.round === used && round.result === null,
 	);
 	return (
-		<div
-			role="img"
-			aria-label={`Fix rounds: ${used} of ${most} used`}
+		<StepsBar
+			label={`Fix rounds: ${used} of ${most} used`}
 			className={styles.steps}
-		>
-			{Array.from({ length: most }, (_, index) => {
+			steps={Array.from({ length: most }, (_, index) => {
 				const step = index + 1;
-				const state =
-					step < used || (step === used && !running)
-						? styles.stepDone
-						: step === used
-							? styles.stepCurrent
-							: "";
-				return (
-					<span
-						// The steps are counted, their place is their identity.
-						// biome-ignore lint/suspicious/noArrayIndexKey: see above
-						key={index}
-						className={`${styles.step} ${state}`}
-					/>
-				);
+				return step < used || (step === used && !running)
+					? "done"
+					: step === used
+						? "current"
+						: "to-do";
 			})}
-		</div>
+		/>
 	);
 }
 
