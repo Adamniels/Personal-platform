@@ -73,9 +73,8 @@
 }
 
 /* On a phone, two screens: the queue alone, or the item the address names
- * alone, with the way back above it and its actions in a bar above the tab
- * bar. The bar is the card's footer, which holds the actions, kept in view
- * as the item scrolls. */
+ * alone, with the way back above it. Its actions are a bar above the tab
+ * bar, detail.module.css. */
 @media (max-width: 639.98px) {
 	.inbox[data-open] .queue,
 	.inbox:not([data-open]) .detail {
@@ -84,17 +83,6 @@
 
 	.back {
 		display: flex;
-	}
-
-	.detail article > div:has(> .footer) {
-		position: sticky;
-		bottom: calc(var(--tab-bar-h) + env(safe-area-inset-bottom, 0px));
-		z-index: 1;
-		margin: 0 calc(-1 * var(--card-pad)) calc(-1 * var(--card-pad));
-		padding: var(--space-3) var(--card-pad);
-		border-top: 1px solid var(--border);
-		border-radius: 0 0 var(--radius-lg) var(--radius-lg);
-		background: var(--surface);
 	}
 }
 
@@ -233,7 +221,7 @@
  * keeps its surface and its 1px --border, "Card" in section 4 of
  * design/DESIGN.md, and its status keeps its word, so nothing rests on
  * colour. */
-.muted .item {
+.muted article {
 	color: var(--text-2);
 }
 
@@ -367,6 +355,16 @@
 	flex-wrap: wrap;
 	align-items: center;
 	gap: var(--space-2);
+}
+
+/* A send back in the row beside Merge: its button in the row, and its box,
+ * once open, the row's whole width. */
+.actions > .footer {
+	width: auto;
+}
+
+.actions > .footer:has(> .comment) {
+	flex-basis: 100%;
 }
 
 /* A link that looks like the ghost button of "Button" in section 4, since it

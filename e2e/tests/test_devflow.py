@@ -500,7 +500,7 @@ def test_the_waiting_list_shows_a_decision(
     vault = _item(page, "The vault", "Pull requests waiting")
     expect(vault).to_be_visible()
     expect(vault.get_by_text("Adamniels/Personal-platform")).to_be_visible()
-    expect(vault.get_by_text("#304")).to_be_visible()
+    expect(vault.get_by_text("pull request #304", exact=True)).to_be_visible()
     expect(vault.get_by_text("Waiting for you")).to_be_visible()
     # The summary's backticks are code, and the rest is text.
     expect(vault.locator("code", has_text="vault")).to_be_visible()
@@ -532,7 +532,7 @@ def test_the_waiting_list_shows_why_a_pull_request_waits(
     page.goto("/devflow")
 
     poll = _item(page, "The poll", "Pull requests waiting")
-    expect(poll.get_by_text("Why it waits")).to_be_visible()
+    expect(poll.get_by_text("In the runner's words")).to_be_visible()
     expect(poll.get_by_text("High risk slice.")).to_be_visible()
     expect(poll.get_by_role("list", name="The agent decided")).to_have_count(0)
 
@@ -2553,9 +2553,12 @@ def test_a_built_card_waits_for_me_with_its_pull_request(
     expect(decided).to_contain_text("Only on habits")
     expect(decided).to_contain_text("The lists look the same")
     expect(card).to_contain_text("and 1 more it did not need you for")
-    expect(card).to_contain_text(
-        f"Dev flow ran {CHECK} on {ran['head_commit'][:7]}: exit 0."
+    # The check Dev flow ran, as its tile, on the commit in the where line.
+    glance = card.get_by_role("list", name="At a glance")
+    expect(glance.get_by_role("listitem").first).to_have_text(
+        f"The checkPassed{CHECK} · exit 0"
     )
+    expect(card).to_contain_text(f"{ran['head_commit'][:7]} → main")
     expect(card.get_by_role("button", name="Merge")).to_be_enabled()
     expect(card.get_by_role("link", name="Open on GitHub")).to_have_attribute(
         "href", pull["url"]
@@ -4961,9 +4964,8 @@ def test_a_reviewed_feature_is_ready_for_me(
     expect(item).to_contain_text(
         "The feature does what its parent asks, and its cards fit together."
     )
-    expect(item).to_contain_text(
-        "1 decision its cards marked for you is not answered yet."
-    )
+    decisions = item.get_by_role("list", name="At a glance").get_by_role("listitem")
+    expect(decisions.nth(2)).to_have_text("Decisions1 for younot answered yet")
     expect(item.get_by_role("link", name="Open on GitHub")).to_have_attribute(
         "href", re.compile(rf"/pull/{pull}$")
     )

@@ -203,14 +203,11 @@ describe("features ready for your review", () => {
 		const item = within(await choose("Feeding plan, version 2"));
 		expect(item.getByText("Ready for you")).toBeTruthy();
 		expect(item.getByText("Adamniels/Fodr")).toBeTruthy();
-		expect(item.getByText("Pull request #51")).toBeTruthy();
+		expect(item.getByText("pull request #51")).toBeTruthy();
 		expect(item.getByText("The plan and its page fit together.")).toBeTruthy();
-		expect(item.getByText(HEAD.slice(0, 7))).toBeTruthy();
-		expect(
-			item.getByText(
-				"2 decisions its cards marked for you are not answered yet.",
-			),
-		).toBeTruthy();
+		expect(item.getByText(`on ${HEAD.slice(0, 7)} · 0 blocking`)).toBeTruthy();
+		expect(item.getByText("2 for you")).toBeTruthy();
+		expect(item.getByText("not answered yet")).toBeTruthy();
 		expect(
 			item.getByRole("link", { name: "Open on GitHub" }).getAttribute("href"),
 		).toBe("https://github.com/Adamniels/Fodr/pull/51");
@@ -315,10 +312,8 @@ describe("features ready for your review", () => {
 		expect(
 			item.getByText("The review of the whole feature asked for changes"),
 		).toBeTruthy();
-		expect(item.getByText(/1 finding blocks it/)).toBeTruthy();
-		expect(
-			item.getByText("Every decision its cards marked for you is answered."),
-		).toBeTruthy();
+		expect(item.getByText(`on ${HEAD.slice(0, 7)} · 1 blocking`)).toBeTruthy();
+		expect(item.getByText("Answered")).toBeTruthy();
 	});
 
 	test("the group comes after the pull requests waiting and before what stopped", async () => {

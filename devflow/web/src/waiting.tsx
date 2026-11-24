@@ -2,7 +2,7 @@
 // GET /devflow/api/waiting, the stored picture Dev flow keeps, never from the code host. Grouped by
 // kind, each item a card with what he needs to judge it. Every text in an item came from the code
 // host and is shown as text. See "The pages" and "What waits" in devflow/README.md.
-import { Button, Card, EmptyState, Status } from "@platform/ui";
+import { Button, EmptyState, Status } from "@platform/ui";
 import { useQuery } from "@tanstack/react-query";
 import {
 	Fragment,
@@ -15,6 +15,14 @@ import { type ActionsApi, ItemActions, type LinkState } from "./actions";
 import { navigate, plainClick, useSearch } from "./address";
 import type { GetAnswer } from "./api/client";
 import { DecisionIssue } from "./decision-issue";
+import {
+	count,
+	Detail,
+	decisionsTile,
+	short,
+	type Tile,
+	Tiles,
+} from "./detail";
 import { Inline } from "./format";
 import { QuestionCard } from "./question-card";
 import { RefusedCard } from "./refused-card";
@@ -671,9 +679,54 @@ function QueueGroup({
 	);
 }
 
-/** One item: the card's header holds its title and its status, the line
- * under it the project and the number, then what the owner needs to judge
- * it, its screenshots last, then its actions, before Open on GitHub. */
+/** A runner item's tiles: why it waits, what the reviewer said of its head
+ * and the decisions. Waiting, it was approved for its head commit and handed
+ * to the owner; stopped, the runner gave up on it. */
+export function runnerTiles(item: WaitingItem): Tile[] {
+	const waiting = item.kind === "waiting";
+	return [
+		item.sent_back
+			? {
+					label: "Why it waits",
+					tone: "running",
+					status: "Sent back",
+					line: "the runner has it",
+				}
+			: waiting
+				? {
+						label: "Why it waits",
+						tone: "needs-you",
+						status: item.decisions.length > 0 ? "Your decision" : "Your merge",
+						line: item.can_merge
+							? "ci-ok and review-ok green"
+							: "checks not green yet",
+					}
+				: {
+						label: "Why it waits",
+						tone: "failed",
+						status: "Stopped",
+						line: "the runner gave up",
+					},
+		waiting
+			? {
+					label: "The reviewer",
+					tone: "done",
+					status: "Approved",
+					line: `on ${short(item.head_commit)} · ${count(item.reviewer_view.length, "point")} for you`,
+				}
+			: {
+					label: "The reviewer",
+					tone: "failed",
+					status: "Not approved",
+					line: `on ${short(item.head_commit)}`,
+				},
+		decisionsTile(item.decisions.length, item.other_decisions),
+	];
+}
+
+/** One runner item in the detail's frame: where it is, its title, its
+ * summary, its tiles, why it waits in the runner's words, the decisions,
+ * the reviewer's points and its screenshots, then its actions. */
 function Item({
 	item,
 	project,
@@ -685,14 +738,14 @@ function Item({
 	primary: boolean;
 	act: Act;
 }) {
-	const waiting = item.kind === "waiting" && !item.sent_back;
 	return (
-		<Card
+		<Detail
 			title={item.title}
-			attention={waiting}
-			aside={<ItemStatus item={item} />}
-			className={styles.item}
-			footer={
+			where={[project, `pull request #${item.number}`, short(item.head_commit)]}
+			status={<ItemStatus item={item} />}
+			needsYou={item.kind === "waiting" && !item.sent_back}
+			lede={item.summary === "" ? null : <Inline text={item.summary} />}
+			actions={
 				<ItemActions
 					item={item}
 					primary={primary}
@@ -714,29 +767,19 @@ function Item({
 				/>
 			}
 		>
-			<div className={styles.body}>
-				<p className={styles.where}>
-					<span>{project}</span> <span>#{item.number}</span>
-				</p>
-				{item.summary === "" ? null : (
-					<p className={styles.summary}>
-						<Inline text={item.summary} />
-					</p>
-				)}
-				{item.kind === "waiting" && item.decisions.length > 0 ? (
-					<Decisions decisions={item.decisions} others={item.other_decisions} />
-				) : (
-					<Reason item={item} />
-				)}
-				{item.kind === "waiting" && item.reviewer_view.length > 0 ? (
-					<Reviewer points={item.reviewer_view} />
-				) : null}
-				<Screenshots
-					address={(name) => waitingScreenshot(item.id, name)}
-					groups={item.screenshots}
-				/>
-			</div>
-		</Card>
+			<Tiles tiles={runnerTiles(item)} />
+			<Reason item={item} />
+			{item.kind === "waiting" && item.decisions.length > 0 ? (
+				<Decisions decisions={item.decisions} others={item.other_decisions} />
+			) : null}
+			{item.kind === "waiting" && item.reviewer_view.length > 0 ? (
+				<Reviewer points={item.reviewer_view} />
+			) : null}
+			<Screenshots
+				address={(name) => waitingScreenshot(item.id, name)}
+				groups={item.screenshots}
+			/>
+		</Detail>
 	);
 }
 
@@ -762,7 +805,7 @@ function Reason({ item }: { item: WaitingItem }) {
 	return (
 		<div className={styles.block}>
 			<h3 className={styles.label}>
-				{item.kind === "stopped" ? "Why it stopped" : "Why it waits"}
+				{item.kind === "stopped" ? "Why it stopped" : "In the runner's words"}
 			</h3>
 			<p className={styles.text}>
 				<Inline text={item.reason} />

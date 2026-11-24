@@ -1,0 +1,160 @@
+/* The frame of an item's detail on "Waiting for you". Tokens only,
+ * design/DESIGN.md. */
+
+/* The panel: a card of "Card" in section 4, its parts --space-4 apart. It
+ * keeps --border, and takes --accent-border when the item needs the owner. */
+.panel {
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	min-width: 0;
+	padding: var(--card-pad);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	background: var(--surface);
+	color: var(--text);
+}
+
+.needsYou {
+	border-color: var(--accent-border);
+}
+
+/* The where line on the left, the status label on the right; on a phone the
+ * status wraps under it. */
+.header {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+/* Where it is, hard rule 8: the mono font. A repository's name or a branch
+ * has no spaces, so it may break anywhere rather than overflow. */
+.where {
+	flex: 1 1 240px;
+	min-width: 0;
+	margin: 0;
+	color: var(--text-3);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+	overflow-wrap: anywhere;
+}
+
+/* The hero label, hard rule 12: the heading font at 600, in capitals, at
+ * --text-hero-size. Set in full, so it does not depend on page.css's rule
+ * for an h2. */
+.title {
+	margin: 0;
+	color: var(--text);
+	font-family: var(--font-heading);
+	font-size: var(--text-hero-size);
+	line-height: var(--text-hero-line);
+	font-weight: 600;
+	letter-spacing: normal;
+	text-transform: uppercase;
+	overflow-wrap: anywhere;
+}
+
+/* What it is, in body large, --text-2, at most a reading line wide. */
+.lede {
+	max-width: var(--reading-max);
+	margin: 0;
+	color: var(--text-2);
+	font-size: var(--text-body-lg-size);
+	line-height: var(--text-body-lg-line);
+	overflow-wrap: anywhere;
+}
+
+/* The actions, last, over a 1px --border line. */
+.actions {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	min-width: 0;
+	padding-top: var(--space-4);
+	border-top: 1px solid var(--border);
+}
+
+/* What the primary does, on the right of the row in the mono font. */
+.note {
+	margin: 0 0 0 auto;
+	color: var(--text-2);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+	overflow-wrap: anywhere;
+}
+
+/* An inset row that links to a page of Dev flow's own: its words at weight
+ * 500, and the arrow link's circle on the right, on --surface since the row
+ * is --surface-2. */
+.arrow {
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+	min-height: var(--row-h);
+	padding: 8px 12px;
+	border-radius: var(--radius-md);
+	background: var(--surface-2);
+	color: var(--text);
+	font-weight: 500;
+	text-decoration: none;
+	overflow-wrap: anywhere;
+}
+
+.circle {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	width: 36px;
+	height: 36px;
+	border-radius: var(--radius-full);
+	background: var(--surface);
+	color: var(--text-2);
+}
+
+.arrow:hover .circle {
+	background: var(--surface-3);
+}
+
+.arrow:focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: var(--focus-offset);
+}
+
+/* "Needs you", for assistive technology alone, so the accent border is not
+ * the only sign. The shared rule of design/ui's visually-hidden.module.css. */
+.hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* On a phone the actions are a bar above the tab bar, kept in view as the
+ * item scrolls. */
+@media (max-width: 639.98px) {
+	.actions {
+		position: sticky;
+		bottom: calc(var(--tab-bar-h) + env(safe-area-inset-bottom, 0px));
+		z-index: 1;
+		margin: 0 calc(-1 * var(--card-pad)) calc(-1 * var(--card-pad));
+		padding: var(--space-3) var(--card-pad);
+		border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+		background: var(--surface);
+	}
+}

@@ -183,7 +183,7 @@ describe("a card of Dev flow's that waits", () => {
 		expect(screen.getByRole("tab", { name: "Waiting for you 1" })).toBeTruthy();
 		expect(shown.getByText("Waiting for you", { exact: true })).toBeTruthy();
 		expect(shown.getByText("Adamniels/Fodr")).toBeTruthy();
-		expect(shown.getByText("#7")).toBeTruthy();
+		expect(shown.getByText("pull request #7")).toBeTruthy();
 		expect(shown.getByText("empty state").tagName).toBe("CODE");
 		// The decision for the owner, with its alternative and why, and the
 		// others counted.
@@ -195,9 +195,8 @@ describe("a card of Dev flow's that waits", () => {
 		expect(decided.getByText("The lists look the same")).toBeTruthy();
 		expect(shown.getByText("and 2 more it did not need you for")).toBeTruthy();
 		// The check Dev flow ran.
-		expect(shown.getByText("npm ci && npm test").tagName).toBe("CODE");
-		expect(shown.getByText("abc1234").tagName).toBe("CODE");
-		expect(shown.getByText(/exit 0\./)).toBeTruthy();
+		expect(shown.getByText("npm ci && npm test · exit 0")).toBeTruthy();
+		expect(shown.getByText("abc1234 → main")).toBeTruthy();
 		// Merge, the view's one primary, and the pull request on GitHub.
 		const merge = shown.getByRole("button", { name: "Merge" });
 		expect(merge.className).toMatch(/primary/);
@@ -299,9 +298,10 @@ describe("a card of Dev flow's that waits", () => {
 		]);
 
 		const shown = await item();
-		expect(shown.getByRole("heading", { name: "The review" })).toBeTruthy();
 		expect(shown.getByText("Changes asked for")).toBeTruthy();
-		expect(shown.getByText(/, 2 findings block it\./)).toBeTruthy();
+		expect(shown.getByText("on abc1234 · 2 blocking")).toBeTruthy();
+		// What the reviewer said, under its heading.
+		expect(shown.getByRole("heading", { name: "The reviewer" })).toBeTruthy();
 		expect(shown.getByText("reload").tagName).toBe("CODE");
 	});
 
@@ -337,10 +337,14 @@ describe("a card of Dev flow's that waits", () => {
 
 		const approved = await item();
 		expect(approved.getByText("Approved")).toBeTruthy();
-		expect(approved.queryByText(/block/)).toBeNull();
-		const unreviewed = within(await choose("Count the habits"));
+		expect(approved.getByText("on abc1234 · 0 blocking")).toBeTruthy();
 		expect(
-			unreviewed.queryByRole("heading", { name: "The review" }),
+			approved.queryByRole("heading", { name: "The reviewer" }),
+		).toBeNull();
+		const unreviewed = within(await choose("Count the habits"));
+		expect(unreviewed.getByText("Not reviewed")).toBeTruthy();
+		expect(
+			unreviewed.queryByRole("heading", { name: "The reviewer" }),
 		).toBeNull();
 	});
 

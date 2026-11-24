@@ -349,7 +349,7 @@ describe("the list and its groups", () => {
 
 		const vault = await card("The vault");
 		expect(vault.getByText("Adamniels/Personal-platform")).toBeTruthy();
-		expect(vault.getByText("#304")).toBeTruthy();
+		expect(vault.getByText("pull request #304")).toBeTruthy();
 		expect(vault.getByText("Waiting for you")).toBeTruthy();
 		expect(vault.getByText("Adds the vault.")).toBeTruthy();
 	});
@@ -368,7 +368,8 @@ describe("the list and its groups", () => {
 
 		expect((await card("Waits")).getByText("Needs you")).toBeTruthy();
 		expect((await card("Stops")).queryByText("Needs you")).toBeNull();
-		expect((await card("Stops")).getByText("Stopped")).toBeTruthy();
+		// Its status label, and its tile of why it waits.
+		expect((await card("Stops")).getAllByText("Stopped")).toHaveLength(2);
 	});
 
 	test("Open on GitHub links to the item in a new tab, without a referrer", async () => {
@@ -459,8 +460,8 @@ describe("decisions, the reviewer's view and the reasons", () => {
 		expect(
 			reviewer.getAllByRole("listitem").map((point) => point.textContent),
 		).toEqual(["Agrees, it matches the brain.", "Fine."]);
-		// The decisions answer why it waits, so the reason is not repeated.
-		expect(vault.queryByText("Why it waits")).toBeNull();
+		// The runner's reason follows the tiles, in its own words.
+		expect(vault.getByText("In the runner's words")).toBeTruthy();
 	});
 
 	test("decisions not marked for the owner are a muted line, with nothing to expand", async () => {
@@ -521,7 +522,7 @@ describe("decisions, the reviewer's view and the reasons", () => {
 		);
 
 		const vault = await card("The vault");
-		expect(vault.getByText("Why it waits")).toBeTruthy();
+		expect(vault.getByText("In the runner's words")).toBeTruthy();
 		expect(
 			vault.getByText("High risk slice. Touches paths that steer the agents."),
 		).toBeTruthy();
@@ -549,7 +550,7 @@ describe("decisions, the reviewer's view and the reasons", () => {
 		expect(
 			stopped.getByText("The slice is Blocked. The tests still fail."),
 		).toBeTruthy();
-		expect(stopped.queryByText("Why it waits")).toBeNull();
+		expect(stopped.queryByText("In the runner's words")).toBeNull();
 	});
 
 	test("sent back items are in their own muted group and are not counted", async () => {
@@ -585,7 +586,8 @@ describe("decisions, the reviewer's view and the reasons", () => {
 		expect(within(waiting).getByText("1")).toBeTruthy();
 		expect(panel().queryByRole("region", { name: "Stopped" })).toBeNull();
 		const wentBack = await card("Went back");
-		expect(wentBack.getByText("Sent back")).toBeTruthy();
+		// Its status label, and its tile of why it waits.
+		expect(wentBack.getAllByText("Sent back")).toHaveLength(2);
 		expect(wentBack.queryByText("Needs you")).toBeNull();
 		await waitFor(() =>
 			expect(

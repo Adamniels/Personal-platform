@@ -63,7 +63,8 @@ const FAILED = "That did not work. Try again.";
 
 export type ItemActionsProps = {
 	item: WaitingItem;
-	/** Whether Merge is the view's one primary button. */
+	/** Whether the item's main action, Merge, or Comment to run again when
+	 * it stopped, is the view's one primary button. */
 	primary: boolean;
 	link: LinkState;
 	api: ActionsApi;
@@ -159,7 +160,11 @@ export function ItemActions({
 						onChange={(event) => setText(event.target.value)}
 					/>
 					<div className={styles.actions}>
-						<Button type="submit" disabled={sending || text.trim() === ""}>
+						<Button
+							type="submit"
+							kind={stopped && primary ? "primary" : "secondary"}
+							disabled={sending || text.trim() === ""}
+						>
 							Send
 						</Button>
 						<Button kind="ghost" onClick={cancel}>
@@ -181,6 +186,7 @@ export function ItemActions({
 				) : null}
 				{(waiting || stopped) && !writing ? (
 					<Button
+						kind={stopped && primary ? "primary" : "secondary"}
 						disabled={!linked}
 						aria-describedby={linkLine === null ? undefined : lineId}
 						onClick={() => setWriting(true)}
