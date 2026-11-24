@@ -111,7 +111,8 @@ features" in `High-level/docs/platform-architecture.md`.
 
 **Dev flow**
 
-- `devflow/README.md` — what Dev flow serves, its pages and its two tabs, what Waiting for you
+- `devflow/README.md` — what Dev flow serves, its pages and its two tabs,
+  a project's settings page, what Waiting for you
   shows, the schema it pins, how to run it and its tests, its settings, its database and roles, migrating, the door, the vault that
   seals a user's secrets and its key, the code host's interface, its fake and how a test stages a
   world in it, setting up a project, with the setup run, its command, its report and its pull request, the check at registration, the settings step, sending a failed check back, a project's values, sealed in the vault, their step and routes, carried by the jobs that run its code and scrubbed from what is stored and posted, its steps and its routes, linking a user's GitHub account and the one way to a token that acts as them,
