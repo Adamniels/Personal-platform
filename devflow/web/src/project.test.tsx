@@ -31,17 +31,21 @@ import {
 	CHECK_RUNNING,
 	COMMENT_ON_PULL,
 	COMMENT_RUNS_AGAIN,
+	NEWER_FAILED,
 	NO_DEVFLOW,
 	NOT_ACCEPTED,
+	PRESET_MEANINGS,
 	type ProjectSetup,
 	RUN_SETUP_AGAIN,
 	SEND_BACK,
 	SEND_BACK_LABEL,
 	SENT_BACK_RUN,
-	SETTING_UP,
 	SETTINGS_PROPOSED,
 	SETTINGS_SAVE_ONCE,
 	type SetupCheck,
+	STEP_DONE,
+	STEP_TITLES,
+	STEP_TO_COME,
 } from "./setup";
 import { NOTHING_LISTED, type ProjectValueList, VALUES_LINE } from "./values";
 
@@ -322,7 +326,7 @@ describe("a project's setup", () => {
 	test("a project without .devflow/ shows its setup run, its command and what it could not settle", async () => {
 		const { mergeSetup, copy } = renderPage({ setup: waiting });
 
-		const panel = await screen.findByRole("article", { name: "Setting up" });
+		const panel = await screen.findByRole("article", { name: "Setting it up" });
 		const run = within(panel).getByRole("region", { name: "The setup run" });
 		// Why it is due, and the command that starts its worker, to copy.
 		expect(
@@ -386,7 +390,7 @@ describe("a project's setup", () => {
 			setup: stoppedSetup(null),
 		});
 
-		const panel = await screen.findByRole("article", { name: "Setting up" });
+		const panel = await screen.findByRole("article", { name: "Setting it up" });
 		const run = within(panel).getByRole("region", { name: "The setup run" });
 		expect(within(run).getByText("Stopped")).toBeTruthy();
 		expect(
@@ -442,42 +446,242 @@ describe("a project's setup", () => {
 		).toBeNull();
 	});
 
-	test("a project setting up shows its steps in place of its features", async () => {
-		const { loadCards, loadSetup } = renderPage({ setup: failed });
+	/** The setup step, the first item of the steps. */
+	const setupStep = async () => {
+		const list = await screen.findByRole("list", { name: "Setup steps" });
+		return list.firstElementChild as HTMLElement;
+	};
 
-		const panel = await screen.findByRole("article", { name: "Setting up" });
-		expect(within(panel).getByText(SETTING_UP)).toBeTruthy();
-		// The steps in their order, each done or not.
-		const steps = within(panel).getByRole("list", { name: "Setup steps" });
+	test("the setup step shows the run's state, and Merge as the primary when it waits for me", async () => {
+		renderPage({ setup: waiting });
+
+		// It waits for me: the current step, mine, with its state, its review,
+		// what it proposes, the values its tests need and what it could not
+		// settle, and Merge as the page's one primary.
+		const step = await setupStep();
+		expect(step.getAttribute("aria-current")).toBe("step");
+		expect(step.textContent).toContain(STEP_TITLES.setup);
+		expect(within(step).getByText("Needs you")).toBeTruthy();
+		const run = within(step).getByRole("region", { name: "The setup run" });
+		expect(within(run).getByText("Waits for you")).toBeTruthy();
+		expect(within(run).getByText("Approved")).toBeTruthy();
+		expect(within(run).getByText("What it proposes")).toBeTruthy();
+		expect(within(run).getByText("STRIPE_TEST_KEY")).toBeTruthy();
 		expect(
-			within(steps)
-				.getAllByRole("listitem")
-				.map((step) => step.textContent),
-		).toEqual([
-			"DoneA valid .devflow/ on the default branch",
-			"DoneThe recipe on the default branch",
-			"DoneThe settings accepted",
-			"DoneThe values its tests need",
-			"DoneA worker on the recipe",
-			"To doThe check passed",
-		]);
-		// The failed check's output, as text.
-		const check = within(panel).getByRole("region", {
-			name: "The newest check",
+			within(run).getByRole("list", { name: "What it could not settle" }),
+		).toBeTruthy();
+		expect(within(run).getByText(SETUP_COMMAND)).toBeTruthy();
+		const merge = within(run).getByRole("button", { name: "Merge" });
+		expect(merge.className).toMatch(/primary/);
+		await screen.findByRole("article", { name: "Workers" });
+		expect(
+			screen
+				.getAllByRole("button")
+				.filter((button) => /primary/.test(button.className))
+				.map((button) => button.textContent),
+		).toEqual(["Merge"]);
+		cleanup();
+
+		// While it works, it is the current step but not mine, with no Merge.
+		const working = waiting.setup as NonNullable<ProjectSetup["setup"]>;
+		renderPage({
+			setup: {
+				...waiting,
+				setup: { ...working, state: "reviewing", running: true, reason: null },
+			},
 		});
-		expect(within(check).getByText("Failed")).toBeTruthy();
-		expect(within(check).getByText(/exited with 1/)).toBeTruthy();
-		expect(check.querySelector("pre")?.textContent).toBe(
-			"npm test\nFAIL src/list.test.ts\nTests: 1 failed, 11 passed",
+		const busy = await setupStep();
+		expect(busy.getAttribute("aria-current")).toBe("step");
+		expect(within(busy).queryByText("Needs you")).toBeNull();
+		expect(within(busy).getByText("Running")).toBeTruthy();
+		expect(within(busy).queryByRole("button", { name: "Merge" })).toBeNull();
+		cleanup();
+
+		// Stopped, it is mine again, with the comment that runs it again.
+		renderPage({ setup: stoppedSetup(null) });
+		const stopped = await setupStep();
+		expect(within(stopped).getByText("Needs you")).toBeTruthy();
+		expect(within(stopped).getByText("Stopped")).toBeTruthy();
+		expect(
+			within(stopped).getByRole("button", { name: RUN_SETUP_AGAIN }),
+		).toBeTruthy();
+		cleanup();
+
+		// A run sent back from a failed check keeps the setup step open, though
+		// .devflow/ on the default branch is still valid, so its Merge is shown.
+		renderPage({
+			setup: {
+				...waiting,
+				steps: waiting.steps.map((each) =>
+					each.step === "check" ? each : { ...each, done: true },
+				),
+				setup: { ...working, number: 2, sent_back: true },
+			},
+		});
+		const sentBack = await setupStep();
+		expect(sentBack.getAttribute("aria-current")).toBe("step");
+		expect(
+			within(sentBack).getByRole("button", { name: "Merge" }),
+		).toBeTruthy();
+	});
+
+	/** A project whose setup run merged its pull request, its recipe read,
+	 * and its settings step waiting with a proposal: two of six steps done. */
+	const twoDone: ProjectSetup = {
+		...REGISTERED,
+		state: "setting_up",
+		steps: [
+			{ step: "setup", done: true },
+			{ step: "recipe", done: true },
+			{ step: "settings", done: false },
+			{ step: "values", done: false },
+			{ step: "worker", done: false },
+			{ step: "check", done: false },
+		],
+		proposal: {
+			preset: "guided",
+			why: "Its migrations are worth a look before they merge.",
+			paths: ["migrations/**"],
+		},
+		settings_waits: true,
+		setup: {
+			...(waiting.setup as NonNullable<ProjectSetup["setup"]>),
+			state: "done",
+			reason: null,
+		},
+	};
+
+	/** Each step's circle says its state to assistive technology. */
+	const said = (step: HTMLElement) =>
+		step.getAttribute("aria-current") === "step"
+			? "current"
+			: (step.textContent ?? "").startsWith("Done: ")
+				? "done"
+				: (step.textContent ?? "").startsWith("To come: ")
+					? "to come"
+					: "unsaid";
+
+	test("a project setting up shows its steps in place of its cards, the current one open", async () => {
+		const { loadCards } = renderPage({ setup: twoDone });
+
+		const card = await screen.findByRole("article", { name: "Setting it up" });
+		// It needs me, so it has the accent border and says so.
+		expect(within(card).getByText("Needs you")).toBeTruthy();
+		// The steps bar, on the right: two done of six.
+		expect(
+			within(card).getByRole("img", { name: "2 of 6 steps done" }),
+		).toBeTruthy();
+		// The six steps in the route's order, titled as the page words them.
+		// The list's own items, not those of a list inside a step.
+		const list = within(card).getByRole("list", { name: "Setup steps" });
+		const items = within(list)
+			.getAllByRole("listitem")
+			.filter((item) => item.parentElement === list) as HTMLElement[];
+		expect(items).toHaveLength(6);
+		const titles = ["setup", "recipe", "settings", "values", "worker", "check"];
+		items.forEach((item, at) => {
+			expect(item.textContent).toContain(STEP_TITLES[titles[at] as string]);
+		});
+		expect(items.map(said)).toEqual([
+			"done",
+			"done",
+			"current",
+			"to come",
+			"to come",
+			"to come",
+		]);
+		const [setupStep, recipe, settings, ...rest] = items as [
+			HTMLElement,
+			HTMLElement,
+			HTMLElement,
+			...HTMLElement[],
+		];
+		// Done ones with one line of what happened, and no button.
+		expect(setupStep.textContent).toContain("pull request #7");
+		expect(recipe.textContent).toContain(STEP_DONE.recipe);
+		for (const done of [setupStep, recipe]) {
+			expect(within(done).queryAllByRole("button")).toHaveLength(0);
+		}
+		// The current one is mine, and open.
+		expect(within(settings).getByText("Needs you")).toBeTruthy();
+		expect(
+			within(settings).getByRole("region", { name: "The settings" }),
+		).toBeTruthy();
+		// The rest muted with what comes there, and no button.
+		titles.slice(3).forEach((step, at) => {
+			const item = rest[at] as HTMLElement;
+			expect(item.textContent).toContain(STEP_TO_COME[step] as string);
+			expect(within(item).queryAllByRole("button")).toHaveLength(0);
+		});
+
+		// The header says how far, and that the next step is mine.
+		expect(document.querySelector("header")?.textContent).toContain(
+			"Setting up",
 		);
-		// Its features and cards are not shown, nor read.
-		expect(loadSetup).toHaveBeenCalledWith(ID);
+		expect(
+			screen.getByText(
+				"No card runs until setup is done: 2 of 6 steps, and the next one is yours",
+			),
+		).toBeTruthy();
+		// One primary on the page: the current step's.
+		await screen.findByRole("article", { name: "Workers" });
+		const primaries = screen
+			.getAllByRole("button")
+			.filter((button) => /primary/.test(button.className));
+		expect(primaries.map((button) => button.textContent)).toEqual(["Accept"]);
+		// Its cards are not shown, nor read.
 		expect(screen.queryByRole("region", { name: "Cards" })).toBeNull();
 		expect(loadCards).not.toHaveBeenCalled();
-		// The workers are, since starting one is a step.
+		cleanup();
+
+		// Steps need not finish in order: values done before the settings is
+		// marked done, while the settings stays the one open.
+		renderPage({
+			setup: {
+				...twoDone,
+				steps: twoDone.steps.map((step) =>
+					step.step === "values" ? { ...step, done: true } : step,
+				),
+			},
+		});
+		const again = await screen.findByRole("list", { name: "Setup steps" });
+		const marks = within(again)
+			.getAllByRole("listitem")
+			.filter((item) => item.parentElement === again)
+			.map(said);
+		expect(marks).toEqual([
+			"done",
+			"done",
+			"current",
+			"done",
+			"to come",
+			"to come",
+		]);
 		expect(
-			await screen.findByRole("article", { name: "Workers" }),
+			screen.getByText(
+				"No card runs until setup is done: 3 of 6 steps, and the next one is yours",
+			),
 		).toBeTruthy();
+		cleanup();
+
+		// A current step that is not mine says no more than how far.
+		renderPage({
+			setup: {
+				...twoDone,
+				steps: twoDone.steps.map((step) =>
+					step.step === "check" ? step : { ...step, done: true },
+				),
+				settings_waits: false,
+				checking: true,
+			},
+		});
+		expect(
+			await screen.findByText("No card runs until setup is done: 5 of 6 steps"),
+		).toBeTruthy();
+		const quiet = await screen.findByRole("article", {
+			name: "Setting it up",
+		});
+		expect(within(quiet).queryByText("Needs you")).toBeNull();
 	});
 
 	/** A project whose setup run proposed guided and a path, its settings
@@ -572,12 +776,44 @@ describe("a project's setup", () => {
 		await waitFor(() => expect(loadSettings).toHaveBeenCalledTimes(3));
 	});
 
-	test("the settings step without a proposal asks to save the panel once", async () => {
-		renderPage({ setup: { ...proposed, proposal: null } });
+	test("the settings step shows the proposal with Accept as the primary, or asks to save the settings once", async () => {
+		renderPage({ setup: proposed });
 
 		const step = await screen.findByRole("region", { name: "The settings" });
-		expect(within(step).getByText(SETTINGS_SAVE_ONCE)).toBeTruthy();
-		expect(within(step).queryByRole("button", { name: "Accept" })).toBeNull();
+		// The preset as a section heading, what it means, why and the paths.
+		expect(within(step).getByRole("heading", { name: "Guided" }).tagName).toBe(
+			"H3",
+		);
+		expect(within(step).getByText(PRESET_MEANINGS.guided)).toBeTruthy();
+		expect(
+			within(step).getByText(
+				"Its migrations are worth a look before they merge.",
+			),
+		).toBeTruthy();
+		expect(within(step).getByText("migrations/**")).toBeTruthy();
+		// Accept as the primary, Edit settings beside it, which opens the
+		// settings panel.
+		expect(
+			within(step).getByRole("button", { name: "Accept" }).className,
+		).toMatch(/primary/);
+		const edit = within(step).getByRole("button", { name: "Edit settings" });
+		expect(edit.className).not.toMatch(/primary/);
+		expect(screen.queryByRole("article", { name: "Edit settings" })).toBeNull();
+		fireEvent.click(edit);
+		expect(
+			await screen.findByRole("article", { name: "Edit settings" }),
+		).toBeTruthy();
+		expect(edit.getAttribute("aria-expanded")).toBe("true");
+		cleanup();
+
+		// Without a proposal: save the settings once, and Edit settings.
+		renderPage({ setup: { ...proposed, proposal: null } });
+		const once = await screen.findByRole("region", { name: "The settings" });
+		expect(within(once).getByText(SETTINGS_SAVE_ONCE)).toBeTruthy();
+		expect(within(once).queryByRole("button", { name: "Accept" })).toBeNull();
+		expect(
+			within(once).getByRole("button", { name: "Edit settings" }),
+		).toBeTruthy();
 	});
 
 	test("a proposal that is not saved says why", async () => {
@@ -660,7 +896,7 @@ describe("a project's setup", () => {
 
 	test("Check again asks for another check and says so", async () => {
 		const { checkAgain, loadSetup } = renderPage({ setup: failed });
-		const panel = await screen.findByRole("article", { name: "Setting up" });
+		const panel = await screen.findByRole("article", { name: "Setting it up" });
 
 		fireEvent.click(within(panel).getByRole("button", { name: "Check again" }));
 
@@ -689,7 +925,7 @@ describe("a project's setup", () => {
 				},
 			},
 		});
-		const panel = await screen.findByRole("article", { name: "Setting up" });
+		const panel = await screen.findByRole("article", { name: "Setting it up" });
 
 		expect(within(panel).getByText(CHECK_RUNNING)).toBeTruthy();
 		const pictures = within(panel).getAllByRole("img");
@@ -702,23 +938,68 @@ describe("a project's setup", () => {
 		).toBeNull();
 	});
 
-	test("a registered project shows its cards, and a newer version's failed check above them", async () => {
-		renderPage({ setup: { ...failed, state: "registered" } });
+	test("a failed check shows its output, Check again and Send back with a comment, in place of the cards while setting up and above them once registered", async () => {
+		const failing = { ...failed, can_send_back: true };
+		const { loadCards } = renderPage({ setup: failing });
 
-		const panel = await screen.findByRole("article", { name: "Setting up" });
+		// Setting up: the check is the current step, mine, with its output,
+		// Check again as the primary and Send back with a comment.
+		const card = await screen.findByRole("article", { name: "Setting it up" });
+		const list = within(card).getByRole("list", { name: "Setup steps" });
+		const step = list.lastElementChild as HTMLElement;
+		expect(step.getAttribute("aria-current")).toBe("step");
+		expect(within(step).getByText("Needs you")).toBeTruthy();
+		const check = within(step).getByRole("region", {
+			name: "The newest check",
+		});
+		expect(within(check).getByText("Failed")).toBeTruthy();
 		expect(
-			within(panel).getByText(
-				"The newest version of this project's setup failed its check, so its workers on that version get no work.",
-			),
+			within(check).getByText("Its output, the last 200 lines"),
 		).toBeTruthy();
-		expect(await screen.findByRole("region", { name: "Cards" })).toBeTruthy();
+		expect(check.querySelector("pre")?.textContent).toBe(
+			"npm test\nFAIL src/list.test.ts\nTests: 1 failed, 11 passed",
+		);
+		expect(
+			within(step).getByRole("button", { name: "Check again" }).className,
+		).toMatch(/primary/);
+		expect(
+			within(step).getByRole("button", { name: SEND_BACK }).className,
+		).not.toMatch(/primary/);
+		expect(screen.queryByRole("region", { name: "Cards" })).toBeNull();
+		expect(loadCards).not.toHaveBeenCalled();
+		cleanup();
+
+		// Registered, a newer version's check failed: a card titled Check
+		// failed above the cards, with the same content and no step list.
+		renderPage({
+			setup: { ...failing, state: "registered" },
+			loadCards: () => Promise.resolve({ cards: [], features: [] }),
+		});
+		const above = await screen.findByRole("article", { name: "Check failed" });
+		expect(
+			within(above).queryByRole("list", { name: "Setup steps" }),
+		).toBeNull();
+		expect(within(above).getByText(NEWER_FAILED)).toBeTruthy();
+		expect(
+			within(above).getByRole("region", { name: "The newest check" }),
+		).toBeTruthy();
+		expect(
+			within(above).getByRole("button", { name: "Check again" }).className,
+		).toMatch(/primary/);
+		expect(within(above).getByRole("button", { name: SEND_BACK })).toBeTruthy();
+		const cards = await screen.findByRole("region", { name: "Cards" });
+		expect(
+			above.compareDocumentPosition(cards) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(screen.queryByRole("article", { name: "Setting it up" })).toBeNull();
 	});
 
 	test("a registered project with nothing failed shows no setup", async () => {
 		renderPage();
 
 		expect(await screen.findByRole("region", { name: "Cards" })).toBeTruthy();
-		expect(screen.queryByRole("article", { name: "Setting up" })).toBeNull();
+		expect(screen.queryByRole("article", { name: "Setting it up" })).toBeNull();
+		expect(screen.queryByRole("article", { name: "Check failed" })).toBeNull();
 	});
 });
 
@@ -1197,6 +1478,66 @@ describe("a project's values", () => {
 
 	const step = () => screen.findByRole("region", { name: "The values" });
 
+	test("the values step lists each variable, given or missing, with a field for a missing one", async () => {
+		renderPage({
+			setup: valuesDue,
+			values: {
+				values: [
+					{
+						name: "TEST_DATABASE_URL",
+						why: "The tests connect to a scratch database.",
+						asked: true,
+						set_at: "2026-11-17T10:15:00+00:00",
+						problem: null,
+					},
+					...listed.values,
+				],
+				done: false,
+			},
+		});
+
+		// The values step is the current one, mine, and open.
+		const list = await screen.findByRole("list", { name: "Setup steps" });
+		const current = within(list)
+			.getAllByRole("listitem")
+			.find((item) => item.getAttribute("aria-current") === "step");
+		expect(current?.textContent).toContain(STEP_TITLES.values);
+		expect(within(current as HTMLElement).getByText("Needs you")).toBeTruthy();
+
+		const values = await step();
+		const rows = within(
+			within(values).getByRole("list", { name: "Values" }),
+		).getAllByRole("listitem") as [HTMLElement, HTMLElement, HTMLElement];
+		// Each an inset with its name in mono, and why.
+		expect(rows).toHaveLength(3);
+		const [given, missing, cannot] = rows;
+		expect(within(given).getByText("TEST_DATABASE_URL").className).toMatch(
+			/mono/,
+		);
+		expect(
+			within(given).getByText("The tests connect to a scratch database."),
+		).toBeTruthy();
+		// Given, with its date, and no field.
+		expect(within(given).getByText("Given")).toBeTruthy();
+		expect(within(given).getByText(/17 Nov 2026/)).toBeTruthy();
+		expect(within(given).queryByLabelText(/The value of/)).toBeNull();
+		expect(within(given).getByRole("button", { name: "Replace" })).toBeTruthy();
+		// Missing, with its password field and Give.
+		expect(within(missing).getByText("Missing")).toBeTruthy();
+		expect(
+			within(missing)
+				.getByLabelText("The value of STRIPE_TEST_KEY")
+				.getAttribute("type"),
+		).toBe("password");
+		expect(within(missing).getByRole("button", { name: "Give" })).toBeTruthy();
+		// Cannot be given, with no field.
+		expect(within(cannot).getByText("Cannot be given")).toBeTruthy();
+		expect(within(cannot).queryByLabelText("The value of PATH")).toBeNull();
+		expect(
+			within(values).getByRole("button", { name: "Add a value" }),
+		).toBeTruthy();
+	});
+
 	test("the step lists what the setup asked for, and a value given is never shown", async () => {
 		const { giveValue, loadSetup } = renderPage({
 			setup: valuesDue,
@@ -1645,7 +1986,7 @@ describe("a project's page, cards first", () => {
 		const { loadCards } = renderPage({ setup: failing });
 
 		// Setting up: its steps in place of the cards, which are not read.
-		const setup = await screen.findByRole("article", { name: "Setting up" });
+		const setup = await screen.findByRole("article", { name: "Setting it up" });
 		expect(screen.queryByRole("region", { name: "Cards" })).toBeNull();
 		expect(loadCards).not.toHaveBeenCalled();
 		// In the cards column, before the side column's workers.
@@ -1660,7 +2001,7 @@ describe("a project's page, cards first", () => {
 			setup: { ...failing, state: "registered" },
 			loadCards: () => Promise.resolve(CARDS),
 		});
-		const above = await screen.findByRole("article", { name: "Setting up" });
+		const above = await screen.findByRole("article", { name: "Check failed" });
 		const cards = await screen.findByRole("region", { name: "Cards" });
 		expect(
 			above.compareDocumentPosition(cards) & Node.DOCUMENT_POSITION_FOLLOWING,
