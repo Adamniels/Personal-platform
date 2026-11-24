@@ -306,7 +306,11 @@ export function SetupPanel({
 
 	if (setup.state !== "setting_up") {
 		return (
-			<Card title="Check failed" className={styles.card} attention>
+			<Card
+				title="Check failed"
+				className={styles.card}
+				attention={failedCheck(setup)}
+			>
 				<div className={styles.body}>
 					<p className={styles.line}>{NEWER_FAILED}</p>
 					{check}

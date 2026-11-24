@@ -997,6 +997,28 @@ describe("a project's setup", () => {
 			above.compareDocumentPosition(cards) & Node.DOCUMENT_POSITION_FOLLOWING,
 		).toBeTruthy();
 		expect(screen.queryByRole("article", { name: "Setting it up" })).toBeNull();
+		// It needs me, so it has the accent border and says so, and Check
+		// again is the page's one primary.
+		expect(within(above).getByText("Needs you")).toBeTruthy();
+		await screen.findByRole("article", { name: "Workers" });
+		expect(
+			screen
+				.getAllByRole("button")
+				.filter((button) => /primary/.test(button.className))
+				.map((button) => button.textContent),
+		).toEqual(["Check again"]);
+		cleanup();
+
+		// While a check of that version runs, it is not mine.
+		renderPage({
+			setup: { ...failing, state: "registered", checking: true },
+			loadCards: () => Promise.resolve({ cards: [], features: [] }),
+		});
+		const running = await screen.findByRole("article", {
+			name: "Check failed",
+		});
+		expect(within(running).getByText(CHECK_RUNNING)).toBeTruthy();
+		expect(within(running).queryByText("Needs you")).toBeNull();
 	});
 
 	test("a registered project with nothing failed shows no setup", async () => {
