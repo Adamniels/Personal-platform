@@ -8,6 +8,7 @@ import {
 import { afterEach, describe, expect, test } from "vitest";
 import { App } from "./app";
 import type { DecisionItem } from "./decision-issue";
+import { choose } from "./inbox.testing";
 import type { Status } from "./status";
 import type { WaitingList } from "./waiting";
 
@@ -108,9 +109,8 @@ describe("a decision to look at", () => {
 		const region = await screen.findByRole("region", {
 			name: /Decisions to look at/,
 		});
-		const shown = within(
-			within(region).getByRole("article", { name: "Show it on every list" }),
-		);
+		expect(within(region).getAllByRole("link")).toHaveLength(1);
+		const shown = within(await choose("Show it on every list"));
 		expect(screen.getByRole("tab", { name: "Waiting for you 1" })).toBeTruthy();
 		expect(shown.getByText("To look at")).toBeTruthy();
 		expect(shown.getByText("Adamniels/Fodr")).toBeTruthy();

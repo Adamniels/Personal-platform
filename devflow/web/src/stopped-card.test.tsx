@@ -140,12 +140,12 @@ function open(
 	return { sendBackCard, merge };
 }
 
-async function stoppedGroup() {
-	return within(
-		await within(screen.getByRole("tabpanel")).findByRole("region", {
-			name: "Stopped",
-		}),
-	);
+/** The tab, once the Stopped group is in its queue; its first item is
+ * open. */
+async function stoppedTab() {
+	const tab = within(screen.getByRole("tabpanel"));
+	await tab.findByRole("region", { name: "Stopped" });
+	return tab;
 }
 
 afterEach(cleanup);
@@ -154,7 +154,7 @@ describe("a stopped card", () => {
 	test("shows under Stopped with why, and offers a comment and its issue, never Merge", async () => {
 		open(list([stopped()]));
 
-		const group = await stoppedGroup();
+		const group = await stoppedTab();
 		const card = within(
 			group.getByRole("article", { name: "Show the empty state" }),
 		);
@@ -173,7 +173,7 @@ describe("a stopped card", () => {
 	test("Comment to run again posts the owner's comment on the card, and the list is read again", async () => {
 		const { sendBackCard } = open(list([stopped()]), { after: list([]) });
 
-		const group = await stoppedGroup();
+		const group = await stoppedTab();
 		fireEvent.click(group.getByRole("button", { name: RUN_AGAIN }));
 		fireEvent.change(group.getByLabelText("A comment runs it again."), {
 			target: { value: "Leave the sorting out." },
@@ -198,7 +198,7 @@ describe("a stopped card", () => {
 	test("without a link, it says how to comment and offers nothing to send", async () => {
 		open(list([stopped()]), { login: "none" });
 
-		const group = await stoppedGroup();
+		const group = await stoppedTab();
 		await waitFor(() =>
 			expect(
 				(
@@ -214,7 +214,7 @@ describe("a stopped card", () => {
 	test("an address that is not https is shown as no link", async () => {
 		open(list([stopped({ web_url: "javascript:alert(1)" })]));
 
-		const group = await stoppedGroup();
+		const group = await stoppedTab();
 		expect(group.queryByRole("link", { name: "Open on GitHub" })).toBeNull();
 	});
 });
@@ -223,7 +223,7 @@ describe("a project that cannot run its cards", () => {
 	test("shows under Stopped with its message, counted with the stopped cards", async () => {
 		open(list([stopped()], [failing()]));
 
-		const group = await stoppedGroup();
+		const group = await stoppedTab();
 		const project = within(
 			group.getByRole("article", {
 				name: "Dev flow cannot run Fodr's cards: Claude Code is not logged in with the token",
@@ -240,7 +240,7 @@ describe("a project that cannot run its cards", () => {
 	test("alone, the list is not empty", async () => {
 		open(list([], [failing()]));
 
-		expect(await stoppedGroup()).toBeTruthy();
+		expect(await stoppedTab()).toBeTruthy();
 		expect(screen.queryByText("Nothing waits for you")).toBeNull();
 	});
 });

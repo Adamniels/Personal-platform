@@ -144,7 +144,9 @@ describe("a stopped project", () => {
 
 		const item = await card();
 		const region = screen.getByRole("region", { name: /Stopped/ });
-		expect(within(region).getByRole("article", { name: TITLE })).toBeTruthy();
+		expect(
+			within(region).getByRole("link", { name: new RegExp(`^${TITLE} `) }),
+		).toBeTruthy();
 		expect(screen.getByRole("tab", { name: "Waiting for you 1" })).toBeTruthy();
 		expect(item.getByText("Stopped", { exact: true })).toBeTruthy();
 		expect(item.getByText("Adamniels/Personal-platform")).toBeTruthy();
