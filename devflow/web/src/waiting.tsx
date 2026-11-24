@@ -693,7 +693,11 @@ export function runnerTiles(item: WaitingItem): Tile[] {
 					line: "the runner has it",
 				}
 			: waiting
-				? {
+				? // Your decision against Your merge is read from the decisions
+					// parsed from the body, a proxy for owner-decision against
+					// owner-merge, which the list does not carry. They agree
+					// whenever the body marks its decisions as the template asks.
+					{
 						label: "Why it waits",
 						tone: "needs-you",
 						status: item.decisions.length > 0 ? "Your decision" : "Your merge",
