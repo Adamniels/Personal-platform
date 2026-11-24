@@ -1,0 +1,82 @@
+/* "Switch" in section 4 of design/DESIGN.md. The native checkbox is the track,
+ * drawn with appearance: none, and the thumb a span over it, so the focus ring
+ * from the base rule in tokens.css lands on the real control and is never
+ * overridden here. */
+
+/* The whole row is the target, as for the checkbox: the label and its help on
+ * the left, the switch on the right. */
+.row {
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-3);
+	min-height: var(--row-h);
+	color: var(--text);
+	cursor: pointer;
+}
+
+.text {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.label {
+	font-weight: 500;
+}
+
+/* Help in caption style, as a field's. */
+.help {
+	color: var(--text-3);
+	font-size: var(--text-caption-size);
+	line-height: var(--text-caption-line);
+}
+
+.control {
+	position: relative;
+	flex: none;
+	display: inline-flex;
+}
+
+/* Off: a 44 by 26px pill with no fill and a 1px border-strong border. */
+.track {
+	box-sizing: border-box;
+	appearance: none;
+	width: 44px;
+	height: 26px;
+	margin: 0;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-full);
+	background: transparent;
+	cursor: inherit;
+}
+
+/* An 18px round thumb, 3px from the edge: border-strong at the left when
+ * off. It takes no clicks, so the input under it gets them. */
+.thumb {
+	position: absolute;
+	top: 4px;
+	left: 3px;
+	width: 18px;
+	height: 18px;
+	border-radius: var(--radius-full);
+	background: var(--border-strong);
+	pointer-events: none;
+}
+
+/* On: ok fill and border, the thumb in surface at the right. */
+.track:checked {
+	border-color: var(--ok);
+	background: var(--ok);
+}
+
+.track:checked + .thumb {
+	left: 23px;
+	background: var(--surface);
+}
+
+.row:has(.track:disabled) {
+	color: var(--text-3);
+	cursor: not-allowed;
+}

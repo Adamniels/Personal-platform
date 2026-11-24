@@ -27,6 +27,7 @@ export {
 	type StepListProps,
 	type StepState,
 } from "./step-list/step-list";
+export { Switch, type SwitchProps } from "./switch/switch";
 export {
 	FilterPill,
 	type FilterPillProps,

@@ -13,6 +13,7 @@ import { ProgressSection } from "./sections/progress-section";
 import { SelectSection } from "./sections/select-section";
 import { StatusSection } from "./sections/status-section";
 import { StepListSection } from "./sections/step-list-section";
+import { SwitchSection } from "./sections/switch-section";
 import { TableSection } from "./sections/table-section";
 import { TabsSection } from "./sections/tabs-section";
 import { TextAreaSection } from "./sections/text-area-section";
@@ -44,6 +45,7 @@ export function Gallery() {
 					<TextAreaSection />
 					<SelectSection />
 					<CheckboxSection />
+					<SwitchSection />
 					<BadgeSection />
 					<StatusSection />
 					<ChipSection />
