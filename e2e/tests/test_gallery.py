@@ -13,6 +13,7 @@ import pytest
 from playwright.sync_api import Locator, Page, expect
 
 from conftest import VIEWPORTS, capture
+from look import assert_nothing_scrolls_sideways
 
 GALLERY = "/design/gallery/"
 THEMES = ["light", "dark"]
@@ -1158,6 +1159,57 @@ def test_a_needs_you_banner_reads_its_values(page: Page, theme: str):
         card.evaluate(BOX_STYLE)["borders"]
         == [resolve(page, "--accent-border", "color")] * 4
     )
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_verdict_tile_reads_its_values(page: Page, theme: str, viewport: str):
+    open_gallery(page, theme)
+    region = page.get_by_role("region", name="Verdict tile")
+    grid = region.get_by_role("list", name="A pull request at a glance")
+    tiles = grid.get_by_role("listitem")
+    expect(tiles).to_have_count(3)
+
+    # The grid: no bullets, the tiles --inset-gap apart.
+    style = grid.evaluate(BOX_STYLE)
+    assert style["gap"] == resolve(page, "--inset-gap", "column-gap")
+    assert style["rowGap"] == resolve(page, "--inset-gap", "row-gap")
+    assert style["padding"] == ["0px"] * 4
+
+    # Each tile an inset: --surface-2, --radius-md, padding 8px 12px, no
+    # border, at least --row-h tall.
+    row_h = float(resolve(page, "--row-h", "height").removesuffix("px"))
+    for tile in tiles.all():
+        style = tile.evaluate(BOX_STYLE)
+        assert style["background"] == resolve(page, "--surface-2", "background-color")
+        assert style["radii"] == radii(page, "--radius-md")
+        assert style["padding"] == ["8px", "12px", "8px", "12px"]
+        assert style["borderWidths"] == ["0px"] * 4
+        assert float(style["height"].removesuffix("px")) >= row_h - 0.5
+
+    # The label in caption style at 600 in --text-2, the status label beside
+    # it, and the line under them in the mono font, --text-2.
+    first = tiles.nth(0)
+    label = first.get_by_text("The check", exact=True)
+    status = first.get_by_text("Passed", exact=True)
+    line = first.get_by_text("npm run check · exit 0", exact=True)
+    style = label.evaluate(BOX_STYLE)
+    assert style["fontSize"] == resolve(page, "--text-caption-size", "font-size")
+    assert style["weight"] == "600"
+    assert style["color"] == resolve(page, "--text-2", "color")
+    assert status.evaluate(BOX_STYLE)["background"] == resolve(
+        page, "--ok-soft", "background-color"
+    )
+    style = line.evaluate(BOX_STYLE)
+    assert style["fontFamily"] == resolve(page, "--font-mono", "font-family")
+    assert style["color"] == resolve(page, "--text-2", "color")
+    label_box, line_box = label.bounding_box(), line.bounding_box()
+    assert line_box["y"] >= label_box["y"] + label_box["height"] - 0.5
+
+    # Three in a row on desktop, stacked on a phone.
+    rows = {round(tile.bounding_box()["y"]) for tile in tiles.all()}
+    assert len(rows) == (1 if viewport == "desktop" else 3), rows
+    assert_nothing_scrolls_sideways(page)
+    capture(page, f"gallery-verdict-tile-{theme}")
 
 
 @pytest.mark.parametrize("theme", THEMES)

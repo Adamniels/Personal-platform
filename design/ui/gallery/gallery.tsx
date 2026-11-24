@@ -20,6 +20,7 @@ import { TextAreaSection } from "./sections/text-area-section";
 import { TextFieldSection } from "./sections/text-field-section";
 import { TimelineSection } from "./sections/timeline-section";
 import { ToastSection } from "./sections/toast-section";
+import { VerdictTileSection } from "./sections/verdict-tile-section";
 import { ThemeControl } from "./theme-control";
 
 /** Every component of @platform/ui, one section each, in every kind and
@@ -55,6 +56,7 @@ export function Gallery() {
 					<CardSection />
 					<EmptyStateSection />
 					<NeedsYouBannerSection />
+					<VerdictTileSection />
 					<TimelineSection />
 					<StepListSection />
 					<TableSection />

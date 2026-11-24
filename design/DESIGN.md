@@ -111,6 +111,9 @@ Thin numerals: the UI font at weight 300, `letter-spacing: var(--tracking-num)`,
 ### Inset list row
 A row inside a card: `--surface-2` fill, `--radius-md` (`--radius-sm` for a row of one line), padding 8px 12px, min height `--row-h`, with `--inset-gap` between rows and no divider lines. Left to right: a time in the mono font or a sprite tile, the title at weight 500 with an optional mono line under it, and a status label on the right. In a list where one row is current, such as the day's events, only the current row has the fill and the others are plain. A short list of a label and a value alone, with no status and nothing to open, is plain rows 36px high with a 1px `--border` under each, the label in `--text-2` and the value in the mono font.
 
+### Verdict tile
+An inset that says at a glance whether something is safe to act on: `--surface-2`, `--radius-md`, padding 8px 12px, min height `--row-h`. Its label in caption style, weight 600, `--text-2`, a status label on the right of it, and an optional line of facts under them in the mono font, `--text-2`, such as "npm run check · exit 0". Where it is narrow, the status wraps under the label. Tiles sit in a grid, `repeat(auto-fit, minmax(180px, 1fr))`, `--inset-gap` apart, so they share a row on desktop and stack on phone.
+
 ### Needs you banner
 `--accent-soft` fill, 1px `--accent-border`, `--radius-md`, padding 14px 16px: a warning icon in `--accent-text`, the words "Needs you" in caption style, `--accent-text`, weight 600, then the question at weight 600, an optional line of consequence in `--text-2`, and at most three actions, the recommended one primary. One per view. The card that holds it also takes the `--accent-border` outline.
 

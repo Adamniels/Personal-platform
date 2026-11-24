@@ -99,6 +99,12 @@ included, and each follows its entry in section 4 of `DESIGN.md`.
   words "Needs you" before the message, so it is never colour alone. It is a `div` on
   `--accent-soft` with the accent border; one per view, and the card holding it takes the accent
   border itself, through the card's `attention`.
+- `VerdictTiles`, with `VerdictTile`: `VerdictTiles` is a `ul`, the grid
+  `repeat(auto-fit, minmax(180px, 1fr))`, so give it an `aria-label` where no heading names it,
+  and its tiles are its direct children. Each `VerdictTile` takes `label`, what it judges, such as
+  "The check"; `tone` and `status`, the status label's tone and word; and an optional `line`, the
+  facts in the mono font, such as "npm run check · exit 0". It is read in that order: the label,
+  the status, the line.
 - `EmptyState`: `title`, the line that says what is empty; `detail`, the line that says what
   happens next; and an optional `action`, one element, normally a secondary `Button`. It is a
   `div`, with no illustration.
@@ -190,8 +196,8 @@ itself: `open`, `aria-labelledby`, and the `onCancel`, `onClose`, `onClick`, `on
 `onKeyDown` it handles. `ToastProvider` renders no element of its own beside the stack.
 
 `Status`, `Badge`, `Chip`, `Progress`, `Meter`, `Card`, `NeedsYouBanner`, `EmptyState`, `Timeline`,
-`TimelineEntry`, `StepList`, `StepListItem`, `TabPanel`, `Table`, `FilterRow`, `FilterPill` and `Paging` render a `span`, a
-`div`, an `article`, an `ol`, an `li`, a `section` or a `nav`, the table's being its wrapper, and
+`TimelineEntry`, `StepList`, `StepListItem`, `VerdictTiles`, `VerdictTile`, `TabPanel`, `Table`, `FilterRow`, `FilterPill` and `Paging` render a `span`, a
+`div`, an `article`, an `ol`, a `ul`, an `li`, a `section` or a `nav`, the table's being its wrapper, and
 take everything that element takes, apart from the props they set themselves, such as a panel's `id`,
 `role`, `hidden` and `aria-labelledby`. `Tabs` takes a `div`'s, and `Tab` a `button`'s, without
 the ones the pattern decides: its `id`, `role`, `type`, `tabIndex`, `aria-selected` and
