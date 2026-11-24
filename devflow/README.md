@@ -324,16 +324,49 @@ answer's `count` as a badge once it is more than none. Its parts, top to bottom:
   when every project is fine, one muted "Updated <time> ago" from the oldest `last_success_at`. A
   secondary "Refresh" beside it posts to every project's refresh route and then reads the list
   again.
-- Seven groups, in this order, each a section heading in the heading font's capitals with its
-  count, and shown only with items: "Questions before starting", Dev flow's cards that wait for the
-  owner's answers to their reading's questions, see "Reading a card" under "Jobs"; "Pull requests waiting", Dev flow's own waiting cards, then
+- With something waiting, the inbox: a wrapping row, as the main and side column of section 2 of
+  `design/DESIGN.md`, the queue first, `flex: 1 1 340px`, and the chosen item's detail beside it,
+  `flex: 999 1 560px`, both `min-width: 0`, so the detail goes under the queue where they do not
+  fit side by side. The queue is a card, a `nav` named "The queue", holding the eight
+  groups, in this order, each a heading at caption size, weight 600, `--text-2`, with its count in
+  the mono font on the right, and shown only with items: "Questions before starting", in
+  `--accent-text`, Dev flow's cards that wait for the owner's answers to their reading's questions,
+  see "Reading a card" under "Jobs"; "Pull requests waiting", Dev flow's own waiting cards, then
   items of kind `waiting` not sent back; "Features ready for your review", Dev flow's features
   ready for review or waiting for the owner, see "Reviewing a feature", each with a secondary
-  "Merge into <default>" while it is offered, see "Merging a feature"; "Stopped", kind `stopped` not sent back; "Refused",
-  Dev flow's cards refused as too thin to build, see "Reading a card" under "Jobs"; "Decisions to
-  look at", the issues Dev flow opened for decisions on cards it merged; and "Sent back, the runner has it", every item
-  sent back, muted, and not in the tab's count. Within a group, by `<owner>/<name>` and then
-  number.
+  "Merge into <default>" while it is offered, see "Merging a feature"; "Stopped", Dev flow's stopped
+  projects, its projects that cannot run their cards, its stopped cards, then kind `stopped` not
+  sent back; "Setup", Dev flow's projects whose setup run waits or stopped, then those whose newest
+  check of their setup failed, see "Setting up a project"; "Refused", Dev flow's cards refused as
+  too thin to build, see "Reading a card" under "Jobs"; "Decisions to look at", the issues Dev flow
+  opened for decisions on cards it merged; and "Sent back, the runner has it", every item sent
+  back, its heading and titles in `--text-3`, and not in the tab's count. Within a group, the
+  runner's items by `<owner>/<name>` and then number. Each item is a row, a link to its address:
+  an 8px dot in its status colour, `--accent` for one that waits, `--danger` for one that stopped,
+  failed or was refused and `--info` for one sent back, its title at weight 500 cut with an
+  ellipsis, and under it a mono meta line of the repository, the number and the one fact that
+  matters, such as "2 decisions", "stopped", "3 questions", "too thin", "exit 1" or "merged in
+  #197". The chosen row, `aria-current`, sits on `--surface-2` with a 1px `--border-strong`, the
+  current row of "Inset list row"; the others are plain. The queue has no button: the view's one
+  primary button is in the detail. The detail holds the chosen item, rendered by the component its
+  kind has, below; the first item until another is chosen.
+- The address names the chosen item, `/devflow?item=<key>`. Choosing a row pushes its address with
+  `pushState`, and the inbox reads the key as the page loads and on `popstate`, so a link opens its
+  item and Back returns to the item before it; a key that names no item shows the first. The key
+  names exactly one item, one pattern per kind, `<project>` the item's `project_id`: a runner
+  item's `id`; `card/<project>/<number>` for a waiting or a stopped card, since a card is in one
+  state at a time; `feature/<project>/<number>`; `questions/<project>/<number>` for a question
+  card; `refused/<project>/<number>`; `decision/<id>`; `stopped/<project>` for a project stopped
+  by a commit Dev flow did not put there; `failing/<project>` for a project that cannot run its
+  cards; `setup-check/<project>` for a failed check of its setup; and `setup-run/<project>` for a
+  setup run that waits or stopped. Two items never share a key: Stopped can hold a stopped project
+  and a failing one at once, and Setup a failed check and a setup run. No server route is added:
+  `/devflow` answers the page with any query.
+- On a phone, below 640px, the inbox is two screens: at `/devflow` the queue alone, and at an
+  item's address the item alone, under a back link "Waiting for you", which goes to `/devflow`,
+  and its place in the queue in the mono font, "1 of 6", counting every row. The item's actions,
+  its card's footer, are a bar above the tab bar, `--surface` with a 1px top `--border`, which
+  stays in view as the item scrolls.
 - An item is the package's `Card`, titled by the pull request, its status label on the right:
   "Waiting for you" in the needs you tone, with the card's attention outline, "Stopped" or "Sent
   back". Under the title, `<owner>/<name> #<number>` in the mono font, then the summary. A waiting
@@ -354,7 +387,7 @@ answer's `count` as a badge once it is more than none. Its parts, top to bottom:
   actions wrap.
 - The actions, before "Open on GitHub": a waiting item has "Merge" and a secondary "Send back"; a
   stopped item a secondary "Comment to run again" and no Merge; an item sent back nothing but the
-  link. Only the first waiting item's Merge is primary, the rest secondary, by the design's one
+  link. The chosen item's Merge is primary, since it is the one item in view, by the design's one
   primary button per view. Merge is disabled, with a line under it saying why, when `can_merge` is
   false, "The checks are not green on this commit yet", or when GitHub is not linked or the link
   has expired, which `GET /devflow/api/status` says; the comment buttons are disabled for the
@@ -374,7 +407,7 @@ answer's `count` as a badge once it is more than none. Its parts, top to bottom:
   request", when it has one, "The agent decided" with
   the decisions the agent marked for the owner, as an item's, and "and <n> more it did not need you
   for", and "The check", "Dev flow ran <check> on <commit>: exit <code>.". Its actions are "Merge",
-  primary when it is the group's first entry, and "Open on GitHub" to its pull request, offered
+  primary as the chosen item's, and "Open on GitHub" to its pull request, offered
   only when its address is https, with a secondary "Send back" between them, which opens a
   `TextArea`, "What should the developer change?", with "Send" and "Cancel", posts to
   `/devflow/api/projects/{id}/cards/{number}/send-back`, and ends in a toast, "Sent back #<pull
@@ -397,7 +430,7 @@ data" in `docs/devflow-architecture.md`.
 
 "Running now" and "Usage and history" join with the parts that build them, never as empty tabs. The address is the state,
 through the History API and no router library (`src/address.ts`): a tab pushes its section's
-address, Back and Forward come back as `popstate`, and an address that names no section shows a
+address, an item in the inbox its own, see above, Back and Forward come back as `popstate`, and an address that names no section shows a
 not found state under the tabs; a project's name pushes its page's address, and "Back to Projects"
 the tab's. The list of sections and the project page's address live in `src/sections.ts`, and the
 addresses the service answers the page for in `src/DevFlow/Pages/PageEndpoints.cs`; the two change
