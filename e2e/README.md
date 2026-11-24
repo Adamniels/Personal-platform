@@ -77,7 +77,8 @@ Screenshots land in `screenshots/`, which is git ignored.
   as connecting a repository needs.
 - `viewport` runs the test twice, `[desktop]` (1280x800) and `[phone]` (390x844), and sizes the page.
 - `capture(page, name)` writes a full page screenshot to `screenshots/<name>-<viewport>.png` and
-  returns the path. It needs the page to be sized by the `viewport` fixture.
+  returns the path. It needs the page sized by the `viewport` fixture, or set to `WIDE` (1920x1080),
+  which it names `wide` and which the fixture never runs a test at.
 
 `register_and_log_in(page, invite_code, base_url)` registers a fresh account with the code, logs in and
 returns its email, ending on the front page, for a test that only needs to be logged in. Its two
