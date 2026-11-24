@@ -202,7 +202,7 @@ describe("the projects on the Projects tab", () => {
 		expect(rows[1]?.textContent).toContain("Export the feeding plan");
 		expect(rows[1]?.textContent).toContain("1 / 3 landed");
 		expect(rows[2]?.textContent).toContain("Worker");
-		expect(rows[2]?.textContent).toContain("1 worker · seen 1m ago");
+		expect(rows[2]?.textContent).toContain("1 worker · seen 1 minute ago");
 		expect(within(rows[2] as HTMLElement).getByText("Running")).toBeTruthy();
 
 		// No banner: it can run.
