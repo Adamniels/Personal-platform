@@ -33,8 +33,69 @@
 }
 
 .detail {
+	display: flex;
 	flex: 999 1 560px;
+	flex-direction: column;
+	gap: var(--space-3);
 	min-width: 0;
+}
+
+/* The way back to the queue and the item's place in it, on a phone only. */
+.back {
+	display: none;
+	align-items: center;
+	gap: var(--space-2);
+	margin: 0;
+}
+
+.backLink {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	min-height: var(--control-h);
+	border-radius: var(--radius-sm);
+	color: var(--text-2);
+	font-weight: 600;
+	text-decoration: none;
+}
+
+.backLink:focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: var(--focus-offset);
+}
+
+.position {
+	color: var(--text-3);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+}
+
+/* On a phone, two screens: the queue alone, or the item the address names
+ * alone, with the way back above it and its actions in a bar above the tab
+ * bar. The bar is the card's footer, which holds the actions, kept in view
+ * as the item scrolls. */
+@media (max-width: 639.98px) {
+	.inbox[data-open] .queue,
+	.inbox:not([data-open]) .detail {
+		display: none;
+	}
+
+	.back {
+		display: flex;
+	}
+
+	.detail article > div:has(> .footer) {
+		position: sticky;
+		bottom: calc(var(--tab-bar-h) + env(safe-area-inset-bottom, 0px));
+		z-index: 1;
+		margin: 0 calc(-1 * var(--card-pad)) calc(-1 * var(--card-pad));
+		padding: var(--space-3) var(--card-pad);
+		border-top: 1px solid var(--border);
+		border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+		background: var(--surface);
+	}
 }
 
 /* A group in the queue: its heading over its rows. */

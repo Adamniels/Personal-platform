@@ -529,7 +529,12 @@ function Inbox({ groups, act }: { groups: Group[]; act: Act }) {
 		(group) => group.look === "muted" && group.entries.includes(chosen),
 	);
 	return (
-		<div className={styles.inbox}>
+		// On a phone the inbox is two screens: the queue, and the item the
+		// address names on a screen of its own.
+		<div
+			className={styles.inbox}
+			data-open={chosen.key === asked ? "" : undefined}
+		>
 			<Queue
 				groups={groups}
 				chosen={chosen.key}
@@ -538,16 +543,56 @@ function Inbox({ groups, act }: { groups: Group[]; act: Act }) {
 			<div
 				className={muted ? `${styles.detail} ${styles.muted}` : styles.detail}
 			>
+				<Back position={entries.indexOf(chosen) + 1} of={entries.length} />
 				<Fragment key={chosen.key}>{chosen.detail(act)}</Fragment>
 			</div>
 		</div>
 	);
 }
 
+/** The way back to the queue from an item's screen, and where the item is
+ * in it; shown on a phone only. */
+function Back({ position, of }: { position: number; of: number }) {
+	return (
+		<p className={styles.back}>
+			<a
+				className={styles.backLink}
+				href={TAB}
+				onClick={(event) => {
+					if (plainClick(event)) {
+						event.preventDefault();
+						navigate(TAB);
+					}
+				}}
+			>
+				<svg
+					aria-hidden="true"
+					viewBox="0 0 24 24"
+					width="20"
+					height="20"
+					fill="none"
+					stroke="currentColor"
+					strokeWidth="2"
+					strokeLinecap="round"
+					strokeLinejoin="round"
+				>
+					<path d="m15 18-6-6 6-6" />
+				</svg>
+				Waiting for you
+			</a>{" "}
+			<span className={styles.position}>
+				{position} of {of}
+			</span>
+		</p>
+	);
+}
+
+const TAB = "/devflow";
+
 /** The address of an item: the tab's own, with the item's key, its slashes
  * kept so it reads as the pattern is written. */
 export const itemPath = (key: string) =>
-	`/devflow?item=${encodeURIComponent(key).replaceAll("%2F", "/")}`;
+	`${TAB}?item=${encodeURIComponent(key).replaceAll("%2F", "/")}`;
 
 /** The queue: a card holding every group, its heading and its count over
  * its rows. No button: the view's one primary is in the detail. */

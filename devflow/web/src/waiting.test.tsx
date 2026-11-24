@@ -1141,6 +1141,24 @@ describe("the inbox", () => {
 		push.mockRestore();
 	});
 
+	test("an item's screen has the way back and its place in the queue", async () => {
+		openWith(answering(everything()), `/devflow?item=refused/${PROJECT}/4`);
+		expect(await card("Count the habits")).toBeTruthy();
+
+		// The inbox is open on the item the address names, the fourth of five.
+		const inbox = screen.getByRole("navigation", { name: "The queue" })
+			.parentElement as HTMLElement;
+		expect(inbox.hasAttribute("data-open")).toBe(true);
+		expect(panel().getByText("4 of 5")).toBeTruthy();
+		const back = panel().getByRole("link", { name: "Waiting for you" });
+		expect(back.getAttribute("href")).toBe("/devflow");
+
+		fireEvent.click(back);
+		expect(window.location.search).toBe("");
+		expect(inbox.hasAttribute("data-open")).toBe(false);
+		expect(panel().getByText("1 of 5")).toBeTruthy();
+	});
+
 	test("an address opens its item, an unknown one the first", async () => {
 		openWith(answering(everything()), `/devflow?item=refused/${PROJECT}/4`);
 		expect(await card("Count the habits")).toBeTruthy();
