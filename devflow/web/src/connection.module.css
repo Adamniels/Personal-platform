@@ -75,6 +75,25 @@
 	gap: var(--space-2);
 }
 
+/* On phone the item is the full width, and the status and the action move
+ * to a line of their own under the name, the status on the left and the
+ * action on the right, so the name and its mono line keep the width. */
+@media (max-width: 639.98px) {
+	.row {
+		flex-wrap: wrap;
+		row-gap: var(--space-2);
+	}
+
+	.text {
+		flex-basis: calc(100% - 20px - var(--space-3));
+	}
+
+	.end {
+		flex: 1 1 100%;
+		justify-content: space-between;
+	}
+}
+
 /* "Needs you" for assistive technology alone, so the outline is never the
  * only signal (hard rule 5). */
 .hidden {

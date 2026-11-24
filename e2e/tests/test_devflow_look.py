@@ -485,14 +485,16 @@ def test_the_projects_tab_follows_the_look(
     accent = resolve(page, "--accent-border", "border-top-color")
     surface = resolve(page, "--surface", "background-color")
 
-    # Not linked: the state in words, on a plain item, one line 64px high.
+    # Not linked: the state in words, on a plain item, one line 64px high on
+    # desktop; on phone its status and action take a line of their own.
     expect(github.get_by_text("Not linked", exact=True)).to_be_visible()
     assert style(github)["borderColors"] == [border] * 4
     for item in (github, login):
         look = style(item)
         assert look["background"] == surface, look
         assert look["boxShadow"] == "none", look
-        assert round(item.bounding_box()["height"]) == 64
+        if viewport == "desktop":
+            assert round(item.bounding_box()["height"]) == 64
 
     stage_two_projects(page, base_url, devflow_world)
     page.goto("/devflow/projects")
@@ -502,7 +504,8 @@ def test_the_projects_tab_follows_the_look(
     expect(login.get_by_text("Given", exact=True)).to_be_visible()
     for item in (github, login):
         assert style(item)["borderColors"] == [border] * 4
-        assert round(item.bounding_box()["height"]) == 64
+        if viewport == "desktop":
+            assert round(item.bounding_box()["height"]) == 64
 
     # Connections, then the heading with Connect a repository, then the cards.
     projects = page.get_by_role("region", name="Projects")
@@ -537,7 +540,7 @@ def test_the_projects_tab_follows_the_look(
     assert count.evaluate("e => getComputedStyle(e).fontSize") == resolve(
         page, "--text-num-l-size", "font-size"
     )
-    ticks = fodr.get_by_role("img", name="1 of 3 cards need you")
+    ticks = fodr.get_by_role("img", name="1 of 3 cards needs you")
     colours = ticks.locator(":scope > *").evaluate_all(
         "ticks => ticks.map(t => getComputedStyle(t).backgroundColor)"
     )
