@@ -408,3 +408,26 @@
 	font-weight: 600;
 	overflow-wrap: anywhere;
 }
+
+/* "Edit settings", a link to the settings page drawn as a secondary button
+ * of section 4 of design/DESIGN.md: control-h, a pill, 1px border-strong,
+ * text, weight 500, surface-2 under the pointer. */
+.editSettings {
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	height: var(--control-h);
+	padding: 0 18px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-full);
+	color: var(--text);
+	font-size: 14px;
+	font-weight: 500;
+	text-decoration: none;
+	white-space: nowrap;
+}
+
+.editSettings:hover {
+	background: var(--surface-2);
+}

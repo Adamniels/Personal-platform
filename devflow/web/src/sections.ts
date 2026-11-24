@@ -1,6 +1,6 @@
 // Dev flow's sections, in the order of their tabs, each with its own address, and each showing its
-// own content, and a project's page and a card's page and a feature's page under it, which sit under
-// the Projects tab at their own addresses. "Running now" and "Usage and history" join with the
+// own content, and a project's page, its settings page, and a card's page and a feature's page under
+// it, which sit under the Projects tab at their own addresses. "Running now" and "Usage and history" join with the
 // parts that build them, never as empty tabs. The addresses the service answers with the page are in
 // src/DevFlow/Pages/PageEndpoints.cs, and the two change together.
 
@@ -44,6 +44,20 @@ export function projectAt(pathname: string): string | undefined {
 /** A project's page's address. */
 export function projectPath(id: string): string {
 	return `/devflow/projects/${encodeURIComponent(id)}`;
+}
+
+const SETTINGS_PAGE =
+	/^\/devflow\/projects\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/settings\/*$/i;
+
+/** The id of the project whose settings page an address names, a trailing
+ * slash aside, or undefined when it names none. */
+export function settingsAt(pathname: string): string | undefined {
+	return SETTINGS_PAGE.exec(pathname)?.[1]?.toLowerCase();
+}
+
+/** A project's settings page's address, under its project's. */
+export function settingsPath(id: string): string {
+	return `${projectPath(id)}/settings`;
 }
 
 const CARD_PAGE =

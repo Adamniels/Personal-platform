@@ -15,10 +15,10 @@ namespace DevFlow.Pages;
 public static class PageEndpoints
 {
     /// <summary>The addresses of the application, as route templates: one per tab, as
-    /// web/src/sections.ts lists them, a project's page under the Projects tab, by its id, and a
-    /// card's page and a feature's page under its project, by their numbers; the two change
-    /// together. Anything else under /devflow is 404.</summary>
-    public static readonly IReadOnlyList<string> Addresses = ["/devflow", "/devflow/projects", "/devflow/projects/{id:guid}", "/devflow/projects/{id:guid}/cards/{number:int}", "/devflow/projects/{id:guid}/features/{number:int}"];
+    /// web/src/sections.ts lists them, a project's page under the Projects tab, by its id, its
+    /// settings page under it, and a card's page and a feature's page under its project, by their
+    /// numbers; the two change together. Anything else under /devflow is 404.</summary>
+    public static readonly IReadOnlyList<string> Addresses = ["/devflow", "/devflow/projects", "/devflow/projects/{id:guid}", "/devflow/projects/{id:guid}/settings", "/devflow/projects/{id:guid}/cards/{number:int}", "/devflow/projects/{id:guid}/features/{number:int}"];
 
     /// <summary>
     /// Stops Dev flow at start when <paramref name="webRoot"/> holds no build, rather than serving a

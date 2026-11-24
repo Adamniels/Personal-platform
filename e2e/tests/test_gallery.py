@@ -483,6 +483,68 @@ def test_a_checkbox_reads_its_values(page: Page, theme: str):
     assert done["decoration"] == "line-through"
 
 
+# The "Switch" of section 4 of design/DESIGN.md: a 44 by 26px track, its
+# 18px thumb 3px from the edge, border-strong when off, ok with a surface
+# thumb when on.
+SWITCH_STYLE = """element => {
+    const style = getComputedStyle(element);
+    return {
+        background: style.backgroundColor,
+        borders: [style.borderTopColor, style.borderRightColor,
+                  style.borderBottomColor, style.borderLeftColor],
+        borderWidth: style.borderTopWidth,
+        radius: style.borderTopLeftRadius,
+    };
+}"""
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_switch_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    region = page.get_by_role("region", name="Switch")
+
+    def parts(name: str) -> tuple[Locator, Locator]:
+        track = region.get_by_role("switch", name=name, exact=True)
+        return track, track.locator("xpath=following-sibling::span[1]")
+
+    track, thumb = parts("Off")
+    box = track.bounding_box()
+    assert box is not None and (box["width"], box["height"]) == (44, 26)
+    off = track.evaluate(SWITCH_STYLE)
+    assert off["background"] == resolve(page, None, "background-color")
+    assert off["borders"] == [resolve(page, "--border-strong", "color")] * 4
+    assert off["borderWidth"] == "1px"
+    assert off["radius"] == resolve(page, "--radius-full", "border-top-left-radius")
+    knob = thumb.bounding_box()
+    assert knob is not None and (knob["width"], knob["height"]) == (18, 18)
+    assert knob["x"] - box["x"] == 3
+    assert thumb.evaluate(SWITCH_STYLE)["background"] == resolve(
+        page, "--border-strong", "background-color"
+    )
+
+    track, thumb = parts("On")
+    box = track.bounding_box()
+    on = track.evaluate(SWITCH_STYLE)
+    assert on["background"] == resolve(page, "--ok", "background-color")
+    assert on["borders"] == [resolve(page, "--ok", "color")] * 4
+    knob = thumb.bounding_box()
+    assert box is not None and knob is not None
+    assert box["x"] + box["width"] - (knob["x"] + knob["width"]) == 3
+    assert thumb.evaluate(SWITCH_STYLE)["background"] == resolve(
+        page, "--surface", "background-color"
+    )
+
+    # The whole row is the target, --row-h tall at least: its text turns it.
+    row = region.locator("label").filter(has_text=re.compile(r"^Off$"))
+    row_box = row.bounding_box()
+    assert row_box is not None
+    assert row_box["height"] >= float(
+        resolve(page, "--row-h", "height").removesuffix("px")
+    )
+    row.get_by_text("Off", exact=True).click()
+    expect(region.get_by_role("switch", name="Off", exact=True)).to_be_checked()
+
+
 @pytest.mark.parametrize(
     ("title", "role", "label"),
     [
@@ -490,6 +552,7 @@ def test_a_checkbox_reads_its_values(page: Page, theme: str):
         ("Text area", "textbox", "Empty"),
         ("Select", "combobox", "Empty"),
         ("Checkbox", "checkbox", "Unchecked"),
+        ("Switch", "switch", "Off"),
     ],
 )
 def test_each_control_shows_the_focus_ring(

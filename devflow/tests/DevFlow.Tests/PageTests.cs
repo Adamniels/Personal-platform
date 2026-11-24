@@ -26,6 +26,7 @@ public sealed class PageTests : IAsyncLifetime
     [InlineData("/devflow?tab=1")]
     [InlineData("/devflow/projects?x=1")]
     [InlineData("/devflow/projects/0190a8f0-0000-7000-8000-000000000001")]
+    [InlineData("/devflow/projects/0190a8f0-0000-7000-8000-000000000001/settings")]
     public async Task EachSectionAnswersTheAppWithAToken(string address)
     {
         var response = await DevFlow.Get(address, Contract.Token);

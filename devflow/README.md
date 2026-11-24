@@ -181,8 +181,8 @@ app reaches for the owner, read from `GET /devflow/api/github/repositories`, as 
 "Connected" when it is a project already; with the app installed nowhere he can reach, "The GitHub
 App is not installed on any repository you can reach." with a link "Install it on GitHub" to the
 answer's `install_url`. Connecting closes it and reads the projects again. With none, and the
-choice closed, the `EmptyState` "No project connected yet". A read, a connect or a disconnect that
-fails says so as an alert.
+choice closed, the `EmptyState` "No project connected yet". A read or a connect that fails says so
+as an alert.
 
 Each project is the package's `Card`, in a wrapping row, `flex: 1 1 480px`, drawn from its
 `summary`, see "Connecting a repository". Its label is "<owner>/<name>", with an arrow link, "Open
@@ -196,9 +196,8 @@ how many cards are in progress, or "Nothing in progress", and how many are queue
 open feature's title with "<landed> / <total> landed"; and Worker, how many and when the one seen
 last was seen, "Running" within ten minutes and "Not seen" after, as the project's page says it.
 A project with no card yet has one row, "Cards", "None yet". A project with a card that needs the
-owner takes the accent border. At its foot is a ghost "Disconnect" behind a destructive `Dialog`,
-"Disconnect <owner>/<name>?", which says Dev flow forgets the project and everything it read for
-it and that nothing changes on GitHub; "A project's settings page" will move it there.
+owner takes the accent border. A project is disconnected from its settings page, see "A project's
+settings page" below, not from its card.
 
 A project that cannot run yet shows the package's `NeedsYouBanner` in place of the count and the
 ticks, and takes the accent border, with one action, a link to the project's page drawn as a
@@ -231,8 +230,8 @@ Under the header are two columns, a wrapping row: the cards column, `flex: 999 1
 side column, `flex: 1 1 300px`, both `min-width: 0`, so the side column stacks under the cards on
 phone. The cards column holds the region "Cards", see "Cards", or, while the project is setting up,
 the "Setting it up" card in its place, and above the cards the "Check failed" card when a
-registered project's newest check failed, as `setupShows` decides, see "Setting up a project"; and
-at its top, once "Edit settings" opens it, the Settings panel. The side column holds the Workers
+registered project's newest check failed, as `setupShows` decides, see "Setting up a project". The
+side column holds the Workers
 card and the settings summary. The page has one primary button at most: while a setup card shows,
 its current step's, "Accept", "Merge" or "Check again", and "Make a key" is a secondary; otherwise
 "Make a key" before the project has a key.
@@ -277,39 +276,73 @@ The settings summary, the package's `Card` titled "Settings", read from
 high, each with a 1px `--border` under it, the label in `--text-2` and the value in the mono font:
 "Preset", "Questions before starting", "On" or "Off", "Pull requests wait for you", "Never",
 "Sometimes" or "Always", and "Pick-up label", "Hold label", "Attention label" and "Review label".
-A secondary "Edit settings", with `aria-expanded`, opens the Settings panel at the top of the cards
-column and closes it again. A save there updates the summary and the preset's badge, as accepting a
-setup run's proposal does too; settings that could not be read are an alert.
+"Edit settings", `EditSettings` in `src/project.tsx`, a link drawn as a secondary button, opens the
+project's settings page in place on a plain click; the setup's settings step shows it too. The page
+reads the settings each time it opens, so a save on the settings page shows in the summary and the
+preset's badge once back, as accepting a setup run's proposal does at once; settings that could not
+be read are an alert.
 
-The Settings panel, `src/settings.tsx`, the package's `Card` titled "Edit settings", read from
-`GET /devflow/api/projects/{id}/settings` as "Edit settings" opens it, is a form in three groups, each a
-region with a heading and a line on what it holds, fields two by two at desktop width and one
-under another at phone width, each with a help line saying what it does:
+### A project's settings page
 
-- **"How cards are picked"**: a line saying Dev flow picks up the open issues the owner's trusted
-  accounts wrote that carry the pick-up label; the text fields "Pick-up label", "Hold label",
-  "Attention label" and "Review label"; then "Trusted accounts", the list with the owner's own
-  login marked "You" and the others each with "Remove", and the field "Add a trusted account" with
-  "Add".
-- **"How much happens alone"**: a line saying a preset fills in the settings below and is saved as
-  any change; the buttons "Fully automatic", "Guided" and "Only I merge", the one the form matches
-  pressed and inverted, and beside them "Preset" with the name the form matches as it is typed, or
-  "Custom", by the rule of "Presets" below; the checkbox "Questions before starting"; the select
-  "Pull requests wait for you", "Never", "Sometimes" or "Always". On "Sometimes", the group "Waits
-  for you when" follows, a line saying a pull request waits when any of these holds and merges by
-  itself otherwise, the checkboxes "The card or its feature is marked for your review", "The change
-  touches a path on the list" and "The agent made a decision for you", and the textarea "Paths",
-  one pattern a line in the mono font; on the other two the group is not shown and its values are
-  kept and saved as they are. A preset's button changes only what it covers, in the form; nothing
-  is saved until "Save".
-- **"Models and limits"**: a line saying a change counts from the next job, the selects "Reading
-  model", "Building model" and "Reviewing model", then the four limits as number fields.
+`/devflow/projects/<id>/settings`, `SettingsPage` in `src/settings.tsx`, under the Projects tab,
+which stays selected there, with the crumb "Dev flow / Projects". Nothing shows before the
+projects answer, and a project the caller does not have is the `EmptyState` "There is no such
+project". It differs from the spec's round 7, which put every setting in one panel on the project's
+page; why is "Projects" in `docs/devflow-architecture.md`.
 
-Lines of "Paths" are trimmed and blank ones dropped as it is saved. A secondary "Save" puts all
-eighteen, never the preset, and then says "Saved."; the page's caption and the settings summary
-take what the answer names. A value Dev flow refuses is shown under its field as the field's error, from the problem's
-`errors`; any other failure is the alert "The settings were not saved. Try again.", and what was
-typed is kept.
+Its header is a link back to the project's page, named by the project's name, a plain click opening
+it in place; a mono caption with `OWNER/NAME`; "Settings" as the page title; and one line, "How much
+Dev flow does on its own in <name>, which cards it takes, and how its runs are set." Under it is a
+wrapping row: the form, `flex: 999 1 560px`, and the side column, `flex: 1 1 300px`, which stacks
+under the form on phone. The settings are read from `GET /devflow/api/projects/{id}/settings`; the
+form is three of the package's `Card`s, then the Values card and the Save bar:
+
+- **"How much happens alone"**: "Preset", a radio group drawn as the Tabs track of `design/DESIGN.md`
+  section 4 rather than the `Tabs` component, which is a tablist: "Fully automatic", "Guided" and
+  "Only I merge", the one the form matches chosen and inverted, none when it matches none, with
+  "A preset fills in the settings below. Change one by hand and it shows Custom." under it; the
+  package's `Switch` "Questions before starting", with what on and off mean; the select "Pull
+  requests wait for you", "Never", "Sometimes" or "Always", and beside it, only on "Sometimes", the
+  group "Waits for you when" with its three checkboxes, "The card or its feature is marked for your
+  review", "The change touches a path on the list" and "The agent made a decision for you"; and,
+  only on "Sometimes" too, the textarea "Paths", one pattern a line in the mono font, with the
+  pattern rule as its help. On the other two the conditions and the paths are not shown, and their
+  values are kept and saved as they are. Choosing a preset changes only what it covers, in the
+  form, Guided its five settings and the other two their two; nothing is saved until "Save".
+- **"How cards are picked"**: the text fields "Pick-up label", "Hold label", "Attention label" and
+  "Review label", two by two where there is room, each with its help; then "Trusted accounts", the
+  list of inset rows, the owner's own login first with "you, always on" and no Remove, the others
+  each with "Remove", and the field "Add a trusted account" with "Add", Enter in it adding too.
+- **"Runs"**: the selects "Reading model", "Building model", with "A build, a fix, a conflict." as
+  its help, and "Reviewing model"; then the four limits as number fields in the mono font, each with
+  its range as help.
+- **"Values"**: `ValuesCard` in `src/values.tsx`, what values are for as help; each value an inset,
+  its name in the mono font, "set <date>" or "not set", and "Replace", or "Give" for one its setup
+  run listed and nobody gave, with "Remove" in the danger colour for one given; "Add a value" opens
+  a name and a password field. A value is never shown. Values are saved at once through their own
+  routes, see "A project's values" under "Setting up a project", never through "Save", reusing the
+  setup's forms; this makes values editable after setup, while the setup's values step stays as it
+  is.
+
+The Save bar, the region "Save the settings", is one bar at the foot of the form: a mono count of
+unsaved changes, "No unsaved changes", "1 unsaved change" or "<n> unsaved changes", counting each
+of the eighteen settings that differs from the settings as last read or saved; then "Undo changes",
+a ghost, disabled with nothing changed, which puts the form back to the settings as last read or
+saved; and "Save", the page's one primary. Save stays enabled with nothing changed, since saving
+the settings once does the setup's settings step. Lines of "Paths" are trimmed and blank ones
+dropped as it is saved. "Save" puts all eighteen in one `PUT`, never the preset, and then says
+"Saved."; a limit that is not a whole number is named under its field and nothing is sent; a value
+Dev flow refuses is shown under its field as the field's error, from the problem's `errors`; any
+other failure is the alert "The settings were not saved. Try again.", and what was typed is kept.
+On phone the bar sticks to the bottom above the tab bar.
+
+The side column: the `Card` "These settings", the preset the form matches as its hero label, or
+"Custom", a line of what it means, and "A change counts from the next decision Dev flow makes. A
+run under way keeps the model and limits it started with."; the navigation "Sections", links to
+the four cards, not shown on phone; and "Disconnect <name>", a ghost in the danger colour, behind a
+destructive `Dialog`, "Disconnect <owner>/<name>?", which says Dev flow forgets the project and
+everything it read for it and that nothing changes on GitHub. Once disconnected, the page goes to
+the Projects tab; a disconnect that fails says so as an alert.
 
 A project's cards, `src/cards.tsx`, are the region "Cards" in the cards column, read from
 `GET /devflow/api/projects/{id}/cards` as the page loads, unless the project is setting up. Each
@@ -1243,8 +1276,8 @@ find the repository under the account it is on, and press "Connect": it is liste
 tab's projects from then on. A repository that is not listed is one the app is not installed on,
 or one the GitHub account linked cannot reach: install the app on it, through "Install it on
 GitHub" or the app's page, see "Registering the GitHub App", and press "Connect a repository"
-again. "Disconnect" removes the project and everything Dev flow read for it, after asking, and
-changes nothing on GitHub.
+again. "Disconnect <name>", on the project's settings page, removes the project and everything Dev
+flow read for it, after asking, and changes nothing on GitHub.
 
 It is `ProjectStore` and `ProjectEndpoints`, in `src/DevFlow/Projects/`, under the `Api` policy
 and the origin check:
@@ -1436,8 +1469,8 @@ its own job carried, which the run records. The page's "Round n of m" lines coun
 the setting as it is now.
 
 **Presets.** Three shortcuts, never stored: a project's preset is the one its settings match, which
-`Presets.Of` in `src/DevFlow/Projects/Presets.cs` answers, and the panel works out the same way
-from the form as it is typed. Each covers three settings, `questions`, `waits_for_owner` and the
+`Presets.Of` in `src/DevFlow/Projects/Presets.cs` answers, and the settings page works out the same
+way from the form as it is typed. Each covers three settings, `questions`, `waits_for_owner` and the
 three conditions of `sometimes`, and nothing else: labels, trusted accounts, paths, models and
 limits are outside every preset and never change which one matches.
 
@@ -1449,7 +1482,7 @@ limits are outside every preset and never change which one matches.
 
 On `never` and `always` the conditions are not read and do not count for matching; any other
 combination is `custom`. A new project starts as "Only I merge", and
-`migrations/0041_presets.sql` made every project there was the same. Choosing a preset in the panel
+`migrations/0041_presets.sql` made every project there was the same. Choosing a preset on the settings page
 fills in what it covers and leaves every other field as typed, Guided ticking all three
 conditions and the other two leaving them as they are; it is saved with "Save" like any change. Why
 presets are not stored is "Projects" in `docs/devflow-architecture.md`.
@@ -2116,16 +2149,16 @@ per project. `runs.setup_number` names a setup's runs.
 
 **The settings step.** After the setup's pull request and before a worker on the recipe, the
 owner accepts the settings the newest setup run that succeeded proposed, its `proposed` preset and
-paths, or saves the settings panel under "Edit settings"; either does the step, once, `project_settings.accepted_at`, from
+paths, or saves the settings on the settings page, under "Edit settings"; either does the step, once, `project_settings.accepted_at`, from
 `migrations/0044_settings_step.sql`. "Accept" fills in what the preset covers over the settings as
-saved, as the panel's preset buttons do, sets `wait_paths` to the proposed paths, and saves them
+saved, as the settings page's presets do, sets `wait_paths` to the proposed paths, and saves them
 through `PUT /devflow/api/projects/{id}/settings`; nothing is stored as a preset. The step waits,
 `settings_waits` on the setup route, `SetupStore.SettingsDueSql`, only once the setup is behind it:
 `.devflow/` is valid on the default branch, so the setup's pull request merged, and no setup sent back
 from a check of its version is under way. The first save of the route while it waits, whatever it
 changes, marks the step done; a save before then is kept but does not, so the proposal is still put.
 The page offers the step only while it waits. A project with no setup run, one whose `.devflow/` was
-valid when it was connected, has no proposal, and its step asks for the panel to be saved once. Until the step is done the project hands out no reading or build, `JobStore.NextKind`,
+valid when it was connected, has no proposal, and its step asks for the settings page to be saved once. Until the step is done the project hands out no reading or build, `JobStore.NextKind`,
 though its check and its setup runs go out before it; every project connected before the migration,
 Fodr and the registered ones among them, starts with it not done. In the fake mode the fake worker
 takes the settings as accepted before it asks for a job, unless `settings_wait` is true, and the
@@ -2283,7 +2316,7 @@ setup run while it works, the recipe and the worker are not. The current step sh
 - **The recipe**: that it is not on the default branch yet, and why `.devflow/` is not valid.
 - **The settings**, while the step waits: the proposal, its preset as a section heading, what the
   preset means, why and the paths on an inset, with "Accept" as the primary and "Edit settings",
-  which opens the Settings panel; or without one the line asking to save the settings once, with
+  the link to the settings page; or without one the line asking to save the settings once, with
   "Edit settings".
 - **The values**, `src/values.tsx`: each name with why, or "You added it.", "Missing", "Given"
   with when, or "Cannot be given" with why; a password field "The value of NAME", which the browser

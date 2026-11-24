@@ -143,6 +143,14 @@ PAGES = [
         True,
         text("There is no such feature"),
     ),
+    # Likewise a project's settings, held to the look with a project's in
+    # test_devflow_look.py.
+    Entry(
+        "dev flow: a project's settings",
+        "/devflow/projects/00000000-0000-4000-8000-000000000000/settings",
+        True,
+        text("There is no such project"),
+    ),
 ]
 
 

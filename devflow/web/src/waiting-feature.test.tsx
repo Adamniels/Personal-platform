@@ -86,7 +86,6 @@ function openWith(answer: WaitingList) {
 				loadProjects: () => Promise.resolve([]),
 				loadRepositories: () => new Promise(() => {}),
 				connect: () => Promise.resolve(),
-				disconnect: () => Promise.resolve(),
 			}}
 			waiting={waiting}
 			now={() => NOW}
@@ -117,7 +116,6 @@ function openLinked(
 				loadProjects: () => Promise.resolve([]),
 				loadRepositories: () => new Promise(() => {}),
 				connect: () => Promise.resolve(),
-				disconnect: () => Promise.resolve(),
 			}}
 			waiting={waiting}
 			actions={{

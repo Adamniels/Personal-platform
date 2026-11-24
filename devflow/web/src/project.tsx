@@ -2,8 +2,8 @@
 // a header with the way back, a mono caption with the repository, when it was read and the preset
 // its saved settings match, the name as the page title, a summary line and the stat pills; then
 // the cards column, its features and cards on their own, or while the project is setting up its
-// Setup panel in their place, and the Settings panel at its top once "Edit settings" opens it; and
-// beside it the side column, the Workers card and the settings summary. The Workers card shows
+// Setup panel in their place; and beside it the side column, the Workers card and the settings
+// summary, whose "Edit settings" opens the project's settings page. The Workers card shows
 // the workers that have said hello with the project's key, each saying when it needs building
 // again, why no work is handed out when none is, and, behind "Start a worker", the two commands
 // that start one. The key is shown once, as the answer that made it, with the command that saves
@@ -11,7 +11,7 @@
 // "Workers" and "Starting a worker" in devflow/README.md.
 import { Badge, Button, Card, Dialog, EmptyState, Status } from "@platform/ui";
 import { useCallback, useEffect, useId, useState } from "react";
-import { plainClick } from "./address";
+import { navigate, plainClick } from "./address";
 import type { GetAnswer } from "./api/client";
 import type { components } from "./api/schema";
 import {
@@ -24,6 +24,7 @@ import {
 } from "./cards";
 import styles from "./project.module.css";
 import type { Project } from "./projects";
+import { settingsPath } from "./sections";
 import {
 	PRESET_FILLS,
 	PRESET_NAMES,
@@ -31,7 +32,6 @@ import {
 	requestOf,
 	NOT_READ as SETTINGS_NOT_READ,
 	type SettingsApi,
-	SettingsPanel,
 } from "./settings";
 import {
 	type ProjectSetup,
@@ -164,16 +164,11 @@ export function ProjectPage({
 			),
 		[id, loadSetup],
 	);
-	// The settings as last read or saved, never the form's while it is
-	// edited, which the summary and the preset's badge show: undefined before
-	// they answer, null when they could not be read.
+	// The settings as saved, which the summary and the preset's badge show,
+	// read each time the page opens, so a save on the settings page shows
+	// here once back: undefined before they answer, null when they could not
+	// be read.
 	const [settings, setSettings] = useState<ProjectSettings | null>();
-	// Whether "Edit settings" has opened the Settings panel.
-	const [editing, setEditing] = useState(false);
-	// Bumped when the settings are saved from outside the Settings panel, by
-	// accepting a setup run's proposal, so the summary and the panel read
-	// them again.
-	const [settingsRead, setSettingsRead] = useState(0);
 	const acceptProposal = useCallback(
 		async (proposal: SetupProposal) => {
 			const settings = await loadSettings(id);
@@ -186,7 +181,6 @@ export function ProjectPage({
 				}),
 			);
 			setSettings(saved);
-			setSettingsRead((count) => count + 1);
 			await reloadSetup();
 		},
 		[id, loadSettings, saveSettings, reloadSetup],
@@ -207,7 +201,6 @@ export function ProjectPage({
 		};
 	}, [id, loadProjects]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: settingsRead is how a save from outside the summary asks it to read the settings again.
 	useEffect(() => {
 		let current = true;
 		loadSettings(id).then(
@@ -221,7 +214,7 @@ export function ProjectPage({
 		return () => {
 			current = false;
 		};
-	}, [id, loadSettings, settingsRead]);
+	}, [id, loadSettings]);
 
 	useEffect(() => {
 		let current = true;
@@ -353,16 +346,6 @@ export function ProjectPage({
 			    phone. */}
 			<div className={styles.columns}>
 				<div className={styles.main}>
-					{editing ? (
-						<SettingsPanel
-							key={settingsRead}
-							id={id}
-							loadSettings={loadSettings}
-							saveSettings={saveSettings}
-							onSettings={setSettings}
-							onSaved={reloadSetup}
-						/>
-					) : null}
 					{/* While the project is setting up, its steps stand in place of
 					    its cards; a registered project whose newer version failed its
 					    check shows them above its cards. Nothing before the setup
@@ -371,8 +354,6 @@ export function ProjectPage({
 						<SetupPanel
 							id={id}
 							setup={setup}
-							editSettings={() => setEditing((open) => !open)}
-							editing={editing}
 							checkAgain={checkAgain}
 							mergeSetup={mergeSetup}
 							runSetupAgain={runSetupAgain}
@@ -395,11 +376,7 @@ export function ProjectPage({
 						makeKey={makeKey}
 						primary={!setupShown}
 					/>
-					<SettingsSummary
-						settings={settings}
-						editing={editing}
-						edit={() => setEditing((open) => !open)}
-					/>
+					<SettingsSummary id={id} settings={settings} />
 				</div>
 			</div>
 		</>
@@ -416,16 +393,13 @@ const WAITS: Record<string, string> = {
 
 /** The settings in the side column: the preset, questions before starting,
  * whether pull requests wait, and the four labels, as label and value rows,
- * and "Edit settings", which opens the Settings panel at the top of the
- * cards column and closes it again. */
+ * and "Edit settings", which opens the project's settings page. */
 function SettingsSummary({
+	id,
 	settings,
-	editing,
-	edit,
 }: {
+	id: string;
 	settings: ProjectSettings | null | undefined;
-	editing: boolean;
-	edit: () => void;
 }) {
 	const rows: [string, string][] = settings
 		? [
@@ -445,11 +419,7 @@ function SettingsSummary({
 		<Card
 			title="Settings"
 			className={styles.card}
-			footer={
-				<Button kind="secondary" aria-expanded={editing} onClick={edit}>
-					Edit settings
-				</Button>
-			}
+			footer={<EditSettings id={id} />}
 		>
 			{settings === null ? (
 				<p className={styles.error} role="alert">
@@ -466,6 +436,27 @@ function SettingsSummary({
 				</dl>
 			)}
 		</Card>
+	);
+}
+
+/** "Edit settings": a link to the project's settings page, opened in place
+ * on a plain click, drawn as a secondary button. The setup's settings step
+ * shows it too. */
+export function EditSettings({ id }: { id: string }) {
+	const to = settingsPath(id);
+	return (
+		<a
+			className={styles.editSettings}
+			href={to}
+			onClick={(event) => {
+				if (plainClick(event)) {
+					event.preventDefault();
+					navigate(to);
+				}
+			}}
+		>
+			Edit settings
+		</a>
 	);
 }
 

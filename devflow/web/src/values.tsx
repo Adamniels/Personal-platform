@@ -2,11 +2,12 @@
 // it has a value and when it was given, a field to give one, and the values the owner added. A value
 // is sent once, sealed by Dev flow, and never shown again: the page holds only what the owner is
 // typing, and clears it once sent. See "Setting up a project" in devflow/README.md.
-import { Button, Status, TextField } from "@platform/ui";
+import { Button, Card, Status, TextField } from "@platform/ui";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { describe } from "./actions";
 import type { GetAnswer } from "./api/client";
 import styles from "./setup.module.css";
+import own from "./values.module.css";
 
 export type ProjectValueList = GetAnswer<"/projects/{id}/values">;
 export type ProjectValueName = ProjectValueList["values"][number];
@@ -190,7 +191,7 @@ function ValueRow({
 
 /** The field a value is typed in, as a password is, so it is not shown on
  * the screen or kept by the browser; cleared once sent. */
-function GiveValue({
+export function GiveValue({
 	id,
 	name,
 	giveValue,
@@ -248,7 +249,7 @@ function GiveValue({
 }
 
 /** A value the setup run did not list: its name and the value. */
-function AddValue({
+export function AddValue({
 	id,
 	giveValue,
 	changed,
@@ -333,5 +334,173 @@ function AddValue({
 				</Button>
 			</div>
 		</form>
+	);
+}
+
+export const VALUES_HELP =
+	"What the project's tests need: throwaway values or keys made for the automation, never production's. Sealed in the vault, never shown again, and scrubbed from everything Dev flow stores or posts.";
+export const NO_VALUES = "No values yet.";
+
+/** The Values card of a project's settings page: each value by its name,
+ * when it was set, Replace and Remove, and "Add a value". A value is saved at
+ * once through its own route, never through the page's Save, and never shown. */
+export function ValuesCard({
+	id,
+	anchor,
+	loadValues,
+	giveValue,
+	removeValue,
+}: ValuesApi & {
+	id: string;
+	/** The card's element id, which the page's links go to. */
+	anchor: string;
+}) {
+	const [list, setList] = useState<ProjectValueList | null>();
+
+	const reload = useCallback(
+		() =>
+			loadValues(id).then(
+				(answer) => setList(answer),
+				() => setList(null),
+			),
+		[id, loadValues],
+	);
+
+	useEffect(() => {
+		void reload();
+	}, [reload]);
+
+	const changed = async () => {
+		await reload();
+	};
+
+	return (
+		<Card title="Values" id={anchor} className={own.settingsCard}>
+			<div className={styles.run}>
+				<p className={styles.muted}>{VALUES_HELP}</p>
+				{list === undefined ? null : list === null ? (
+					<p className={styles.error} role="alert">
+						{NOT_LOADED}
+					</p>
+				) : (
+					<>
+						{list.values.length === 0 ? (
+							<p className={styles.muted}>{NO_VALUES}</p>
+						) : (
+							<ul className={styles.values} aria-label="Values">
+								{list.values.map((value) => (
+									<SettingsValueRow
+										key={value.name}
+										id={id}
+										value={value}
+										giveValue={giveValue}
+										removeValue={removeValue}
+										changed={changed}
+									/>
+								))}
+							</ul>
+						)}
+						<AddValue id={id} giveValue={giveValue} changed={changed} />
+					</>
+				)}
+			</div>
+		</Card>
+	);
+}
+
+const DATE = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium" });
+
+/** A value on the settings page, as an inset row: its name, when it was set
+ * or that it is not, and Replace and Remove, or Give for one its setup run
+ * listed and nobody gave yet. */
+function SettingsValueRow({
+	id,
+	value,
+	giveValue,
+	removeValue,
+	changed,
+}: {
+	id: string;
+	value: ProjectValueName;
+	giveValue: ValuesApi["giveValue"];
+	removeValue: ValuesApi["removeValue"];
+	changed: () => Promise<void>;
+}) {
+	const given = value.set_at !== null;
+	const [giving, setGiving] = useState(false);
+	const [removing, setRemoving] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	const remove = async () => {
+		setRemoving(true);
+		try {
+			await removeValue(id, value.name);
+			setError(null);
+			await changed();
+		} catch (failure) {
+			setError(describe(failure));
+		}
+		setRemoving(false);
+	};
+
+	return (
+		<li className={own.settingsValue}>
+			<div className={own.valueLine}>
+				<span className={own.valueName}>{value.name}</span>
+				<span className={own.valueSet}>
+					{value.set_at === null ? (
+						"not set"
+					) : (
+						<time dateTime={value.set_at}>
+							{`set ${DATE.format(new Date(value.set_at))}`}
+						</time>
+					)}
+				</span>
+				{value.problem !== null || giving ? null : (
+					<span className={own.valueActions}>
+						<Button
+							kind="ghost"
+							aria-label={`${given ? "Replace" : "Give"} ${value.name}`}
+							onClick={() => setGiving(true)}
+						>
+							{given ? "Replace" : "Give"}
+						</Button>
+						{given ? (
+							<Button
+								kind="ghost"
+								className={own.remove}
+								aria-label={`Remove ${value.name}`}
+								disabled={removing}
+								onClick={remove}
+							>
+								Remove
+							</Button>
+						) : null}
+					</span>
+				)}
+			</div>
+			{value.problem === null ? null : (
+				<p className={styles.muted}>
+					The name {value.problem}, so it cannot be given here.
+				</p>
+			)}
+			{error === null ? null : (
+				<p className={styles.error} role="alert">
+					{error}
+				</p>
+			)}
+			{giving ? (
+				<GiveValue
+					id={id}
+					name={value.name}
+					giveValue={giveValue}
+					given={async () => {
+						setGiving(false);
+						await changed();
+					}}
+					cancel={() => setGiving(false)}
+				/>
+			) : null}
+		</li>
 	);
 }

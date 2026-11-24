@@ -50,6 +50,11 @@ included, and each follows its entry in section 4 of `DESIGN.md`.
   `aria-label`.
 - `Checkbox`: `label`, the text of a row that is the box's label, so the whole row is one target;
   and `done`, the completed to do look. `type` is always `checkbox`.
+- `Switch`: `label`, the setting it turns on and off, its accessible name, and an optional `help`,
+  one line under the label, such as what on and off mean, which describes it. It is a native
+  checkbox with `role="switch"`, so a screen reader says on and off, drawn as the track with the
+  thumb over it, and the whole row is its label. Everything else an `input` takes passes to it, ref
+  included, apart from `type` and `role`, which it sets; `className` goes to the row.
 - `Status`: `tone`, one of `running`, `needs-you`, `done`, `failed` and `idle`, and its word as
   children, a required string. The tone decides the colours and the caller decides the word, since
   a feature has its own words, so a status is always a dot plus a word and the dot is hidden from

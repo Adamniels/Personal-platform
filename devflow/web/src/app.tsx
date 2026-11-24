@@ -26,8 +26,13 @@ import {
 	SECTIONS,
 	type Section,
 	sectionAt,
+	settingsAt,
 } from "./sections";
-import type { ProjectSettings } from "./settings";
+import {
+	type ProjectSettings,
+	SettingsPage,
+	type SettingsPageApi,
+} from "./settings";
 import { loadStatus as readStatus, type Status, useStatus } from "./status";
 import { useWaiting, Waiting, type WaitingApi } from "./waiting";
 
@@ -52,6 +57,10 @@ export type AppProps = {
 	/** How an item is merged and sent back, the service's by default; a test
 	 * passes its own. */
 	actions?: ActionsApi;
+	/** How a project's settings page reads and saves its settings and
+	 * values and disconnects it, the service's by default; a test passes its
+	 * own. */
+	settings?: SettingsPageApi;
 	/** How a card's page reads its card, the service's by default; a test
 	 * passes its own. */
 	card?: CardApi;
@@ -72,9 +81,6 @@ const projectsApi: ProjectsApi = {
 			installation_id: installationId,
 			repository_id: repositoryId,
 		});
-	},
-	disconnect: async (id) => {
-		await client.send("DELETE", `/projects/${encodeURIComponent(id)}`);
 	},
 };
 
@@ -152,6 +158,19 @@ const projectApi: ProjectApi = {
 			"DELETE",
 			`/projects/${encodeURIComponent(id)}/values/${encodeURIComponent(name)}`,
 		);
+	},
+};
+
+/** A project's settings page, through Dev flow's API. */
+const settingsApi: SettingsPageApi = {
+	loadProjects: projectsApi.loadProjects,
+	loadSettings: projectApi.loadSettings,
+	saveSettings: projectApi.saveSettings,
+	loadValues: projectApi.loadValues,
+	giveValue: projectApi.giveValue,
+	removeValue: projectApi.removeValue,
+	disconnect: async (id) => {
+		await client.send("DELETE", `/projects/${encodeURIComponent(id)}`);
 	},
 };
 
@@ -323,6 +342,7 @@ function Frame({
 	loadStatus = readStatus,
 	projects = projectsApi,
 	project = projectApi,
+	settings = settingsApi,
 	claudeLogin = claudeLoginApi,
 	waiting = waitingApi,
 	actions = actionsApi,
@@ -331,13 +351,14 @@ function Frame({
 	now = Date.now,
 }: AppProps) {
 	const pathname = usePathname();
-	// A project's page, and a card's page and a feature's page under it, are
-	// under the Projects tab, which stays selected there.
+	// A project's page, and its settings page, a card's page and a feature's
+	// page under it, are under the Projects tab, which stays selected there.
 	const projectId = projectAt(pathname);
+	const settingsOf = settingsAt(pathname);
 	const cardOf = cardAt(pathname);
 	const featureOf = featureAt(pathname);
 	const current =
-		projectId || cardOf || featureOf
+		projectId || settingsOf || cardOf || featureOf
 			? SECTIONS.find((section) => section.key === "projects")
 			: sectionAt(pathname);
 	useCrumb(current);
@@ -389,6 +410,14 @@ function Frame({
 								now={now}
 								link={status?.github.state}
 								actions={actions}
+							/>
+						) : section.key === "projects" && settingsOf ? (
+							<SettingsPage
+								key={settingsOf}
+								id={settingsOf}
+								back={() => navigate(projectPath(settingsOf))}
+								disconnected={() => navigate(section.path)}
+								{...settings}
 							/>
 						) : section.key === "projects" && cardOf ? (
 							<CardPage

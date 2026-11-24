@@ -253,10 +253,23 @@ the owner connects one, the routes and the tables are "Connecting a repository" 
 preset the stored settings match, or `custom`. Storing the choice would give two sources of truth
 for the same three settings: the owner may change any one of them afterwards, as the spec has it,
 and a stored preset would then either lie or have to be cleared by every change. Computing it keeps
-one truth, the settings, and the name always follows them. The panel works the name out from the
-form as it is typed with the same rule, so it can say "Custom" before anything is saved; that rule
+one truth, the settings, and the name always follows them. The settings page works the name out
+from the form as it is typed with the same rule, so it can say "Custom" before anything is saved; that rule
 is written twice, in `Presets.Of` and in `presetOf` in `web/src/settings.tsx`, and is small enough
 that the duplication is cheaper than a round trip per keystroke.
+
+**A project's settings have a page of their own**, `/devflow/projects/<id>/settings`, reached by
+"Edit settings" on the project's page and in its setup's settings step, in four sections, how much
+happens alone, how cards are picked, runs and values, with one Save; "A project's settings page" in
+`devflow/README.md` is what it shows. The spec's round 7, and the slice that built the settings
+panel, put every setting in one panel on the project's page. Eighteen settings do not fit beside the
+cards: open above them, the panel pushed the cards, which the redesign puts first, off the screen,
+and a panel that big is a page in all but its address. A page of its own gives each section room,
+a Save bar that counts what is unsaved and can undo it, and a place for the project's values, which
+were editable only during setup before, and for Disconnect, which leaves the Projects tab's cards so
+a destructive action is not one click from the dashboard. The page reads and saves through the same
+routes as the panel did, so only the frontend changed, and the project's page reads the settings
+each time it opens, so a save shows there once back.
 
 **"Straight to main" was dropped**, which the spec's round 2 had as a value of where a feature's
 cards land, so no preset sets it. A feature's cards always land in its branch, and the owner always
@@ -847,7 +860,7 @@ valid, so he never reads a broken setup on GitHub.
 **Cards wait for the settings, beside the check.** The settings decide what merges without the
 owner, so a project that took cards on a new project's defaults, or on settings he never looked at,
 could merge work he meant to see. The step is done by his first save, not by a separate "accepted"
-flag he sets, since saving the panel is already him confirming them, and "Accept" goes through the
+flag he sets, since saving the settings page is already him confirming them, and "Accept" goes through the
 same route, so a preset is never stored, as "Projects" has it. The setup run and the check go out
 before it: neither merges anything, and the proposal he accepts comes from the first. Only readings
 and builds are held, the start of a card's work, so reviews and fixes of work already under way
@@ -1467,7 +1480,7 @@ framework Dev flow already runs on, so the rule is a first party one with no dep
 the repository's top. There is no negation: in gitignore a later `!` line takes a file back out, so
 whether a path waits would depend on the order of the lines and a single line could hollow out the
 list, and a list whose only job is to make pull requests wait should only ever add to what waits.
-`*.sql` is a file at the top, not one anywhere as gitignore reads it, which the panel's help says;
+`*.sql` is a file at the top, not one anywhere as gitignore reads it, which the Paths field's help says;
 `**/*.sql` is one anywhere. Paths are matched whatever their case, the stricter of the two, so a
 pattern never misses a file by its case. `PathPatterns` holds the matching and the rules the
 settings route checks a pattern against.

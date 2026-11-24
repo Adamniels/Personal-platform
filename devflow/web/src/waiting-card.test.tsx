@@ -129,7 +129,6 @@ function open(
 				loadProjects: () => Promise.resolve([]),
 				loadRepositories: () => new Promise(() => {}),
 				connect: () => Promise.resolve(),
-				disconnect: () => Promise.resolve(),
 			}}
 			waiting={waiting}
 			actions={{
