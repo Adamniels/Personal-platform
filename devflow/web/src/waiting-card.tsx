@@ -1,13 +1,13 @@
 // A card of Dev flow's own whose pull request waits for the owner, as "Waiting for you" shows it
-// under "Pull requests waiting" beside the runner's: its title and project, the report's summary,
-// each decision the agent marked for him, the check Dev flow ran, the reviewer's verdict on the
-// commit, and Merge, the owner's own
-// merge, behind the same confirmation as an item's, Send back, his comment posted as him on the
-// pull request, which starts the card's fix, and Open on GitHub. The commit shown, the one
-// the run built and the check passed on, travels with the merge, so a pull request that moved on is
-// refused, never merged. Every text came from the code host or the agent and is shown as text. See
-// "The pages" and "What waits" in devflow/README.md.
-import { Button, Card, Dialog, Status, TextArea, useToast } from "@platform/ui";
+// under "Pull requests waiting" beside the runner's, in the detail's frame: where it is, its title,
+// the report's summary, the tiles of the check Dev flow ran, the reviewer's verdict on the commit
+// and the decisions, then why it waits, each decision the agent marked for him, what the reviewer
+// said and its pictures; and Merge, the owner's own merge, behind a confirmation, Send back, his
+// comment posted as him on the pull request, which starts the card's fix, and Open on GitHub. The
+// commit shown, the one the run built and the check passed on, travels with the merge, so a pull
+// request that moved on is refused, never merged. Every text came from the code host or the agent
+// and is shown as text. See "The pages" and "What waits" in devflow/README.md.
+import { Button, Dialog, Status, TextArea, useToast } from "@platform/ui";
 import { type FormEvent, useId, useState } from "react";
 import {
 	type ActionsApi,
@@ -16,7 +16,16 @@ import {
 	type LinkState,
 	UNLINKED,
 } from "./actions";
-import { verdictWord } from "./card";
+import {
+	ActionNote,
+	count,
+	Detail,
+	decisionsTile,
+	reviewTile,
+	short,
+	type Tile,
+	Tiles,
+} from "./detail";
 import { Inline } from "./format";
 import { askNavAgain } from "./nav-attention";
 import { cardScreenshot, Screenshots } from "./screenshots";
@@ -36,51 +45,27 @@ export type WaitingCardProps = {
 	reload: () => Promise<unknown>;
 };
 
-/** The check Dev flow ran, in words: what, on which commit, and how it
- * ended. */
-export function CheckLine({ check }: { check: CardItem["check"] }) {
-	return (
-		<p className={styles.text}>
-			Dev flow ran{" "}
-			{check.command === null ? (
-				"the project's check"
-			) : (
-				<code className={styles.commit}>{check.command}</code>
-			)}{" "}
-			on <code className={styles.commit}>{check.commit.slice(0, 7)}</code>: exit{" "}
-			{check.exit_code}.
-		</p>
-	);
+/** The card's tiles: the check Dev flow ran, the review of the commit, and
+ * the decisions. */
+export function cardTiles(card: CardItem): Tile[] {
+	const { check } = card;
+	return [
+		{
+			label: "The check",
+			tone: check.exit_code === 0 ? "done" : "failed",
+			status: check.exit_code === 0 ? "Passed" : "Failed",
+			line: `${check.command ?? "the project's check"} · exit ${check.exit_code}`,
+		},
+		reviewTile(card.review, "no review of this commit yet"),
+		decisionsTile(card.decisions.length, card.other_decisions),
+	];
 }
 
-/** The reviewer's verdict on the commit: its word, what it found, and how
- * many of its findings block. */
-export function ReviewLine({
-	review,
-}: {
-	review: NonNullable<CardItem["review"]>;
-}) {
-	const { word, tone } = verdictWord(review.verdict);
-	return (
-		<div className={styles.block}>
-			<h3 className={styles.label}>The review</h3>
-			<p className={styles.text}>
-				<Status tone={tone}>{word}</Status> on{" "}
-				<code className={styles.commit}>{review.commit.slice(0, 7)}</code>
-				{review.blocking === 0
-					? "."
-					: `, ${review.blocking} ${review.blocking === 1 ? "finding blocks" : "findings block"} it.`}
-			</p>
-			{review.summary === "" ? null : (
-				<p className={styles.text}>
-					<Inline text={review.summary} />
-				</p>
-			)}
-		</div>
-	);
-}
+/** "Merging confirms the 2 decisions", beside Merge. */
+export const mergeConfirms = (decisions: number) =>
+	`Merging confirms the ${count(decisions, "decision")}`;
 
-/** One waiting card: its header, what the owner needs to judge it, and its
+/** One waiting card: its frame, what the owner needs to judge it, and its
  * Merge, Send back and Open on GitHub. */
 export function WaitingCard({
 	card,
@@ -99,7 +84,6 @@ export function WaitingCard({
 	const linkLine =
 		link === "none" ? UNLINKED : link === "needs_relink" ? EXPIRED : null;
 	const line = card.can_merge ? linkLine : STOPPED_PROJECT;
-	const project = `${card.owner}/${card.project_name}`;
 
 	async function merge() {
 		try {
@@ -140,13 +124,18 @@ export function WaitingCard({
 	}
 
 	return (
-		<Card
+		<Detail
 			title={card.title}
-			attention
-			aside={<Status tone="needs-you">Waiting for you</Status>}
-			className={styles.item}
-			footer={
-				<div className={styles.footer}>
+			where={[
+				`${card.owner}/${card.project_name}`,
+				`pull request #${card.pull_request_number}`,
+				`${short(card.head_commit)} → ${card.base}`,
+			]}
+			status={<Status tone="needs-you">Waiting for you</Status>}
+			needsYou
+			lede={card.summary === "" ? null : <Inline text={card.summary} />}
+			actions={
+				<>
 					{refusal === null ? null : (
 						<p className={styles.refusal} role="alert">
 							{refusal}
@@ -198,6 +187,9 @@ export function WaitingCard({
 								Open on GitHub
 							</a>
 						) : null}
+						{card.decisions.length > 0 ? (
+							<ActionNote>{mergeConfirms(card.decisions.length)}</ActionNote>
+						) : null}
 					</div>
 					{line === null ? null : (
 						<p id={lineId} className={styles.why}>
@@ -217,55 +209,46 @@ export function WaitingCard({
 								<p className={styles.text}>{card.title}</p>
 								<p className={styles.text}>
 									<code className={styles.commit}>
-										{card.head_commit.slice(0, 7)}
+										{short(card.head_commit)}
 									</code>
 								</p>
 								{card.decisions.length > 0 ? (
 									<p className={styles.text}>
-										This confirms {card.decisions.length}{" "}
-										{card.decisions.length === 1 ? "decision" : "decisions"} the
+										This confirms {count(card.decisions.length, "decision")} the
 										agent made.
 									</p>
 								) : null}
 							</div>
 						</Dialog>
 					) : null}
-				</div>
+				</>
 			}
 		>
-			<div className={styles.body}>
-				<p className={styles.where}>
-					<span>{project}</span> <span>#{card.pull_request_number}</span>
-				</p>
-				{card.summary === "" ? null : (
-					<p className={styles.summary}>
-						<Inline text={card.summary} />
-					</p>
-				)}
-				{card.reason === null ? null : (
-					<div className={styles.block}>
-						<h3 className={styles.label}>Why it waits</h3>
-						<p className={styles.text}>{card.reason}</p>
-					</div>
-				)}
-				{card.decisions.length > 0 ? (
-					<Decisions decisions={card.decisions} others={card.other_decisions} />
-				) : null}
+			<Tiles tiles={cardTiles(card)} />
+			{card.reason === null ? null : (
 				<div className={styles.block}>
-					<h3 className={styles.label}>The check</h3>
-					<CheckLine check={card.check} />
+					<h3 className={styles.label}>Why it waits</h3>
+					<p className={styles.text}>{card.reason}</p>
 				</div>
-				{card.review === null ? null : <ReviewLine review={card.review} />}
-				{card.screenshots === null ? null : (
-					<Screenshots
-						address={(name) =>
-							cardScreenshot(card.project_id, card.number, name)
-						}
-						groups={card.screenshots.groups}
-						note={card.screenshots.note}
-					/>
-				)}
-			</div>
-		</Card>
+			)}
+			{card.decisions.length > 0 ? (
+				<Decisions decisions={card.decisions} others={card.other_decisions} />
+			) : null}
+			{card.review === null || card.review.summary === "" ? null : (
+				<div className={styles.block}>
+					<h3 className={styles.label}>The reviewer</h3>
+					<p className={styles.text}>
+						<Inline text={card.review.summary} />
+					</p>
+				</div>
+			)}
+			{card.screenshots === null ? null : (
+				<Screenshots
+					address={(name) => cardScreenshot(card.project_id, card.number, name)}
+					groups={card.screenshots.groups}
+					note={card.screenshots.note}
+				/>
+			)}
+		</Detail>
 	);
 }

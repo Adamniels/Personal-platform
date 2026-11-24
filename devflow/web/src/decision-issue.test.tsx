@@ -119,7 +119,7 @@ describe("a decision to look at", () => {
 			shown.getByText("Agreed: the lists share one component."),
 		).toBeTruthy();
 		expect(shown.getByText(/Merged in #7/)).toBeTruthy();
-		const link = shown.getByRole("link", { name: "Open on GitHub" });
+		const link = shown.getByRole("link", { name: "Open the issue on GitHub" });
 		expect(link.getAttribute("href")).toBe(
 			"https://github.com/Adamniels/Fodr/issues/9",
 		);
@@ -151,6 +151,8 @@ describe("a decision to look at", () => {
 			).toBeTruthy(),
 		);
 		expect(document.querySelector("img[onerror]")).toBeNull();
-		expect(screen.queryByRole("link", { name: "Open on GitHub" })).toBeNull();
+		expect(
+			screen.queryByRole("link", { name: "Open the issue on GitHub" }),
+		).toBeNull();
 	});
 });

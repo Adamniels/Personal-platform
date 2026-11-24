@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { ActionsApi } from "./actions";
 import { ApiError } from "./api/client";
 import { App } from "./app";
-import { choose } from "./inbox.testing";
+import { choose, tiles } from "./inbox.testing";
 import type { Status } from "./status";
 import type { CardItem, WaitingApi, WaitingItem, WaitingList } from "./waiting";
 
@@ -183,7 +183,7 @@ describe("a card of Dev flow's that waits", () => {
 		expect(screen.getByRole("tab", { name: "Waiting for you 1" })).toBeTruthy();
 		expect(shown.getByText("Waiting for you", { exact: true })).toBeTruthy();
 		expect(shown.getByText("Adamniels/Fodr")).toBeTruthy();
-		expect(shown.getByText("#7")).toBeTruthy();
+		expect(shown.getByText("pull request #7")).toBeTruthy();
 		expect(shown.getByText("empty state").tagName).toBe("CODE");
 		// The decision for the owner, with its alternative and why, and the
 		// others counted.
@@ -195,9 +195,8 @@ describe("a card of Dev flow's that waits", () => {
 		expect(decided.getByText("The lists look the same")).toBeTruthy();
 		expect(shown.getByText("and 2 more it did not need you for")).toBeTruthy();
 		// The check Dev flow ran.
-		expect(shown.getByText("npm ci && npm test").tagName).toBe("CODE");
-		expect(shown.getByText("abc1234").tagName).toBe("CODE");
-		expect(shown.getByText(/exit 0\./)).toBeTruthy();
+		expect(shown.getByText("npm ci && npm test · exit 0")).toBeTruthy();
+		expect(shown.getByText("abc1234 → main")).toBeTruthy();
 		// Merge, the view's one primary, and the pull request on GitHub.
 		const merge = shown.getByRole("button", { name: "Merge" });
 		expect(merge.className).toMatch(/primary/);
@@ -211,6 +210,60 @@ describe("a card of Dev flow's that waits", () => {
 		const back = shown.getByRole("button", { name: "Send back" });
 		expect(back.className).not.toMatch(/primary/);
 		expect(back).toHaveProperty("disabled", false);
+	});
+
+	test("a waiting card shows the check, the review and the decisions as tiles", async () => {
+		open([
+			card({
+				review: {
+					verdict: "approve",
+					summary: "The empty state is there and tested.",
+					blocking: 0,
+					commit: HEAD,
+				},
+			}),
+		]);
+
+		const shown = await screen.findByRole("article", { name: TITLE });
+		// The frame: the title as the detail's heading, then the tiles.
+		expect(
+			within(shown).getByRole("heading", { level: 2, name: TITLE }),
+		).toBeTruthy();
+		expect(tiles(shown)).toEqual([
+			["The check", "Passed", "npm ci && npm test · exit 0"],
+			["The review", "Approved", "on abc1234 · 0 blocking"],
+			["Decisions", "1 for you", "+2 it did not need you for"],
+		]);
+		// The decisions are insets under the tiles, and Merge says what it
+		// confirms in a mono line beside it.
+		const decided = within(shown).getByRole("list", {
+			name: "The agent decided",
+		});
+		const glance = within(shown).getByRole("list", { name: "At a glance" });
+		expect(glance.compareDocumentPosition(decided)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING,
+		);
+		expect(
+			within(shown).getByText("Merging confirms the 1 decision"),
+		).toBeTruthy();
+	});
+
+	test("a failed check, no review and no decisions read so in their tiles", async () => {
+		open([
+			card({
+				check: { command: null, exit_code: 2, commit: HEAD },
+				decisions: [],
+				other_decisions: 0,
+			}),
+		]);
+
+		const shown = await screen.findByRole("article", { name: TITLE });
+		expect(tiles(shown)).toEqual([
+			["The check", "Failed", "the project's check · exit 2"],
+			["The review", "Not reviewed", "no review of this commit yet"],
+			["Decisions", "None for you", "none it decided alone"],
+		]);
+		expect(within(shown).queryByText(/^Merging confirms/)).toBeNull();
 	});
 
 	test("says why it waits, in words", async () => {
@@ -245,9 +298,10 @@ describe("a card of Dev flow's that waits", () => {
 		]);
 
 		const shown = await item();
-		expect(shown.getByRole("heading", { name: "The review" })).toBeTruthy();
 		expect(shown.getByText("Changes asked for")).toBeTruthy();
-		expect(shown.getByText(/, 2 findings block it\./)).toBeTruthy();
+		expect(shown.getByText("on abc1234 · 2 blocking")).toBeTruthy();
+		// What the reviewer said, under its heading.
+		expect(shown.getByRole("heading", { name: "The reviewer" })).toBeTruthy();
 		expect(shown.getByText("reload").tagName).toBe("CODE");
 	});
 
@@ -283,10 +337,14 @@ describe("a card of Dev flow's that waits", () => {
 
 		const approved = await item();
 		expect(approved.getByText("Approved")).toBeTruthy();
-		expect(approved.queryByText(/block/)).toBeNull();
-		const unreviewed = within(await choose("Count the habits"));
+		expect(approved.getByText("on abc1234 · 0 blocking")).toBeTruthy();
 		expect(
-			unreviewed.queryByRole("heading", { name: "The review" }),
+			approved.queryByRole("heading", { name: "The reviewer" }),
+		).toBeNull();
+		const unreviewed = within(await choose("Count the habits"));
+		expect(unreviewed.getByText("Not reviewed")).toBeTruthy();
+		expect(
+			unreviewed.queryByRole("heading", { name: "The reviewer" }),
 		).toBeNull();
 	});
 

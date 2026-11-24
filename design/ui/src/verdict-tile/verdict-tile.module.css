@@ -1,0 +1,62 @@
+/* The verdict tile: an inset of "Inset list row" in section 4 of
+ * design/DESIGN.md holding a caption label, a status label and a mono line.
+ * Colours and sizes are tokens; the padding is the inset row's. */
+
+/* The grid: as many tiles a row as fit at 180px each, the rest wrapping,
+ * --inset-gap apart as inset rows are. */
+.tiles {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+	gap: var(--inset-gap);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+/* --surface-2, --radius-md, padding 8px 12px and at least --row-h tall. The
+ * label and the status share the first line, the status on the right, and
+ * wrap under each other where the tile is narrow; the mono line is under
+ * them. */
+.tile {
+	box-sizing: border-box;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-1) var(--space-2);
+	min-width: 0;
+	min-height: var(--row-h);
+	padding: 8px 12px;
+	border-radius: var(--radius-md);
+	background: var(--surface-2);
+	color: var(--text);
+	font-family: var(--font-ui);
+}
+
+/* The label in caption style, weight 600, --text-2, as a block's label. */
+.label {
+	flex: 1 1 auto;
+	min-width: 0;
+	color: var(--text-2);
+	font-size: var(--text-caption-size);
+	line-height: var(--text-caption-line);
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.status {
+	flex: none;
+}
+
+/* The facts, hard rule 8: the mono font with tabular figures, on a line of
+ * their own. */
+.line {
+	flex: 1 0 100%;
+	min-width: 0;
+	color: var(--text-2);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+	overflow-wrap: anywhere;
+}

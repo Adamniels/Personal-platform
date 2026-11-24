@@ -149,7 +149,8 @@ describe("a stopped project", () => {
 		expect(screen.getByRole("tab", { name: "Waiting for you 1" })).toBeTruthy();
 		expect(item.getByText("Stopped", { exact: true })).toBeTruthy();
 		expect(item.getByText("Adamniels/Personal-platform")).toBeTruthy();
-		expect(item.getByText("ab12cd3").tagName).toBe("CODE");
+		// The where line names the commit too; what landed shows it as code.
+		expect(item.getByText("ab12cd3", { selector: "code" })).toBeTruthy();
 		expect(item.getByText("devflow-fake[bot]")).toBeTruthy();
 		expect(item.getByText(/pushed by/)).toBeTruthy();
 		const link = item.getByRole("link", { name: "Open the commit on GitHub" });
@@ -180,7 +181,8 @@ describe("a stopped project", () => {
 				name: `Something landed on ${branch} that Dev flow did not put there`,
 			}),
 		);
-		expect(item.getByText("ab12cd3").tagName).toBe("CODE");
+		// The where line names the commit too; what landed shows it as code.
+		expect(item.getByText("ab12cd3", { selector: "code" })).toBeTruthy();
 		expect(item.getByText("octo-stranger")).toBeTruthy();
 	});
 
@@ -204,7 +206,8 @@ describe("a stopped project", () => {
 		expect(item.queryByText("0000000")).toBeNull();
 		expect(item.queryByRole("link")).toBeNull();
 		expect(item.getByText(/branch deleted by/)).toBeTruthy();
-		expect(item.getByText(branch)).toBeTruthy();
+		// In the where line, and in what landed in place of a commit.
+		expect(item.getAllByText(branch)).toHaveLength(2);
 
 		fireEvent.click(
 			item.getByRole("button", { name: "I have looked, resume" }),

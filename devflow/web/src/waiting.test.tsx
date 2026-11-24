@@ -12,7 +12,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import type { ActionsApi } from "./actions";
 import { ApiError } from "./api/client";
 import { App } from "./app";
-import { choose } from "./inbox.testing";
+import { choose, tiles } from "./inbox.testing";
 import type { WaitingApi, WaitingItem, WaitingList } from "./waiting";
 
 const NOW = Date.parse("2026-11-16T12:00:00Z");
@@ -203,7 +203,7 @@ describe("the list and its groups", () => {
 		const entry = within(await choose("Add the empty state"));
 		expect(entry.getByText("Refused", { selector: "span" })).toBeTruthy();
 		expect(entry.getByText("Adamniels/Personal-platform")).toBeTruthy();
-		expect(entry.getByText("#4")).toBeTruthy();
+		expect(entry.getByText("card #4")).toBeTruthy();
 
 		// What is missing, each a line of its own.
 		const missing = entry.getByRole("list", { name: "What is missing" });
@@ -251,7 +251,7 @@ describe("the list and its groups", () => {
 		expect(within(group).getAllByRole("link")).toHaveLength(1);
 		const item = await choose("fodr's setup failed its check");
 		expect(within(item).getByText("Check failed")).toBeTruthy();
-		expect(within(item).getByText(/exited with 1/)).toBeTruthy();
+		expect(within(item).getByText(/· exit 1 ·/)).toBeTruthy();
 		expect(
 			within(item)
 				.getByRole("link", { name: "See its output on the project's page" })
@@ -285,7 +285,10 @@ describe("the list and its groups", () => {
 		const group = await screen.findByRole("region", { name: "Setup" });
 		expect(within(group).getAllByRole("link")).toHaveLength(1);
 		const item = await choose("fodr's setup waits for you");
-		expect(within(item).getByText("Needs you")).toBeTruthy();
+		// Its status label, as a runner item's, and the words read out for the
+		// accent border, once.
+		expect(within(item).getByText("Waiting for you")).toBeTruthy();
+		expect(within(item).getAllByText("Needs you")).toHaveLength(1);
 		expect(
 			within(item).getByText("Approved; it waits for you to merge it."),
 		).toBeTruthy();
@@ -349,7 +352,7 @@ describe("the list and its groups", () => {
 
 		const vault = await card("The vault");
 		expect(vault.getByText("Adamniels/Personal-platform")).toBeTruthy();
-		expect(vault.getByText("#304")).toBeTruthy();
+		expect(vault.getByText("pull request #304")).toBeTruthy();
 		expect(vault.getByText("Waiting for you")).toBeTruthy();
 		expect(vault.getByText("Adds the vault.")).toBeTruthy();
 	});
@@ -368,7 +371,8 @@ describe("the list and its groups", () => {
 
 		expect((await card("Waits")).getByText("Needs you")).toBeTruthy();
 		expect((await card("Stops")).queryByText("Needs you")).toBeNull();
-		expect((await card("Stops")).getByText("Stopped")).toBeTruthy();
+		// Its status label, and its tile of why it waits.
+		expect((await card("Stops")).getAllByText("Stopped")).toHaveLength(2);
 	});
 
 	test("Open on GitHub links to the item in a new tab, without a referrer", async () => {
@@ -459,8 +463,8 @@ describe("decisions, the reviewer's view and the reasons", () => {
 		expect(
 			reviewer.getAllByRole("listitem").map((point) => point.textContent),
 		).toEqual(["Agrees, it matches the brain.", "Fine."]);
-		// The decisions answer why it waits, so the reason is not repeated.
-		expect(vault.queryByText("Why it waits")).toBeNull();
+		// The runner's reason follows the tiles, in its own words.
+		expect(vault.getByText("In the runner's words")).toBeTruthy();
 	});
 
 	test("decisions not marked for the owner are a muted line, with nothing to expand", async () => {
@@ -521,7 +525,7 @@ describe("decisions, the reviewer's view and the reasons", () => {
 		);
 
 		const vault = await card("The vault");
-		expect(vault.getByText("Why it waits")).toBeTruthy();
+		expect(vault.getByText("In the runner's words")).toBeTruthy();
 		expect(
 			vault.getByText("High risk slice. Touches paths that steer the agents."),
 		).toBeTruthy();
@@ -549,7 +553,7 @@ describe("decisions, the reviewer's view and the reasons", () => {
 		expect(
 			stopped.getByText("The slice is Blocked. The tests still fail."),
 		).toBeTruthy();
-		expect(stopped.queryByText("Why it waits")).toBeNull();
+		expect(stopped.queryByText("In the runner's words")).toBeNull();
 	});
 
 	test("sent back items are in their own muted group and are not counted", async () => {
@@ -585,13 +589,150 @@ describe("decisions, the reviewer's view and the reasons", () => {
 		expect(within(waiting).getByText("1")).toBeTruthy();
 		expect(panel().queryByRole("region", { name: "Stopped" })).toBeNull();
 		const wentBack = await card("Went back");
-		expect(wentBack.getByText("Sent back")).toBeTruthy();
+		// Its status label, and its tile of why it waits.
+		expect(wentBack.getAllByText("Sent back")).toHaveLength(2);
 		expect(wentBack.queryByText("Needs you")).toBeNull();
 		await waitFor(() =>
 			expect(
 				screen.getByRole("tab", { name: /Waiting for you/ }).textContent,
 			).toBe("Waiting for you 1"),
 		);
+	});
+});
+
+describe("an item's detail, by kind", () => {
+	test("a runner item shows why it waits, the reviewer and the decisions as tiles", async () => {
+		openWith(
+			answering(
+				list({
+					items: [
+						item({
+							number: 304,
+							title: "The vault",
+							decisions: [
+								{
+									chosen: "AES-GCM",
+									alternative: "libsodium",
+									why: "No new dependency",
+								},
+								{ chosen: "Read the key once", alternative: null, why: null },
+							],
+							other_decisions: 1,
+							reviewer_view: [
+								"Agrees.",
+								"The key's file mode is worth a look.",
+							],
+						}),
+						item({
+							number: 306,
+							title: "Import a photo",
+							kind: "stopped",
+							can_merge: false,
+						}),
+					],
+				}),
+			),
+		);
+
+		const vault = await choose("The vault");
+		// The where line: the repository, the pull request and its commit.
+		const where = within(vault).getByText("Adamniels/Personal-platform")
+			.parentElement as HTMLElement;
+		expect(where.textContent).toBe(
+			"Adamniels/Personal-platform · pull request #304 · 4444444",
+		);
+		expect(
+			within(vault).getByRole("heading", { level: 2, name: "The vault" }),
+		).toBeTruthy();
+		expect(tiles(vault)).toEqual([
+			["Why it waits", "Your decision", "ci-ok and review-ok green"],
+			["The reviewer", "Approved", "on 4444444 · 2 points for you"],
+			["Decisions", "2 for you", "+1 it did not need you for"],
+		]);
+		// The decisions and the reviewer's points follow the tiles as insets.
+		expect(
+			within(vault).getByRole("list", { name: "The agent decided" }),
+		).toBeTruthy();
+		expect(
+			within(vault).getByRole("list", { name: "The reviewer" }),
+		).toBeTruthy();
+
+		const stopped = await choose("Import a photo");
+		// A stopped item carries no verdict, and the runner stops approved heads
+		// too, such as one whose ci-ok failed, so the tile claims none.
+		expect(tiles(stopped)).toEqual([
+			["Why it waits", "Stopped", "the runner gave up"],
+			["The reviewer", "Not known", "on 4444444 · not read once stopped"],
+			["Decisions", "None for you", "none it decided alone"],
+		]);
+		expect(within(stopped).getByText("Not known").className).toMatch(/_idle_/);
+		expect(within(stopped).getByText("High risk slice.")).toBeTruthy();
+	});
+
+	test("a setup item shows its facts and links the project's page", async () => {
+		const checkedAt = minutesAgo(5);
+		openWith(
+			answering(
+				list({
+					count: 2,
+					setup_projects: [
+						{
+							project_id: PROJECT,
+							project_name: "fodr",
+							owner: "Adamniels",
+							state: "setting_up",
+							version: "4f6c1c36b0bd2c24e3d5a8f5d8c0e0a3a0e3b9a1",
+							exit_code: 1,
+							checked_at: checkedAt,
+						},
+					],
+					setup_runs: [
+						{
+							project_id: OTHER,
+							project_name: "habits",
+							owner: "Adamniels",
+							state: "waiting_for_owner",
+							reason: "Approved; it waits for you to merge it",
+							pull_request_number: 7,
+							pull_request_url: "https://github.com/Adamniels/habits/pull/7",
+							head_commit: "5e7d2d47c1ce3d35f4e6b9a6e9d1f1b4b1f4c0b2",
+							changed_at: minutesAgo(5),
+						},
+					],
+				}),
+			),
+		);
+
+		// A failed check: its version, its exit code and its time, and its
+		// link to the project's page; no button.
+		const check = await choose("fodr's setup failed its check");
+		const [tile] = tiles(check);
+		expect(tile?.slice(0, 2)).toEqual(["The check", "Failed"]);
+		expect(tile?.[2]).toMatch(/^version 4f6c1c3 · exit 1 · /);
+		expect(check.querySelector("time")?.getAttribute("datetime")).toBe(
+			checkedAt,
+		);
+		expect(
+			within(check)
+				.getByRole("link", { name: "See its output on the project's page" })
+				.getAttribute("href"),
+		).toBe(`/devflow/projects/${PROJECT}`);
+		expect(within(check).queryAllByRole("button")).toEqual([]);
+
+		// A setup run: its state and its reason, and its link; no button.
+		const run = await choose("habits's setup waits for you");
+		expect(tiles(run)).toEqual([
+			["The setup run", "Waits for you", "pull request #7 · 5e7d2d4"],
+		]);
+		expect(
+			within(run).getByText("Approved; it waits for you to merge it."),
+		).toBeTruthy();
+		expect(
+			within(run)
+				.getByRole("link", { name: "Merge it from the project's page" })
+				.getAttribute("href"),
+		).toBe(`/devflow/projects/${OTHER}`);
+		expect(within(run).queryAllByRole("button")).toEqual([]);
 	});
 });
 
@@ -918,6 +1059,86 @@ describe("questions before starting", () => {
 		);
 	}
 
+	test("a question card shows each question with its recommendation, Accept and another answer, and Send answers stays disabled until each is answered", async () => {
+		const answerCard = vi.fn<ActionsApi["answerCard"]>(() => Promise.resolve());
+		openAnswering(answerCard);
+
+		const entry = await choose("Add the habits list");
+		const where = within(entry).getByText("Adamniels/Personal-platform")
+			.parentElement as HTMLElement;
+		expect(where.textContent).toBe(
+			"Adamniels/Personal-platform · card #9 · feature #8",
+		);
+		const questions = within(entry).getAllByRole("group");
+		expect(questions).toHaveLength(3);
+		const [first, second, third] = questions.map((question) =>
+			within(question as HTMLElement),
+		) as [
+			ReturnType<typeof within>,
+			ReturnType<typeof within>,
+			ReturnType<typeof within>,
+		];
+
+		// Each numbered, open, with its recommendation and why, Accept and
+		// Write another answer, and no box until that is pressed.
+		expect(first.getByText("01")).toBeTruthy();
+		expect(third.getByText("03")).toBeTruthy();
+		expect(first.getByText("Open")).toBeTruthy();
+		expect(first.getByText("By date, newest first")).toBeTruthy();
+		expect(first.getByText("The page beside it sorts so")).toBeTruthy();
+		expect(first.getByRole("button", { name: "Accept" })).toBeTruthy();
+		expect(
+			first.getByRole("button", { name: "Write another answer" }),
+		).toBeTruthy();
+		expect(first.queryByRole("textbox")).toBeNull();
+
+		// Send answers is the primary, disabled, with how many are left.
+		const send = await within(entry).findByRole("button", {
+			name: "Send answers",
+		});
+		expect(send.className).toMatch(/primary/);
+		expect(send).toHaveProperty("disabled", true);
+		expect(
+			within(entry).getByText("3 questions left · sent as one comment"),
+		).toBeTruthy();
+
+		// Accepted, it says so, with Change, which opens it again.
+		fireEvent.click(first.getByRole("button", { name: "Accept" }));
+		expect(first.getByText("Accepted")).toBeTruthy();
+		expect(first.queryByRole("button", { name: "Accept" })).toBeNull();
+		fireEvent.click(first.getByRole("button", { name: "Change" }));
+		expect(first.getByText("Open")).toBeTruthy();
+		fireEvent.click(first.getByRole("button", { name: "Accept" }));
+
+		// Another answer reveals the box; once written, it is Your answer.
+		fireEvent.click(
+			second.getByRole("button", { name: "Write another answer" }),
+		);
+		const box = second.getByLabelText("Another answer");
+		expect(second.getByText("Open")).toBeTruthy();
+		fireEvent.change(box, { target: { value: "No, nothing at all" } });
+		expect(second.getByText("Your answer")).toBeTruthy();
+		expect(
+			within(entry).getByText("1 question left · sent as one comment"),
+		).toBeTruthy();
+		expect(send).toHaveProperty("disabled", true);
+
+		// The last one answered, Send answers sends them in order.
+		fireEvent.click(third.getByRole("button", { name: "Accept" }));
+		expect(send).toHaveProperty("disabled", false);
+		expect(
+			within(entry).getByText("0 questions left · sent as one comment"),
+		).toBeTruthy();
+		fireEvent.click(send);
+		await waitFor(() =>
+			expect(answerCard).toHaveBeenCalledWith(CARD_ID, READING, [
+				{ accept: true },
+				{ text: "No, nothing at all" },
+				{ accept: true },
+			]),
+		);
+	});
+
 	test("a card's questions are answered in place", async () => {
 		const answerCard = vi
 			.fn<ActionsApi["answerCard"]>()
@@ -944,8 +1165,8 @@ describe("questions before starting", () => {
 		expect(within(group).getAllByRole("link")).toHaveLength(1);
 		const entry = within(await choose("Add the habits list"));
 		expect(entry.getByText("Adamniels/Personal-platform")).toBeTruthy();
-		expect(entry.getByText("#9")).toBeTruthy();
-		expect(entry.getByText("#8 Habits")).toBeTruthy();
+		expect(entry.getByText("card #9")).toBeTruthy();
+		expect(entry.getByText("feature #8")).toBeTruthy();
 
 		// Each question with the recommendation and why; nothing is sent
 		// until every question has an answer.
@@ -964,12 +1185,11 @@ describe("questions before starting", () => {
 
 		// Accept the first and third, write another answer for the second.
 		fireEvent.click(first.getByRole("button", { name: "Accept" }));
-		expect(
-			first
-				.getByRole("button", { name: "Accepted" })
-				.getAttribute("aria-pressed"),
-		).toBe("true");
-		fireEvent.change(second.getByLabelText("Or your own answer"), {
+		expect(first.getByText("Accepted")).toBeTruthy();
+		fireEvent.click(
+			second.getByRole("button", { name: "Write another answer" }),
+		);
+		fireEvent.change(second.getByLabelText("Another answer"), {
 			target: { value: "No, nothing at all" },
 		});
 		expect((send as HTMLButtonElement).disabled).toBe(true);
@@ -982,10 +1202,9 @@ describe("questions before starting", () => {
 			"GitHub did not answer. Nothing was sent. Try again in a moment.",
 		);
 		expect(
-			(second.getByLabelText("Or your own answer") as HTMLTextAreaElement)
-				.value,
+			(second.getByLabelText("Another answer") as HTMLTextAreaElement).value,
 		).toBe("No, nothing at all");
-		expect(first.getByRole("button", { name: "Accepted" })).toBeTruthy();
+		expect(first.getByText("Accepted")).toBeTruthy();
 
 		// Sent again, the answers go in the order of the questions.
 		fireEvent.click(entry.getByRole("button", { name: "Send answers" }));

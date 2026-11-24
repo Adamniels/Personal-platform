@@ -368,7 +368,15 @@ describe("sending back", () => {
 		expect(found.queryByRole("button", { name: "Send back" })).toBeNull();
 		const comment = found.getByRole("button", { name: "Comment to run again" });
 		await waitFor(() => expect(enabled(comment)).toBe(true));
+		// It is the item's one primary, and Send takes its place once the box
+		// is open.
+		const primaries = () =>
+			found
+				.getAllByRole("button")
+				.filter((button) => /_primary_/.test(button.className));
+		expect(primaries()).toEqual([comment]);
 		fireEvent.click(comment);
+		expect(primaries()).toEqual([found.getByRole("button", { name: "Send" })]);
 		fireEvent.change(
 			found.getByRole("textbox", { name: "A comment runs it again." }),
 			{ target: { value: "Try once more." } },

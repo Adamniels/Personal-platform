@@ -18,3 +18,14 @@ export async function choose(title: string): Promise<HTMLElement> {
 	fireEvent.click(row);
 	return screen.findByRole("article", { name: title });
 }
+
+/** The tiles of an item's detail, "At a glance", each as its label, its
+ * status's word and its mono line, in order. */
+export function tiles(detail: HTMLElement): string[][] {
+	const list = within(detail).getByRole("list", { name: "At a glance" });
+	return within(list)
+		.getAllByRole("listitem")
+		.map((tile) =>
+			Array.from(tile.children).map((part) => part.textContent ?? ""),
+		);
+}

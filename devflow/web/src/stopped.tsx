@@ -5,9 +5,10 @@
 // behind a confirmation that says resuming accepts it. The commit shown travels with the resume, so
 // something that landed since is never accepted unseen. Every text from the code host, the actor
 // among them, is shown as text. See "Watching branches" in devflow/README.md.
-import { Button, Card, Dialog, Status, useToast } from "@platform/ui";
+import { Button, Dialog, Status, useToast } from "@platform/ui";
 import { useState } from "react";
 import { type ActionsApi, describe } from "./actions";
+import { Detail } from "./detail";
 import { askNavAgain } from "./nav-attention";
 import type { OwnItem } from "./waiting";
 import styles from "./waiting.module.css";
@@ -73,19 +74,21 @@ export function StoppedProject({
 	}
 
 	return (
-		<Card
+		<Detail
 			title={stoppedTitle(stop.branch)}
-			aside={<Status tone="failed">Stopped</Status>}
-			className={styles.item}
-			footer={
-				<div className={styles.footer}>
+			where={[project, stop.branch, ...(deleted ? [] : [short])]}
+			status={<Status tone="failed">Stopped</Status>}
+			needsYou={false}
+			lede="Dev flow hands out no work on this project until you have looked and resume it."
+			actions={
+				<>
 					{refusal === null ? null : (
 						<p className={styles.refusal} role="alert">
 							{refusal}
 						</p>
 					)}
 					<div className={styles.actions}>
-						<Button onClick={() => setConfirming(true)}>
+						<Button kind="primary" onClick={() => setConfirming(true)}>
 							I have looked, resume
 						</Button>
 						{!deleted && linkable(stop.commit_url) ? (
@@ -128,13 +131,11 @@ export function StoppedProject({
 							</div>
 						</Dialog>
 					) : null}
-				</div>
+				</>
 			}
 		>
-			<div className={styles.body}>
-				<p className={styles.where}>
-					<span>{project}</span>
-				</p>
+			<div className={styles.block}>
+				<h3 className={styles.label}>What landed</h3>
 				<p className={styles.text}>
 					{deleted ? (
 						<span>{stop.branch}</span>
@@ -146,11 +147,7 @@ export function StoppedProject({
 						{DATE_TIME.format(new Date(stop.landed_at))}
 					</time>
 				</p>
-				<p className={styles.text}>
-					Dev flow hands out no work on this project until you have looked and
-					resume it.
-				</p>
 			</div>
-		</Card>
+		</Detail>
 	);
 }

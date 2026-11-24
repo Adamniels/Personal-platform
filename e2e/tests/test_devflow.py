@@ -9,9 +9,11 @@ import struct
 import zlib
 from pathlib import Path
 
+import pytest
 from playwright.sync_api import Browser, Locator, Page, expect
 
 from conftest import (
+    SCREENSHOTS,
     VIEWPORTS,
     account_in_access_cookie,
     capture,
@@ -499,7 +501,7 @@ def test_the_waiting_list_shows_a_decision(
     vault = _item(page, "The vault", "Pull requests waiting")
     expect(vault).to_be_visible()
     expect(vault.get_by_text("Adamniels/Personal-platform")).to_be_visible()
-    expect(vault.get_by_text("#304")).to_be_visible()
+    expect(vault.get_by_text("pull request #304", exact=True)).to_be_visible()
     expect(vault.get_by_text("Waiting for you")).to_be_visible()
     # The summary's backticks are code, and the rest is text.
     expect(vault.locator("code", has_text="vault")).to_be_visible()
@@ -531,7 +533,7 @@ def test_the_waiting_list_shows_why_a_pull_request_waits(
     page.goto("/devflow")
 
     poll = _item(page, "The poll", "Pull requests waiting")
-    expect(poll.get_by_text("Why it waits")).to_be_visible()
+    expect(poll.get_by_text("In the runner's words")).to_be_visible()
     expect(poll.get_by_text("High risk slice.")).to_be_visible()
     expect(poll.get_by_role("list", name="The agent decided")).to_have_count(0)
 
@@ -548,7 +550,8 @@ def test_the_waiting_list_shows_a_stopped_pull_request(
     page.goto("/devflow")
 
     stopped = _item(page, "Import a photo", "Stopped")
-    expect(stopped.get_by_text("Stopped", exact=True)).to_be_visible()
+    header = stopped.locator(":scope > header")
+    expect(header.get_by_text("Stopped", exact=True)).to_be_visible()
     expect(stopped.get_by_text("Why it stopped")).to_be_visible()
     expect(
         stopped.get_by_text(
@@ -2552,9 +2555,12 @@ def test_a_built_card_waits_for_me_with_its_pull_request(
     expect(decided).to_contain_text("Only on habits")
     expect(decided).to_contain_text("The lists look the same")
     expect(card).to_contain_text("and 1 more it did not need you for")
-    expect(card).to_contain_text(
-        f"Dev flow ran {CHECK} on {ran['head_commit'][:7]}: exit 0."
+    # The check Dev flow ran, as its tile, on the commit in the where line.
+    glance = card.get_by_role("list", name="At a glance")
+    expect(glance.get_by_role("listitem").first).to_have_text(
+        f"The checkPassed{CHECK} · exit 0"
     )
+    expect(card).to_contain_text(f"{ran['head_commit'][:7]} → main")
     expect(card.get_by_role("button", name="Merge")).to_be_enabled()
     expect(card.get_by_role("link", name="Open on GitHub")).to_have_attribute(
         "href", pull["url"]
@@ -3573,7 +3579,8 @@ def test_i_answer_a_cards_questions(
     expect(send).to_be_disabled()
 
     # One answer written; the look of the three questions with it.
-    questions.nth(1).get_by_label("Or your own answer").fill(
+    questions.nth(1).get_by_role("button", name="Write another answer").click()
+    questions.nth(1).get_by_label("Another answer").fill(
         "Nothing at all, the page hides the list"
     )
     _look(page, "devflow-waiting-questions")
@@ -4072,9 +4079,9 @@ def test_a_decision_for_me_becomes_an_issue(
     expect(decision).to_contain_text("The lists look the same")
     expect(decision).to_contain_text("Agreed: the lists share one component.")
     expect(decision).to_contain_text(f"{OWNER}/{NAME}")
-    expect(decision.get_by_role("link", name="Open on GitHub")).to_have_attribute(
-        "href", issue["url"]
-    )
+    expect(
+        decision.get_by_role("link", name="Open the issue on GitHub")
+    ).to_have_attribute("href", issue["url"])
     expect(page.get_by_role("tab", name="Waiting for you 1")).to_be_visible()
 
     page.evaluate("document.fonts.ready.then(() => null)")
@@ -4960,9 +4967,8 @@ def test_a_reviewed_feature_is_ready_for_me(
     expect(item).to_contain_text(
         "The feature does what its parent asks, and its cards fit together."
     )
-    expect(item).to_contain_text(
-        "1 decision its cards marked for you is not answered yet."
-    )
+    decisions = item.get_by_role("list", name="At a glance").get_by_role("listitem")
+    expect(decisions.nth(2)).to_have_text("Decisions1 for younot answered yet")
     expect(item.get_by_role("link", name="Open on GitHub")).to_have_attribute(
         "href", re.compile(rf"/pull/{pull}$")
     )
@@ -6071,3 +6077,253 @@ def test_i_send_a_failed_check_back(
     answered = page.request.get(f"/devflow/api/projects/{project}/setup").json()
     assert answered["setup"]["sent_back"] is True
     assert answered["setup"]["state"] == "reviewing"
+
+
+# An item's detail, by kind: every kind in the same frame. See "What waits" in
+# devflow/README.md.
+
+
+def _claude_login_given(page: Page, base_url: str) -> None:
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+
+
+def _read_card(page: Page, base_url: str, devflow_world, card: dict) -> str:
+    """Connects a repository with one labelled card and its project.json,
+    gives Dev flow a Claude login, and has the fake worker read the card as
+    `card` says. The project's id."""
+    world = one_repository()
+    add_issue(world, CARD, CARD_TITLE, labels=["devflow"])
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    _claude_login_given(page, base_url)
+    _read(page, base_url, project)
+    _fake_read(page, base_url, project, [card])
+    return project
+
+
+def _a_waiting_card(page: Page, base_url: str, devflow_world) -> str:
+    _built_card(page, base_url, devflow_world)
+    return CARD_TITLE
+
+
+def _a_runner_item(page: Page, base_url: str, devflow_world) -> str:
+    world = one_repository()
+    _decision(world)
+    devflow_world(world)
+    _connect_and_read(page, base_url)
+    return "The vault"
+
+
+def _a_feature(page: Page, base_url: str, devflow_world) -> str:
+    """A feature whose review approved its head, with CI passed there, so
+    it is ready and its merge is offered."""
+    project, _ = _published_feature(page, base_url, devflow_world)
+    reviewed = _fake_job(page, base_url, project, _verdict("approve"), None)
+    assert reviewed["kind"] == "feature_review", reviewed
+    _stage_ci(page, devflow_world, reviewed["head_commit"], [check_run("ci")])
+    asked = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={"project_id": project, "keep_running": True},
+        headers={"Origin": base_url},
+    )
+    assert asked.status == 204, asked.text()
+    return "The feature's branch"
+
+
+def _a_question_card(page: Page, base_url: str, devflow_world) -> str:
+    _read_card(
+        page,
+        base_url,
+        devflow_world,
+        {"number": CARD, "outcome": "questions", "questions": QUESTIONS, "missing": []},
+    )
+    return CARD_TITLE
+
+
+def _a_stopped_card(page: Page, base_url: str, devflow_world) -> str:
+    project = _card_project(page, base_url, devflow_world)
+    for _ in range(2):
+        _fake_run(page, base_url, project, _failure(True, TURNS), leave_no_commit=True)
+    return CARD_TITLE
+
+
+def _a_stopped_project(page: Page, base_url: str, devflow_world) -> str:
+    devflow_world(one_repository())
+    project = _connect_and_read(page, base_url)
+    staged = page.request.get("/devflow/api/fake/world").json()
+    add_activity(staged, 1, after=LANDED, at=LATER)
+    devflow_world(staged)
+    _read(page, base_url, project)
+    return "Something landed on main that Dev flow did not put there"
+
+
+def _a_decision(page: Page, base_url: str, devflow_world) -> str:
+    _built_card(page, base_url, devflow_world, green=True)
+    return "Show it on every list"
+
+
+def _a_refused_card(page: Page, base_url: str, devflow_world) -> str:
+    _read_card(page, base_url, devflow_world, _thin(CARD, THIN))
+    return CARD_TITLE
+
+
+def _a_failing_project(page: Page, base_url: str, devflow_world) -> str:
+    project = _card_project(page, base_url, devflow_world)
+    for failure in range(6):
+        if failure > 0:
+            ended = page.request.post(
+                "/devflow/api/fake/end-wait",
+                data={"project_id": project},
+                headers={"Origin": base_url},
+            )
+            assert ended.status == 204, ended.text()
+        _fake_run(page, base_url, project, _failure(False, LOGGED_OUT))
+    return f"Dev flow cannot run {NAME}'s cards: {LOGGED_OUT}"
+
+
+def _a_setup_item(page: Page, base_url: str, devflow_world) -> str:
+    """A setup run that stopped before it had a pull request."""
+    _open_project(page, base_url, devflow_world, one_repository())
+    project = page.url.rsplit("/", 1)[1]
+    _claude_login_given(page, base_url)
+    _read(page, base_url, project)
+    stopped = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={
+            "project_id": project,
+            "setup": True,
+            "leave_no_commit": True,
+            "result": {
+                **_failure(True, "The run reached its time limit, 90 minutes"),
+                "failure": {
+                    "reason": "The run reached its time limit, 90 minutes",
+                    "in_card": True,
+                    "timed_out": True,
+                },
+                "duration_ms": 5400000,
+            },
+        },
+        headers={"Origin": base_url},
+    )
+    assert stopped.status == 200, stopped.text()
+    return f"{NAME}'s setup stopped"
+
+
+# Each kind: how it is staged, how many primary buttons its detail has, and
+# the screenshot it is captured as at desktop and phone width, if any.
+DETAIL_KINDS = {
+    "waiting-card": (_a_waiting_card, 1, "devflow-item-card"),
+    "runner-item": (_a_runner_item, 1, None),
+    "feature": (_a_feature, 1, "devflow-item-feature"),
+    "question-card": (_a_question_card, 1, "devflow-item-questions"),
+    "stopped-card": (_a_stopped_card, 1, "devflow-item-stopped"),
+    "stopped-project": (_a_stopped_project, 1, None),
+    "decision": (_a_decision, 0, None),
+    "refused-card": (_a_refused_card, 0, None),
+    "failing-project": (_a_failing_project, 0, None),
+    "setup-item": (_a_setup_item, 0, None),
+}
+
+DETAIL_STYLE = """element => {
+    const style = getComputedStyle(element);
+    const family = value => value.split(",")[0].trim().replace(/^["']|["']$/g, "");
+    const probe = document.createElement("div");
+    document.body.append(probe);
+    const token = (name, property) => {
+        probe.style.setProperty(property, `var(${name})`);
+        return getComputedStyle(probe).getPropertyValue(property);
+    };
+    const resolved = {
+        heading: family(token("--font-heading", "font-family")),
+        mono: family(token("--font-mono", "font-family")),
+        hero: token("--text-hero-size", "font-size"),
+    };
+    probe.remove();
+    return {
+        family: family(style.fontFamily),
+        size: style.fontSize,
+        transform: style.textTransform,
+        weight: style.fontWeight,
+        resolved,
+    };
+}"""
+
+
+@pytest.mark.parametrize("kind", list(DETAIL_KINDS))
+def test_every_item_kind_follows_the_detail_rule(
+    page: Page, invite_code: str, base_url: str, devflow_world, kind: str
+):
+    page.set_viewport_size(VIEWPORTS["desktop"])
+    register_and_log_in(page, invite_code, base_url)
+    stage, primaries, shot = DETAIL_KINDS[kind]
+    title = stage(page, base_url, devflow_world)
+
+    for viewport in ("desktop", "phone") if shot else ("desktop",):
+        page.set_viewport_size(VIEWPORTS[viewport])
+        page.goto("/devflow")
+        item = _item(page, title)
+        expect(item).to_be_visible()
+
+        # The where line in the mono font, naming the repository, above the
+        # title, which is the hero label: the heading font at the hero size.
+        where = item.locator(":scope > header > p").first
+        expect(where).to_contain_text(f"{OWNER}/{NAME}")
+        hero = item.get_by_role("heading", level=2, name=title)
+        expect(hero).to_be_visible()
+        look = where.evaluate(DETAIL_STYLE)
+        assert look["family"] == look["resolved"]["mono"], (kind, look)
+        look = hero.evaluate(DETAIL_STYLE)
+        assert look["family"] == look["resolved"]["heading"], (kind, look)
+        assert look["size"] == look["resolved"]["hero"], (kind, look)
+        assert (look["transform"], look["weight"]) == ("uppercase", "600"), kind
+        assert where.bounding_box()["y"] < hero.bounding_box()["y"], kind
+
+        # Exactly one primary button where the kind acts, none where it
+        # does not: a button of the primary kind, which has the accent fill
+        # while it can be pressed.
+        accent = page.evaluate(
+            """() => {
+                const probe = document.createElement("div");
+                probe.style.backgroundColor = "var(--accent)";
+                document.body.append(probe);
+                const value = getComputedStyle(probe).backgroundColor;
+                probe.remove();
+                return value;
+            }"""
+        )
+        filled = [
+            button
+            for button in item.get_by_role("button").all()
+            if button.is_visible()
+            and re.search(r"(^|\s)_?primary", button.get_attribute("class") or "")
+        ]
+        for button in filled:
+            if button.is_enabled():
+                assert (
+                    button.evaluate("b => getComputedStyle(b).backgroundColor")
+                    == accent
+                ), (kind, button.inner_text())
+        assert len(filled) == primaries, (kind, viewport, filled)
+
+        page.evaluate("document.fonts.ready.then(() => null)")
+        for check in (assert_headings_are_capitals, assert_nothing_scrolls_sideways):
+            check(page)
+        if shot:
+            capture(page, shot)
+        if shot and viewport == "phone":
+            # The full page at phone width puts the sticky actions over the
+            # tiles, so the detail from its where line down, as it is seen.
+            item.locator(":scope > header").evaluate(
+                "header => header.scrollIntoView({block: 'start'})"
+            )
+            page.screenshot(path=str(SCREENSHOTS / f"{shot}-detail-phone.png"))

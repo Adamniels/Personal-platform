@@ -69,3 +69,9 @@ export {
 	type Toasts,
 	useToast,
 } from "./toast/toast";
+export {
+	VerdictTile,
+	type VerdictTileProps,
+	VerdictTiles,
+	type VerdictTilesProps,
+} from "./verdict-tile/verdict-tile";

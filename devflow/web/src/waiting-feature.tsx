@@ -1,33 +1,66 @@
 // A feature of Dev flow's own that is the owner's turn, as "Waiting for you" shows it under
-// "Features ready for your review": one that is ready, its latest review approving its head and CI
-// passed there, or one that waits for him with why. It leads to its page, where its review, its
-// cards and their decisions are; the item says what the review found and how many decisions he has
-// not answered, links to its pull request, merges it into the default branch once CI passed on its
-// head, after a confirmation, and sends the whole feature back with his comment. Every text came
-// from the code host or an agent and is shown as text. See "Reviewing a feature", "Fixing a
-// feature" and "Merging a feature" in devflow/README.md.
-import { Card, Status } from "@platform/ui";
+// "Features ready for your review", in the detail's frame: one that is ready, its latest review
+// approving its head and CI passed there, or one that waits for him with why. Its tiles say whether
+// CI passed on its head, what the review found and how many decisions he has not answered, with
+// "Open the feature" under them, its page, where its review, its cards and their decisions are.
+// It merges into the default branch once CI passed on its head, after a confirmation, sends the
+// whole feature back with his comment, and links to its pull request. Every text came from the
+// code host or an agent and is shown as text. See "Reviewing a feature", "Fixing a feature" and
+// "Merging a feature" in devflow/README.md.
+import { Status } from "@platform/ui";
 import { useId } from "react";
 import type { ActionsApi, LinkState } from "./actions";
-import { navigate, plainClick } from "./address";
 import { stateWord } from "./cards";
+import {
+	ArrowLink,
+	Detail,
+	reviewTile,
+	short,
+	type Tile,
+	Tiles,
+} from "./detail";
 import { MergeFeature } from "./feature-merge";
 import { Inline } from "./format";
 import { featurePath } from "./sections";
 import { canSendBack, SendBack } from "./send-back-feature";
 import { linkable, type WaitingList } from "./waiting";
 import styles from "./waiting.module.css";
-import { ReviewLine } from "./waiting-card";
 
 export type FeatureItem = WaitingList["features"][number];
 
-/** How many decisions wait for an answer, in words. */
-export function unanswered(count: number): string {
-	if (count === 0)
-		return "Every decision its cards marked for you is answered.";
-	return count === 1
-		? "1 decision its cards marked for you is not answered yet."
-		: `${count} decisions its cards marked for you are not answered yet.`;
+/** The feature's tiles: CI on its head, its review, and the decisions its
+ * cards marked for the owner that he has not answered. Merging is offered
+ * only once CI passed on the head, so an offer is CI passing. */
+export function featureTiles(feature: FeatureItem): Tile[] {
+	return [
+		feature.merge === null
+			? {
+					label: "CI",
+					tone: "idle",
+					status: "Not passed",
+					line: "merging waits for it",
+				}
+			: {
+					label: "CI",
+					tone: "done",
+					status: "Passed",
+					line: `on ${short(feature.merge.head_commit)}`,
+				},
+		reviewTile(feature.review, "the whole feature, not yet"),
+		feature.unanswered > 0
+			? {
+					label: "Decisions",
+					tone: "needs-you",
+					status: `${feature.unanswered} for you`,
+					line: "not answered yet",
+				}
+			: {
+					label: "Decisions",
+					tone: "done",
+					status: "Answered",
+					line: "every one marked for you",
+				},
+	];
 }
 
 export type WaitingFeatureProps = {
@@ -45,97 +78,81 @@ export function WaitingFeature({
 	reload,
 }: WaitingFeatureProps) {
 	const { word, tone } = stateWord(feature.state);
-	const project = `${feature.owner}/${feature.project_name}`;
-	const page = featurePath(feature.project_id, feature.number);
 	// Merging and sending back share the line saying why neither can be pressed.
 	const linkLineId = useId();
-	const links = (
-		<>
+	const sendBack = canSendBack(feature.state, feature.pull_request_number) ? (
+		<SendBack
+			projectId={feature.project_id}
+			number={feature.number}
+			link={link}
+			send={api.sendBackFeature}
+			reload={reload}
+			lineShownAt={feature.merge === null ? undefined : linkLineId}
+		/>
+	) : null;
+	const open =
+		feature.pull_request_url !== null && linkable(feature.pull_request_url) ? (
 			<a
 				className={styles.open}
-				href={page}
-				onClick={(event) => {
-					if (plainClick(event)) {
-						event.preventDefault();
-						navigate(page);
-					}
-				}}
+				href={feature.pull_request_url}
+				target="_blank"
+				rel="noreferrer"
 			>
-				Open the feature
+				Open on GitHub
 			</a>
-			{feature.pull_request_url !== null &&
-			linkable(feature.pull_request_url) ? (
-				<a
-					className={styles.open}
-					href={feature.pull_request_url}
-					target="_blank"
-					rel="noreferrer"
-				>
-					Open on GitHub
-				</a>
-			) : null}
-		</>
-	);
+		) : null;
 	return (
-		<Card
+		<Detail
 			title={feature.title}
-			aside={<Status tone={tone}>{word}</Status>}
-			className={styles.item}
-			footer={
-				// One column, so the merge's row and the send back stack rather
-				// than share the card's footer row, at every width.
-				<div className={styles.footer}>
-					{feature.merge === null ? (
-						<div className={styles.actions}>{links}</div>
-					) : (
-						<MergeFeature
-							project={feature.project_id}
-							number={feature.number}
-							offer={feature.merge}
-							link={link}
-							api={api}
-							reload={reload}
-							primary={false}
-							after={links}
-							lineId={linkLineId}
-						/>
-					)}
-					{canSendBack(feature.state, feature.pull_request_number) ? (
-						<SendBack
-							projectId={feature.project_id}
-							number={feature.number}
-							link={link}
-							send={api.sendBackFeature}
-							reload={reload}
-							lineShownAt={feature.merge === null ? undefined : linkLineId}
-						/>
-					) : null}
-				</div>
+			where={[
+				`${feature.owner}/${feature.project_name}`,
+				`feature #${feature.number}`,
+				...(feature.pull_request_number === null
+					? []
+					: [`pull request #${feature.pull_request_number}`]),
+				...(feature.merge === null ? [] : [short(feature.merge.head_commit)]),
+			]}
+			status={<Status tone={tone}>{word}</Status>}
+			needsYou={tone === "needs-you"}
+			lede={feature.reason === null ? null : <Inline text={feature.reason} />}
+			actions={
+				feature.merge === null ? (
+					<div className={styles.actions}>
+						{sendBack}
+						{open}
+					</div>
+				) : (
+					<MergeFeature
+						project={feature.project_id}
+						number={feature.number}
+						offer={feature.merge}
+						link={link}
+						api={api}
+						reload={reload}
+						primary
+						lineId={linkLineId}
+						after={
+							<>
+								{sendBack}
+								{open}
+							</>
+						}
+					/>
+				)
 			}
 		>
-			<div className={styles.body}>
-				<p className={styles.where}>
-					<span>{project}</span> <span>Feature #{feature.number}</span>
-					{feature.pull_request_number === null ? null : (
-						<>
-							{" "}
-							<span>Pull request #{feature.pull_request_number}</span>
-						</>
-					)}
-				</p>
-				{feature.reason === null ? null : (
-					<p className={styles.summary}>
-						<Inline text={feature.reason} />
-					</p>
-				)}
-				{feature.review === null ? null : (
-					<ReviewLine review={feature.review} />
-				)}
+			<Tiles tiles={featureTiles(feature)} />
+			<ArrowLink href={featurePath(feature.project_id, feature.number)}>
+				Open the feature
+			</ArrowLink>
+			{feature.review === null || feature.review.summary === "" ? null : (
 				<div className={styles.block}>
-					<h3 className={styles.label}>Decisions</h3>
-					<p className={styles.text}>{unanswered(feature.unanswered)}</p>
+					<h3 className={styles.label}>The reviewer</h3>
+					<p className={styles.text}>
+						<Inline text={feature.review.summary} />
+					</p>
 				</div>
-			</div>
-		</Card>
+			)}
+		</Detail>
 	);
 }

@@ -469,60 +469,44 @@ answer's `count` as a badge once it is more than none. Its parts, top to bottom:
   `/devflow` answers the page with any query.
 - On a phone, below 640px, the inbox is two screens: at `/devflow` the queue alone, and at an
   item's address the item alone, under a back link "Waiting for you", which goes to `/devflow`,
-  and its place in the queue in the mono font, "1 of 6", counting every row. The item's actions,
-  its card's footer, are a bar above the tab bar, `--surface` with a 1px top `--border`, which
-  stays in view as the item scrolls.
-- An item is the package's `Card`, titled by the pull request, its status label on the right:
-  "Waiting for you" in the needs you tone, with the card's attention outline, "Stopped" or "Sent
-  back". Under the title, `<owner>/<name> #<number>` in the mono font, then the summary. A waiting
-  item with decisions for the owner shows "The agent decided", each decision on an inset with what
-  was chosen, "Instead of" and the alternative, and "Because" and the reason, each when there is
-  one, and "and <n> more it did not need you for" when the body records others; without
-  decisions, "Why it waits" and the runner's reason, and a stopped item "Why it stopped". A
-  waiting item's reviewer points follow as "The reviewer". Then, with screenshots,
-  `src/screenshots.tsx`, "Screenshots": each pair under its name in the mono font, the desktop
-  one and the phone one as thumbnails at most 160px high, loaded lazily and read from the
+  and its place in the queue in the mono font, "1 of 6", counting every row. The item's actions
+  are a bar above the tab bar, `--surface` with a 1px top `--border`, which stays in view as the
+  item scrolls.
+- The chosen item is shown in one frame whatever its kind, `src/detail.tsx`, and what each kind
+  shows in it is "An item's detail, by kind" under "What waits". Screenshots, where an item has
+  them, are `src/screenshots.tsx`, "Screenshots": each pair under its name in the mono font, the
+  desktop one and the phone one as thumbnails at most 160px high, loaded lazily and read from the
   screenshot route, never from the body's addresses, each image with its name as its alternative
   text; a name with only one of the two shows that one, and an image that fails to load shows
   "<name> could not be loaded". A thumbnail is a button that opens the image in the package's
   `Dialog`, titled by its name, at its natural size in a frame that scrolls, with one "Close".
-  Last, its actions, `src/actions.tsx`,
-  and a ghost styled link "Open on GitHub" to the pull request, in a new tab with
-  `rel="noreferrer"`, offered only when its address is `https`. On a phone it all stacks and the
-  actions wrap.
-- The actions, before "Open on GitHub": a waiting item has "Merge" and a secondary "Send back"; a
-  stopped item a secondary "Comment to run again" and no Merge; an item sent back nothing but the
-  link. The chosen item's Merge is primary, since it is the one item in view, by the design's one
-  primary button per view. Merge is disabled, with a line under it saying why, when `can_merge` is
-  false, "The checks are not green on this commit yet", or when GitHub is not linked or the link
-  has expired, which `GET /devflow/api/status` says; the comment buttons are disabled for the
-  link, with the same line. Merge opens the package's `Dialog`, "Merge #<number> into main?", with
-  the title, the head commit's first seven characters in the mono font, and, with decisions for
-  the owner, "This confirms <n> decisions the agent made.", and sends nothing until its "Merge" is
-  pressed. Send back opens a `TextArea` in the item, labelled "Comment", or "A comment runs it
-  again." for a stopped item, with "Send", disabled while the text is empty, and "Cancel". A merge
-  ends in a toast, "Merged #<number>", and the item leaves the list; sending back in "Sent back
-  #<number>", and the item moves to "Sent back, the runner has it". Either way the list is read
-  again, and a refusal is shown inside the item, in words, as an alert. The page is wrapped in the
-  package's `ToastProvider`.
-- A card of Dev flow's own, `src/waiting-card.tsx`, is the package's `Card` with the attention
-  outline, titled by the card, "Waiting for you" on the right; under the title
-  `<owner>/<name> #<pull request>` in the mono font, the report's summary, "Why it waits" with the
-  card's reason as text, such as "CI did not report" or "This project waits for you on every pull
-  request", when it has one, "The agent decided" with
-  the decisions the agent marked for the owner, as an item's, and "and <n> more it did not need you
-  for", and "The check", "Dev flow ran <check> on <commit>: exit <code>.". Its actions are "Merge",
-  primary as the chosen item's, and "Open on GitHub" to its pull request, offered
-  only when its address is https, with a secondary "Send back" between them, which opens a
-  `TextArea`, "What should the developer change?", with "Send" and "Cancel", posts to
+  Every link to the code host, "Open on GitHub" and its kin, opens in a new tab with
+  `rel="noreferrer"` and is offered only when its address is `https`.
+- A runner item's actions, `src/actions.tsx`, before "Open on GitHub": a waiting item has "Merge",
+  the view's one primary, and a secondary "Send back"; a stopped item "Comment to run again" as
+  the primary and no Merge; an item sent back nothing but the link. Merge is disabled, with a line
+  under it saying why, when `can_merge` is false, "The checks are not green on this commit yet",
+  or when GitHub is not linked or the link has expired, which `GET /devflow/api/status` says; the
+  comment buttons are disabled for the link, with the same line. Merge opens the package's
+  `Dialog`, "Merge #<number> into main?", with the title, the head commit's first seven characters
+  in the mono font, and, with decisions for the owner, "This confirms <n> decisions the agent
+  made.", and sends nothing until its "Merge" is pressed. Send back opens a `TextArea` in the item,
+  labelled "Comment", or "A comment runs it again." for a stopped item, with "Send", disabled
+  while the text is empty, and "Cancel". A merge ends in a toast, "Merged #<number>", and the item
+  leaves the list; sending back in "Sent back #<number>", and the item moves to "Sent back, the
+  runner has it". Either way the list is read again, and a refusal is shown inside the item, in
+  words, as an alert. The page is wrapped in the package's `ToastProvider`.
+- A card of Dev flow's own, `src/waiting-card.tsx`, has "Merge", the primary, a secondary "Send
+  back" and "Open on GitHub" to its pull request. Send back opens a `TextArea`, "What should the
+  developer change?", with "Send" and "Cancel", posts to
   `/devflow/api/projects/{id}/cards/{number}/send-back`, and ends in a toast, "Sent back #<pull
   request>", or a refusal in the card, and the list read again; it is disabled without a usable
-  link. Merge is
-  disabled with a line saying why while the project is stopped, "The project is stopped: resume it
-  before you merge.", or GitHub is not linked or the link has expired; it opens a `Dialog`, "Merge
-  #<pull request> into <base>?", with the title, the commit and how many decisions it confirms,
-  posts to `/devflow/api/projects/{id}/cards/{number}/merge` with the commit shown, and ends in a
-  toast, "Merged #<pull request>", or a refusal in the card, and the list read again.
+  link. Merge is disabled with a line saying why while the project is stopped, "The project is
+  stopped: resume it before you merge.", or GitHub is not linked or the link has expired; it opens
+  a `Dialog`, "Merge #<pull request> into <base>?", with the title, the commit and how many
+  decisions it confirms, posts to `/devflow/api/projects/{id}/cards/{number}/merge` with the
+  commit shown, and ends in a toast, "Merged #<pull request>", or a refusal in the card, and the
+  list read again.
 - With no project, the `EmptyState` "Nothing waits for you", "Connect a repository under Projects
   to see what waits for you."; with projects and no item, "Nothing waits for you", "Your agents
   have nothing for you to decide."; and a list that cannot be read says so as an alert.
@@ -1366,6 +1350,69 @@ page", and a webhook, when the platform is reachable, all call it.
 each project as its user, `Poller.ReadsAtOnce`, 4, at a time, so a tick holds at most that many
 database connections for its reads however many projects there are. It reads as the app, so it goes on when the owner's link has expired,
 and runs in the fake mode as well. With `DEVFLOW_POLL_SECONDS=0` it does not run.
+
+**An item's detail, by kind.** The page shows the chosen item, `src/detail.tsx`, in one frame
+whatever its kind: a mono line, `<owner>/<name> · <kind> #<number>` and the commit where there is
+one, with its status label on the right; its title as the hero label, the heading font at
+`--text-hero-size`; one paragraph of what it is, in body large, `--text-2`, at most
+`--reading-max` wide; its tiles; its blocks; and its actions last, over a 1px `--border` line.
+The panel is a card with `--accent-border` when the item needs the owner, its status in the needs
+you tone, and `--border` when it stopped, failed or was sent back. A tile is the package's
+`VerdictTile`, in a grid named "At a glance". At most one button is primary, the kind's main
+action, first in its row. Each kind:
+
+- A card of Dev flow's own waiting, `src/waiting-card.tsx`: `pull request #<n>` and
+  `<commit> → <base>`; the report's summary; the tiles "The check", Passed or Failed with
+  `<command> · exit <code>`, "The review", the verdict with `on <commit> · <n> blocking` or Not
+  reviewed, and "Decisions", `<n> for you` or None for you with `+<n> it did not need you for`;
+  then "Why it waits" with its reason, "The agent decided", each decision on an inset, the chosen
+  at weight 500, "Instead of" and "Because" with their prefixes in `--text-3`, and "and <n> more
+  it did not need you for" under them, "The reviewer" with the review's summary, and its
+  screenshots. Its actions are Merge, Send back and Open on GitHub, with "Merging confirms the
+  <n> decisions" in the mono font on the right of the row, while the merge dialog keeps its own
+  "This confirms" line.
+- A runner item, `src/waiting.tsx`: `pull request #<n>` and its head; its summary; the tiles "Why
+  it waits", Your decision or Your merge with whether `ci-ok` and `review-ok` are green, Stopped
+  when the runner gave up, or Sent back, "The reviewer", Approved with how many points it wrote
+  for the owner, or Not known for a stopped one, since the runner stops an approved head too,
+  such as one whose `ci-ok` failed, and the item carries no verdict; and "Decisions" as a card's;
+  then the runner's reason under "In the runner's words", or "Why it stopped", the decisions, the
+  reviewer's points as insets and its screenshots. Sent back, it is read only, with its reason as
+  stored; the list carries no text of what the owner wrote, so none is shown.
+- A feature, `src/waiting-feature.tsx`: `feature #<n>`, its pull request and its head when it may
+  be merged; why it waits, when it does; the tiles "CI", Passed on its head, which is when merging
+  is offered, or Not passed, "The review" as a card's, or Not reviewed, and "Decisions", how many
+  its cards marked for the owner he has not answered; "Open the feature", an arrow link inset to
+  its page, under them; and "The reviewer" with the review's summary. Its actions are "Merge into
+  <default>", the primary, "Send the whole feature back" and Open on GitHub, as "Merging a
+  feature" and "Fixing a feature" say.
+- A question card, `src/question-card.tsx`: `card #<n>` and its feature's number; one inset per
+  question, numbered `01`, its state, Open, Accepted or Your answer, on the right, what it asks,
+  "Recommended" and "Because", and "Accept" with "Write another answer", which opens the box
+  "Another answer"; an answered one has "Change", which opens it again. "Send answers" is the
+  primary, disabled until each is answered, with "<n> questions left · sent as one comment" on
+  the right, and the line saying why when GitHub is not linked. What is sent, and the drafts kept
+  until a send succeeds, are as "Reading a card" under "Jobs" says.
+- A stopped card, `src/stopped-card.tsx`: `card #<n>`; when it stopped; why, on a `--danger-soft`
+  inset; and "Comment to run again", the primary, which opens the comment box and its Send, which
+  is then the primary, and Open on GitHub.
+- A stopped project, `src/stopped.tsx`: the branch and the commit that landed; that Dev flow hands
+  out no work until the owner resumes it; "What landed", the commit, what was done, by whom and
+  when; and "I have looked, resume", the primary, and "Open the commit on GitHub".
+- A failing project: how many runs failed outside their cards, since when and when Dev flow tries
+  again; "The last reason"; no button.
+- A refused card, `src/refused-card.tsx`: `card #<n>`; when it was read as too thin; "What is
+  missing", each line on an inset; and Open on GitHub to its issue, where an edit reads it again.
+- A decision to look at, `src/decision-issue.tsx`: `issue #<n>`; where it was merged and for
+  which card; "The agent decided", one inset with "Instead of" and "Because"; "The reviewer"; and
+  only a link, "Open the issue on GitHub".
+- A failed check of a setup, `setup-check/<project>`, and a setup run that waits or stopped,
+  `setup-run/<project>`, `src/setup.tsx`: a tile, "The check" Failed with its version, exit code
+  and time, or "The setup run" Waits for you or Stopped with its pull request and commit, the
+  run's reason as the paragraph, and an arrow link to the project's page, "See its output on the
+  project's page", "Merge it from the project's page" or "See why on the project's page". They act
+  nowhere in the inbox: the output, Check again, Send back with a comment and Merge are on the
+  project's page.
 
 **The routes**, under the `Api` policy and the origin check:
 

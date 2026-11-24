@@ -4,7 +4,7 @@
 // Merge, as part 1 does for the runner's stopped items. A failing project says Dev flow cannot run
 // its cards, and why, so a broken machine is not silent. Every text in either came from the code
 // host, a worker or an agent, and is shown as text. See "Stops" in devflow/README.md.
-import { Button, Card, Status, TextArea, useToast } from "@platform/ui";
+import { Button, Status, TextArea, useToast } from "@platform/ui";
 import { type FormEvent, useId, useState } from "react";
 import {
 	type ActionsApi,
@@ -13,6 +13,7 @@ import {
 	type LinkState,
 	UNLINKED,
 } from "./actions";
+import { Detail } from "./detail";
 import { Inline } from "./format";
 import { askNavAgain } from "./nav-attention";
 import type { FailingProjectItem, StoppedCardItem } from "./waiting";
@@ -80,12 +81,22 @@ export function StoppedCard({
 	}
 
 	return (
-		<Card
+		<Detail
 			title={card.title}
-			aside={<Status tone="failed">Stopped</Status>}
-			className={styles.item}
-			footer={
-				<div className={styles.footer}>
+			where={[`${card.owner}/${card.project_name}`, `card #${card.number}`]}
+			status={<Status tone="failed">Stopped</Status>}
+			needsYou={false}
+			lede={
+				<>
+					Stopped{" "}
+					<time dateTime={card.stopped_at}>
+						{DATE_TIME.format(new Date(card.stopped_at))}
+					</time>
+					. Nothing more runs on it until you comment.
+				</>
+			}
+			actions={
+				<>
 					{refusal === null ? null : (
 						<p className={styles.refusal} role="alert">
 							{refusal}
@@ -100,7 +111,11 @@ export function StoppedCard({
 								onChange={(event) => setText(event.target.value)}
 							/>
 							<div className={styles.actions}>
-								<Button type="submit" disabled={sending || text.trim() === ""}>
+								<Button
+									type="submit"
+									kind="primary"
+									disabled={sending || text.trim() === ""}
+								>
 									Send
 								</Button>
 								<Button kind="ghost" onClick={cancel}>
@@ -112,6 +127,7 @@ export function StoppedCard({
 					<div className={styles.actions}>
 						{writing ? null : (
 							<Button
+								kind="primary"
 								disabled={!linked}
 								aria-describedby={line === null ? undefined : lineId}
 								onClick={() => setWriting(true)}
@@ -135,31 +151,16 @@ export function StoppedCard({
 							{line}
 						</p>
 					)}
-				</div>
+				</>
 			}
 		>
-			<div className={styles.body}>
-				<p className={styles.where}>
-					<span>
-						{card.owner}/{card.project_name}
-					</span>{" "}
-					<span>#{card.number}</span>
-				</p>
-				<div className={styles.block}>
-					<h3 className={styles.label}>Why it stopped</h3>
-					<p className={styles.text}>
-						<Inline text={card.reason} />
-					</p>
-				</div>
+			<div className={`${styles.block} ${styles.danger}`}>
+				<h3 className={styles.label}>Why it stopped</h3>
 				<p className={styles.text}>
-					Stopped{" "}
-					<time dateTime={card.stopped_at}>
-						{DATE_TIME.format(new Date(card.stopped_at))}
-					</time>
-					. Nothing more runs on it until you comment.
+					<Inline text={card.reason} />
 				</p>
 			</div>
-		</Card>
+		</Detail>
 	);
 }
 
@@ -167,18 +168,13 @@ export function StoppedCard({
  * cannot run its cards, the last reason, and when it tries again. */
 export function FailingProject({ project }: { project: FailingProjectItem }) {
 	return (
-		<Card
+		<Detail
 			title={project.message}
-			aside={<Status tone="failed">Cannot run</Status>}
-			className={styles.item}
-		>
-			<div className={styles.body}>
-				<p className={styles.where}>
-					<span>
-						{project.owner}/{project.project_name}
-					</span>
-				</p>
-				<p className={styles.text}>
+			where={[`${project.owner}/${project.project_name}`]}
+			status={<Status tone="failed">Cannot run</Status>}
+			needsYou={false}
+			lede={
+				<>
 					{project.failures} runs in a row failed outside their cards, the first{" "}
 					<time dateTime={project.since}>
 						{DATE_TIME.format(new Date(project.since))}
@@ -188,8 +184,15 @@ export function FailingProject({ project }: { project: FailingProjectItem }) {
 						{DATE_TIME.format(new Date(project.wait_until))}
 					</time>
 					, and this goes once a run succeeds.
+				</>
+			}
+		>
+			<div className={styles.block}>
+				<h3 className={styles.label}>The last reason</h3>
+				<p className={styles.text}>
+					<Inline text={project.reason} />
 				</p>
 			</div>
-		</Card>
+		</Detail>
 	);
 }
