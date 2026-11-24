@@ -714,11 +714,14 @@ export function runnerTiles(item: WaitingItem): Tile[] {
 					status: "Approved",
 					line: `on ${short(item.head_commit)} · ${count(item.reviewer_view.length, "point")} for you`,
 				}
-			: {
+			: // Stopped says nothing of the verdict: the runner stops an approved
+				// head too, such as one whose ci-ok failed, and the item carries
+				// no verdict, so the tile claims none.
+				{
 					label: "The reviewer",
-					tone: "failed",
-					status: "Not approved",
-					line: `on ${short(item.head_commit)}`,
+					tone: "idle",
+					status: "Not known",
+					line: `on ${short(item.head_commit)} · not read once stopped`,
 				},
 		decisionsTile(item.decisions.length, item.other_decisions),
 	];

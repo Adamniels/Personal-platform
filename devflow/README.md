@@ -1374,8 +1374,9 @@ action, first in its row. Each kind:
 - A runner item, `src/waiting.tsx`: `pull request #<n>` and its head; its summary; the tiles "Why
   it waits", Your decision or Your merge with whether `ci-ok` and `review-ok` are green, Stopped
   when the runner gave up, or Sent back, "The reviewer", Approved with how many points it wrote
-  for the owner, or Not approved for a stopped one, and "Decisions" as a card's; then the
-  runner's reason under "In the runner's words", or "Why it stopped", the decisions, the
+  for the owner, or Not known for a stopped one, since the runner stops an approved head too,
+  such as one whose `ci-ok` failed, and the item carries no verdict; and "Decisions" as a card's;
+  then the runner's reason under "In the runner's words", or "Why it stopped", the decisions, the
   reviewer's points as insets and its screenshots. Sent back, it is read only, with its reason as
   stored; the list carries no text of what the owner wrote, so none is shown.
 - A feature, `src/waiting-feature.tsx`: `feature #<n>`, its pull request and its head when it may

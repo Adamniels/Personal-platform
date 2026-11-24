@@ -656,11 +656,14 @@ describe("an item's detail, by kind", () => {
 		).toBeTruthy();
 
 		const stopped = await choose("Import a photo");
+		// A stopped item carries no verdict, and the runner stops approved heads
+		// too, such as one whose ci-ok failed, so the tile claims none.
 		expect(tiles(stopped)).toEqual([
 			["Why it waits", "Stopped", "the runner gave up"],
-			["The reviewer", "Not approved", "on 4444444"],
+			["The reviewer", "Not known", "on 4444444 · not read once stopped"],
 			["Decisions", "None for you", "none it decided alone"],
 		]);
+		expect(within(stopped).getByText("Not known").className).toMatch(/_idle_/);
 		expect(within(stopped).getByText("High risk slice.")).toBeTruthy();
 	});
 
