@@ -13,6 +13,7 @@ import pytest
 from playwright.sync_api import Browser, Locator, Page, expect
 
 from conftest import (
+    SCREENSHOTS,
     VIEWPORTS,
     account_in_access_cookie,
     capture,
@@ -6319,3 +6320,10 @@ def test_every_item_kind_follows_the_detail_rule(
             check(page)
         if shot:
             capture(page, shot)
+        if shot and viewport == "phone":
+            # The full page at phone width puts the sticky actions over the
+            # tiles, so the detail from its where line down, as it is seen.
+            item.locator(":scope > header").evaluate(
+                "header => header.scrollIntoView({block: 'start'})"
+            )
+            page.screenshot(path=str(SCREENSHOTS / f"{shot}-detail-phone.png"))
