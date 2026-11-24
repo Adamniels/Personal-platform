@@ -1435,6 +1435,80 @@ def test_i_trust_another_account(
     ).to_have_count(2)
 
 
+def test_i_change_a_setting_on_its_page(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    _open_project(page, base_url, devflow_world)
+    project_url = page.url
+    summary = page.get_by_role("article", name="Settings", exact=True)
+    expect(summary.get_by_text("devflow-hold", exact=True)).to_be_visible()
+
+    # Edit settings opens the page, under the Projects tab.
+    summary.get_by_role("link", name="Edit settings").click()
+    expect(page).to_have_url(f"{project_url}/settings")
+    expect(page.get_by_role("heading", name="Settings", exact=True)).to_be_visible()
+    expect(page.get_by_role("tab", name="Projects", exact=True)).to_have_attribute(
+        "aria-selected", "true"
+    )
+
+    picked = page.get_by_role("article", name="How cards are picked")
+    picked.get_by_label("Hold label").fill("agent: wait")
+    expect(page.get_by_text("1 unsaved change", exact=True)).to_be_visible()
+    page.get_by_role("button", name="Save", exact=True).click()
+    expect(page.get_by_text("Saved.", exact=True)).to_be_visible()
+    expect(page.get_by_text("No unsaved changes", exact=True)).to_be_visible()
+
+    # Back on the project's page, its summary shows the label as saved.
+    page.get_by_role("main").get_by_role(
+        "link", name="Personal-platform", exact=True
+    ).click()
+    expect(page).to_have_url(project_url)
+    expect(summary.get_by_text("agent: wait", exact=True)).to_be_visible()
+
+    # Kept: a fresh load of the page reads it back.
+    page.goto(f"{project_url}/settings")
+    expect(
+        page.get_by_role("article", name="How cards are picked").get_by_label(
+            "Hold label"
+        )
+    ).to_have_value("agent: wait")
+
+
+def test_i_disconnect_a_project_from_its_settings(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    _open_project(page, base_url, devflow_world)
+    project_url = page.url
+
+    # The Projects tab offers no Disconnect on a project's card any more.
+    page.goto("/devflow/projects")
+    projects = page.get_by_role("region", name="Projects")
+    expect(projects.get_by_text("Adamniels/Personal-platform")).to_be_visible()
+    expect(
+        projects.get_by_role("button", name=re.compile(r"^Disconnect"))
+    ).to_have_count(0)
+
+    page.goto(f"{project_url}/settings")
+    page.get_by_role("button", name="Disconnect Personal-platform").click()
+    dialog = page.get_by_role("dialog", name="Disconnect Adamniels/Personal-platform?")
+    expect(dialog).to_be_visible()
+    expect(dialog).to_contain_text("Nothing changes on GitHub.")
+    # Cancelled, nothing happens.
+    dialog.get_by_role("button", name="Cancel").click()
+    expect(dialog).to_be_hidden()
+    assert len(page.request.get("/devflow/api/projects").json()["projects"]) == 1
+
+    page.get_by_role("button", name="Disconnect Personal-platform").click()
+    dialog.get_by_role("button", name="Disconnect", exact=True).click()
+
+    # Gone from the tab, which the page goes back to.
+    expect(page).to_have_url(re.compile(r"/devflow/projects$"))
+    expect(page.get_by_text("No project connected yet")).to_be_visible()
+    assert page.request.get("/devflow/api/projects").json() == {"projects": []}
+
+
 def test_a_card_i_label_shows_as_queued(
     page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
 ):

@@ -824,6 +824,78 @@ def test_a_project_setting_up_follows_the_look(
     capture(page, "devflow-project-setting-up")
 
 
+def test_the_settings_page_follows_the_look(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    devflow_world(one_repository())
+    project = connect_and_read(page, base_url)
+    # Guided, with a second trusted account and a path, and one value.
+    headers = {"Origin": base_url}
+    current = page.request.get(f"/devflow/api/projects/{project}/settings").json()
+    saved = page.request.put(
+        f"/devflow/api/projects/{project}/settings",
+        data={
+            **current,
+            "trusted_logins": ["octo-owner", "a-collaborator"],
+            "questions": False,
+            "waits_for_owner": "sometimes",
+            "wait_when_marked": True,
+            "wait_when_paths": True,
+            "wait_when_decision": True,
+            "wait_paths": ["src/calc/**", "migrations/"],
+        },
+        headers=headers,
+    )
+    assert saved.status == 200, saved.text()
+    given = page.request.put(
+        f"/devflow/api/projects/{project}/values/FODR_TEST_SMTP_PASSWORD",
+        data={"value": "throwaway"},
+        headers=headers,
+    )
+    assert given.status == 204, given.text()
+
+    page.goto(f"/devflow/projects/{project}/settings")
+    form = page.get_by_role("article", name="How much happens alone")
+    expect(form.get_by_role("radio", name="Guided")).to_be_checked()
+    expect(
+        page.get_by_role("list", name="Trusted accounts").get_by_role("listitem")
+    ).to_have_count(2)
+    expect(
+        page.get_by_role("list", name="Values").get_by_text("FODR_TEST_SMTP_PASSWORD")
+    ).to_be_visible()
+    summary = page.get_by_role("article", name="These settings")
+    expect(summary.get_by_text("Guided", exact=True)).to_be_visible()
+    # The crumb is the Projects tab's.
+    expect(page.locator("platform-nav")).to_have_attribute(
+        "crumb", "Dev flow / Projects"
+    )
+
+    # The selected preset is inverted, as a selected segment is (hard rule
+    # 11), on a track like the Tabs'.
+    segment = form.locator("label").filter(has=page.get_by_role("radio", name="Guided"))
+    assert style(segment)["background"] == resolve(page, "--text", "background-color")
+
+    # The form first; on desktop the side column beside it with its links to
+    # the four sections, on phone under it without them, where the Save bar
+    # sticks to the bottom.
+    main = form.bounding_box()
+    side = summary.bounding_box()
+    sections_nav = page.get_by_role("navigation", name="Sections")
+    bar = page.get_by_role("region", name="Save the settings")
+    if viewport == "desktop":
+        assert side["x"] >= main["x"] + main["width"], (main, side)
+        assert abs(side["y"] - main["y"]) < 1, (main, side)
+        expect(sections_nav).to_be_visible()
+    else:
+        assert side["y"] >= main["y"] + main["height"], (main, side)
+        expect(sections_nav).to_be_hidden()
+        assert bar.evaluate("el => getComputedStyle(el).position") == "sticky"
+
+    assert_the_look(page, "a project's settings page")
+    capture(page, "devflow-settings-page")
+
+
 def assert_the_look(page: Page, where: str) -> None:
     # The bar has drawn with the account.
     expect(page.get_by_role("button", name=re.compile("@"))).to_be_visible()

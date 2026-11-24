@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ApiError } from "./api/client";
+import type { Project } from "./projects";
 import {
 	NOT_A_NUMBER,
 	NOT_READ,
@@ -15,9 +16,11 @@ import {
 	type ProjectSettings,
 	presetOf,
 	SAVED,
+	SettingsPage,
 	SettingsPanel,
 	type SettingsRequest,
 } from "./settings";
+import type { ProjectValueList } from "./values";
 
 afterEach(cleanup);
 
@@ -657,5 +660,336 @@ describe("the settings panel", () => {
 		expect((await (await panel()).findByRole("alert")).textContent).toBe(
 			NOT_READ,
 		);
+	});
+});
+
+const PLATFORM: Project = {
+	id: ID,
+	installation_id: 41,
+	repository_id: 9001,
+	owner: "Adamniels",
+	name: "Personal-platform",
+	created_at: "2026-11-16T10:00:00+00:00",
+	last_read_at: "2026-11-17T11:58:00+00:00",
+	summary: {
+		cards: { needs_you: 0, in_progress: 0, queued: 0, done: 0 },
+		workers: { count: 0, last_seen_at: null, held: null, cannot_run: null },
+		setting_up: null,
+		feature: null,
+	},
+};
+
+/** The page, with every call a mock answering as Dev flow would: the
+ * settings as given, saved as sent, and the values kept in a list a give
+ * and a remove change. */
+function renderPage(
+	api: {
+		loadSettings?: (id: string) => Promise<ProjectSettings>;
+		values?: ProjectValueList["values"];
+	} = {},
+) {
+	let values = api.values ?? [];
+	const calls = {
+		loadProjects: vi.fn(() => Promise.resolve([PLATFORM])),
+		loadSettings: vi.fn(api.loadSettings ?? (() => Promise.resolve(DEFAULTS))),
+		saveSettings: vi.fn((_: string, settings: SettingsRequest) =>
+			Promise.resolve(answered(settings)),
+		),
+		loadValues: vi.fn(() => Promise.resolve({ done: true, values })),
+		giveValue: vi.fn(async (_: string, name: string, _value: string) => {
+			values = [
+				...values.filter((value) => value.name !== name),
+				{
+					name,
+					asked: false,
+					why: null,
+					problem: null,
+					set_at: "2026-11-24T10:00:00Z",
+				},
+			];
+		}),
+		removeValue: vi.fn(async (_: string, name: string) => {
+			values = values.filter((value) => value.name !== name);
+		}),
+		disconnect: vi.fn(() => Promise.resolve()),
+		back: vi.fn(),
+		disconnected: vi.fn(),
+	};
+	render(<SettingsPage id={ID} {...calls} />);
+	return calls;
+}
+
+const section = async (name: string) =>
+	within(await screen.findByRole("article", { name }));
+
+const shown = (element: HTMLElement) =>
+	(element as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value;
+
+describe("the settings page", () => {
+	test("the page shows the four sections and saves once", async () => {
+		const { saveSettings } = renderPage({
+			loadSettings: () =>
+				Promise.resolve({
+					...DEFAULTS,
+					waits_for_owner: "sometimes",
+					wait_paths: ["src/auth/**"],
+					trusted_logins: [
+						{ login: "octo-friend", mine: false },
+						{ login: "octo-owner", mine: true },
+					],
+				}),
+		});
+
+		// The header: the way back to the project, its repository, the title
+		// and what the page is for.
+		expect(
+			await screen.findByRole("heading", { name: "Settings" }),
+		).toBeTruthy();
+		expect(
+			screen.getByRole("link", { name: "Personal-platform" }),
+		).toBeTruthy();
+		expect(screen.getByText("Adamniels/Personal-platform")).toBeTruthy();
+
+		// The four sections, in order.
+		const names = [
+			"How much happens alone",
+			"How cards are picked",
+			"Runs",
+			"Values",
+		];
+		const articles = await Promise.all(
+			names.map((name) => screen.findByRole("article", { name })),
+		);
+		for (const [at, article] of articles.slice(1).entries()) {
+			expect(
+				(articles[at] as HTMLElement).compareDocumentPosition(article) &
+					Node.DOCUMENT_POSITION_FOLLOWING,
+			).toBeTruthy();
+		}
+
+		// All eighteen settings, grouped: six alone, five picked, seven runs.
+		const alone = await section("How much happens alone");
+		expect(
+			alone.getByRole("switch", { name: "Questions before starting" }),
+		).toBeTruthy();
+		expect(shown(alone.getByLabelText("Pull requests wait for you"))).toBe(
+			"sometimes",
+		);
+		expect(
+			within(alone.getByRole("group", { name: "Waits for you when" }))
+				.getAllByRole("checkbox")
+				.map((box) => (box as HTMLInputElement).checked),
+		).toEqual([true, true, true]);
+		expect(shown(alone.getByLabelText("Paths"))).toBe("src/auth/**");
+
+		const picked = await section("How cards are picked");
+		expect(
+			["Pick-up label", "Hold label", "Attention label", "Review label"].map(
+				(label) => shown(picked.getByLabelText(label)),
+			),
+		).toEqual([
+			"devflow",
+			"devflow-hold",
+			"devflow-attention",
+			"devflow-review",
+		]);
+		// Mine first, always on, with nothing to remove it by.
+		const trusted = within(
+			picked.getByRole("list", { name: "Trusted accounts" }),
+		).getAllByRole("listitem");
+		expect(trusted.map((row) => row.textContent)).toEqual([
+			"octo-owneryou, always on",
+			"octo-friendRemove",
+		]);
+		expect(
+			picked.queryByRole("button", { name: "Remove octo-owner" }),
+		).toBeNull();
+
+		const runs = await section("Runs");
+		expect(
+			[
+				"Reading model",
+				"Building model",
+				"Reviewing model",
+				"Minutes a run may take",
+				"Turns a run may take",
+				"Fix rounds a card gets",
+				"Fix rounds a feature gets",
+			].map((label) => shown(runs.getByLabelText(label))),
+		).toEqual(["opus", "opus", "opus", "90", "200", "3", "3"]);
+		expect(runs.getByText("A build, a fix, a conflict.")).toBeTruthy();
+
+		// Nothing changed: Undo is off.
+		const undo = screen.getByRole("button", { name: "Undo changes" });
+		const save = screen.getByRole("button", { name: "Save" });
+		expect(screen.getByText("No unsaved changes")).toBeTruthy();
+		expect((undo as HTMLButtonElement).disabled).toBe(true);
+
+		// Two changes are counted, and Undo puts the form back as read.
+		fireEvent.change(picked.getByLabelText("Pick-up label"), {
+			target: { value: "agent: go" },
+		});
+		fireEvent.change(runs.getByLabelText("Minutes a run may take"), {
+			target: { value: "45" },
+		});
+		expect(screen.getByText("2 unsaved changes")).toBeTruthy();
+		fireEvent.click(undo);
+		expect(shown(picked.getByLabelText("Pick-up label"))).toBe("devflow");
+		expect(shown(runs.getByLabelText("Minutes a run may take"))).toBe("90");
+		expect(screen.getByText("No unsaved changes")).toBeTruthy();
+		expect((undo as HTMLButtonElement).disabled).toBe(true);
+
+		// Saved in one PUT with every setting.
+		fireEvent.change(picked.getByLabelText("Pick-up label"), {
+			target: { value: "agent: go" },
+		});
+		fireEvent.change(alone.getByLabelText("Pull requests wait for you"), {
+			target: { value: "always" },
+		});
+		expect(screen.getByText("2 unsaved changes")).toBeTruthy();
+		fireEvent.click(save);
+		expect(await screen.findByText(SAVED)).toBeTruthy();
+		expect(saveSettings).toHaveBeenCalledTimes(1);
+		expect(saveSettings).toHaveBeenCalledWith(ID, {
+			...REQUEST,
+			pickup_label: "agent: go",
+			waits_for_owner: "always",
+			wait_paths: ["src/auth/**"],
+			trusted_logins: ["octo-friend", "octo-owner"],
+		});
+		expect(screen.getByText("No unsaved changes")).toBeTruthy();
+
+		// Undo now goes back to the settings as saved, not as first read.
+		fireEvent.change(picked.getByLabelText("Hold label"), {
+			target: { value: "wait" },
+		});
+		expect(screen.getByText("1 unsaved change")).toBeTruthy();
+		fireEvent.click(undo);
+		expect(shown(picked.getByLabelText("Hold label"))).toBe("devflow-hold");
+		expect(shown(picked.getByLabelText("Pick-up label"))).toBe("agent: go");
+	});
+
+	test("the preset is a segmented choice and the summary names the match", async () => {
+		renderPage();
+		const alone = await section("How much happens alone");
+		const summary = await section("These settings");
+		const preset = within(alone.getByRole("radiogroup", { name: "Preset" }));
+		const checked = () =>
+			preset
+				.getAllByRole("radio")
+				.filter((radio) => (radio as HTMLInputElement).checked)
+				.map((radio) => radio.getAttribute("value"));
+
+		// Questions on and never matches no preset: none is chosen.
+		expect(
+			preset.getAllByRole("radio").map((radio) => radio.getAttribute("value")),
+		).toEqual(["fully_automatic", "guided", "only_i_merge"]);
+		expect(checked()).toEqual([]);
+		expect(summary.getByText("Custom")).toBeTruthy();
+		// Paths and the conditions show only on sometimes.
+		expect(alone.queryByLabelText("Paths")).toBeNull();
+		expect(
+			alone.queryByRole("group", { name: "Waits for you when" }),
+		).toBeNull();
+
+		// Guided fills its five settings.
+		fireEvent.click(preset.getByRole("radio", { name: "Guided" }));
+		expect(checked()).toEqual(["guided"]);
+		expect(
+			(
+				alone.getByRole("switch", {
+					name: "Questions before starting",
+				}) as HTMLInputElement
+			).checked,
+		).toBe(false);
+		expect(shown(alone.getByLabelText("Pull requests wait for you"))).toBe(
+			"sometimes",
+		);
+		expect(
+			within(alone.getByRole("group", { name: "Waits for you when" }))
+				.getAllByRole("checkbox")
+				.map((box) => (box as HTMLInputElement).checked),
+		).toEqual([true, true, true]);
+		expect(alone.getByLabelText("Paths")).toBeTruthy();
+		expect(summary.getByText("Guided")).toBeTruthy();
+
+		// One changed by hand matches none: Custom, and no segment chosen.
+		fireEvent.click(
+			alone.getByLabelText("The change touches a path on the list"),
+		);
+		expect(checked()).toEqual([]);
+		expect(summary.getByText("Custom")).toBeTruthy();
+
+		fireEvent.click(preset.getByRole("radio", { name: "Fully automatic" }));
+		expect(checked()).toEqual(["fully_automatic"]);
+		expect(summary.getByText("Fully automatic")).toBeTruthy();
+		expect(alone.queryByLabelText("Paths")).toBeNull();
+	});
+
+	test("values are listed by name with Replace, Remove and Add a value", async () => {
+		const { giveValue, removeValue, saveSettings } = renderPage({
+			values: [
+				{
+					name: "FODR_TEST_SMTP_PASSWORD",
+					asked: true,
+					why: "The mail tests log in to the test SMTP server.",
+					problem: null,
+					set_at: "2026-11-20T09:30:00Z",
+				},
+			],
+		});
+		const values = await section("Values");
+		const list = within(await values.findByRole("list", { name: "Values" }));
+		const row = within(list.getByRole("listitem"));
+		expect(row.getByText("FODR_TEST_SMTP_PASSWORD")).toBeTruthy();
+		expect(row.getByText(/^set /)).toBeTruthy();
+
+		// Replaced: the value is typed as a password, sent once, and gone.
+		fireEvent.click(
+			row.getByRole("button", { name: "Replace FODR_TEST_SMTP_PASSWORD" }),
+		);
+		const field = row.getByLabelText("The value of FODR_TEST_SMTP_PASSWORD");
+		expect(field.getAttribute("type")).toBe("password");
+		fireEvent.change(field, { target: { value: "s3cret-one" } });
+		fireEvent.click(row.getByRole("button", { name: "Give" }));
+		await waitFor(() =>
+			expect(giveValue).toHaveBeenCalledWith(
+				ID,
+				"FODR_TEST_SMTP_PASSWORD",
+				"s3cret-one",
+			),
+		);
+		await waitFor(() =>
+			expect(
+				values.queryByLabelText("The value of FODR_TEST_SMTP_PASSWORD"),
+			).toBeNull(),
+		);
+		expect(screen.queryByDisplayValue("s3cret-one")).toBeNull();
+		expect(document.body.textContent).not.toContain("s3cret-one");
+
+		// Added: a name and a password field.
+		fireEvent.click(values.getByRole("button", { name: "Add a value" }));
+		const adding = within(values.getByRole("form", { name: "Add a value" }));
+		fireEvent.change(adding.getByLabelText("Its name"), {
+			target: { value: "FODR_API_KEY" },
+		});
+		const secret = adding.getByLabelText("The value");
+		expect(secret.getAttribute("type")).toBe("password");
+		fireEvent.change(secret, { target: { value: "k3y-two" } });
+		fireEvent.click(adding.getByRole("button", { name: "Give" }));
+		expect(await values.findByText("FODR_API_KEY")).toBeTruthy();
+		expect(giveValue).toHaveBeenCalledWith(ID, "FODR_API_KEY", "k3y-two");
+		expect(document.body.textContent).not.toContain("k3y-two");
+
+		// Removed at once, never through Save.
+		fireEvent.click(
+			values.getByRole("button", { name: "Remove FODR_TEST_SMTP_PASSWORD" }),
+		);
+		await waitFor(() =>
+			expect(values.queryByText("FODR_TEST_SMTP_PASSWORD")).toBeNull(),
+		);
+		expect(removeValue).toHaveBeenCalledWith(ID, "FODR_TEST_SMTP_PASSWORD");
+		expect(saveSettings).not.toHaveBeenCalled();
+		expect(screen.getByText("No unsaved changes")).toBeTruthy();
 	});
 });
