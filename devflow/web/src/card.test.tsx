@@ -548,7 +548,7 @@ describe("a card's page", () => {
 		expect(failed.getByText("Failed")).toBeTruthy();
 		expect(
 			failed.getByText(
-				"Claude's API did not answer It lay outside the card, so it goes back in the queue.",
+				"Claude's API did not answer. It lay outside the card, so it goes back in the queue.",
 			),
 		).toBeTruthy();
 		expect(failed.queryByRole("button", { name: "Show output" })).toBeNull();
@@ -1195,7 +1195,7 @@ describe("a card's page tells its story in order", () => {
 					runs: [
 						run({
 							result: "failed_in_card",
-							reason: "Claude Code exited with 1",
+							reason: "it reached the most turns, 200 turns",
 							in_card: true,
 							check: null,
 							head_commit: null,
@@ -1208,7 +1208,13 @@ describe("a card's page tells its story in order", () => {
 
 		const [failed] = (await entries()).map((item) => within(item));
 		expect(failed?.getByText("Failed")).toBeTruthy();
-		expect(failed?.getByText(/It lay in the card/)).toBeTruthy();
+		// The worker's reason is a clause, said as a sentence before where
+		// it lay.
+		expect(
+			failed?.getByText(
+				"It reached the most turns, 200 turns. It lay in the card, which has to change.",
+			),
+		).toBeTruthy();
 		expect(failed?.queryByText(/the token was refused/)).toBeNull();
 		const show = failed?.getByRole("button", {
 			name: "Show Claude Code's error output",

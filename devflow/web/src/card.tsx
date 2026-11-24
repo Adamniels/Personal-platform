@@ -23,6 +23,7 @@ import { StepsBar, stateWord } from "./cards";
 import { Inline } from "./format";
 import { cardScreenshot, Screenshots } from "./screenshots";
 import { featurePath } from "./sections";
+import { sentence } from "./sentence";
 import { itemPath, linkable } from "./waiting";
 
 export type CardStory = components["schemas"]["CardStoryView"];
@@ -639,7 +640,7 @@ function Failure({ run }: { run: Run }) {
 		<>
 			{run.reason === null ? null : (
 				<p className={styles.text}>
-					{run.reason}
+					{sentence(run.reason)}
 					{run.in_card === null
 						? null
 						: run.in_card

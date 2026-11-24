@@ -22,6 +22,7 @@ import { StepsBar } from "./cards";
 import { CommentBox } from "./comment-box";
 import { ArrowLink, Detail, Tiles } from "./detail";
 import { Command, EditSettings } from "./project";
+import { sentence } from "./sentence";
 import styles from "./setup.module.css";
 import { type ValuesApi, ValuesSection } from "./values";
 
@@ -153,10 +154,6 @@ export const PRESET_MEANINGS: Record<string, string> = {
 		"Questions off; a pull request waits for you when it is marked, touches a listed path, or has a decision for you.",
 	only_i_merge: "Questions on; every pull request waits for you.",
 };
-
-/** A sentence, with its full stop. */
-const sentence = (text: string) =>
-	/[.!?]$/.test(text.trim()) ? text.trim() : `${text.trim()}.`;
 
 /** Whether the page shows the setup panel: while the project is setting up,
  * and when its newest check failed with no other asked for. */
