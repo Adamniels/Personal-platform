@@ -17,6 +17,13 @@ export { Badge, type BadgeProps } from "./status/badge";
 export { Chip, type ChipProps } from "./status/chip";
 export { Status, type StatusProps, type StatusTone } from "./status/status";
 export {
+	StepList,
+	StepListItem,
+	type StepListItemProps,
+	type StepListProps,
+	type StepState,
+} from "./step-list/step-list";
+export {
 	FilterPill,
 	type FilterPillProps,
 	FilterRow,
