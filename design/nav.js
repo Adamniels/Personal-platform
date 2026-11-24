@@ -206,21 +206,15 @@
     }
 
     /* The rail, fixed to the window in the room page.css keeps for it:
-       --page-pad from the top, the bottom and the shell's left edge, which
-       is centred at the width page.css gives it. */
+       --page-pad from the window's top, bottom and left edges, at every
+       desktop width. */
     .rail {
       box-sizing: border-box;
       position: fixed;
       z-index: 10;
       top: var(--page-pad);
       bottom: var(--page-pad);
-      left: max(
-        var(--page-pad),
-        calc(
-          (100% - var(--rail-w) - var(--content-max) - 3 * var(--page-pad)) / 2 +
-            var(--page-pad)
-        )
-      );
+      left: var(--page-pad);
       width: var(--rail-w);
       display: flex;
       flex-direction: column;
@@ -295,8 +289,9 @@
       margin-top: auto;
     }
 
-    /* The top bar, the element itself in the page's flow: the crumb, and
-       the account pill on the right. It sits on the ground. */
+    /* The top bar, the element itself in the page's flow, so it runs from
+       right of the rail to the window's right edge less the shell's pad:
+       the crumb, and the account pill on the right. It sits on the ground. */
     .top {
       box-sizing: border-box;
       height: var(--top-bar-h);
