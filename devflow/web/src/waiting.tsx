@@ -12,7 +12,7 @@ import {
 	useState,
 } from "react";
 import { type ActionsApi, ItemActions, type LinkState } from "./actions";
-import { navigate, plainClick } from "./address";
+import { navigate, plainClick, useSearch } from "./address";
 import type { GetAnswer } from "./api/client";
 import { DecisionIssue } from "./decision-issue";
 import { Inline } from "./format";
@@ -516,11 +516,13 @@ export function duration(ms: number): string {
 }
 
 /** The inbox: the queue of every waiting item, grouped, and the chosen one
- * in full beside it, the first until another is chosen. The detail is keyed
- * by the item, so what was typed in one is not carried to the next. */
+ * in full beside it. The address names the chosen item, `?item=<key>`:
+ * choosing one pushes its address, and Back and Forward bring the one before
+ * back. An address that names no item shows the first. The detail is keyed by
+ * the item, so what was typed in one is not carried to the next. */
 function Inbox({ groups, act }: { groups: Group[]; act: Act }) {
 	const entries = groups.flatMap((group) => group.entries);
-	const [asked, setAsked] = useState<string | null>(null);
+	const asked = new URLSearchParams(useSearch()).get("item");
 	const chosen = entries.find((entry) => entry.key === asked) ?? entries[0];
 	if (chosen === undefined) return null;
 	const muted = groups.some(
@@ -528,7 +530,11 @@ function Inbox({ groups, act }: { groups: Group[]; act: Act }) {
 	);
 	return (
 		<div className={styles.inbox}>
-			<Queue groups={groups} chosen={chosen.key} choose={setAsked} />
+			<Queue
+				groups={groups}
+				chosen={chosen.key}
+				choose={(key) => navigate(itemPath(key))}
+			/>
 			<div
 				className={muted ? `${styles.detail} ${styles.muted}` : styles.detail}
 			>

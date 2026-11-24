@@ -20,6 +20,12 @@ export function usePathname(): string {
 	return useSyncExternalStore(subscribe, () => window.location.pathname);
 }
 
+/** The current query string, such as "?item=…", re-rendering whoever reads
+ * it when it changes. */
+export function useSearch(): string {
+	return useSyncExternalStore(subscribe, () => window.location.search);
+}
+
 /** Goes to a path within the application as a new history entry, or in
  * place of the current one with `replace`, for an address that has moved,
  * so Back does not return to it. */
