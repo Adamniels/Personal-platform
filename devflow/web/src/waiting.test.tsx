@@ -999,3 +999,165 @@ describe("questions before starting", () => {
 		expect(await screen.findByText("Answers sent; #9 is queued")).toBeTruthy();
 	});
 });
+
+describe("the inbox", () => {
+	const CARD = 21;
+
+	function waitingCard(): WaitingList["cards"][number] {
+		return {
+			project_id: PROJECT,
+			project_name: "Personal-platform",
+			owner: "Adamniels",
+			number: CARD,
+			title: "Add the empty state",
+			web_url: `https://github.com/Adamniels/Personal-platform/issues/${CARD}`,
+			pull_request_number: 40,
+			pull_request_url: "https://github.com/Adamniels/Personal-platform/pull/40",
+			head_commit: "5".repeat(40),
+			base: "main",
+			summary: "Added the empty state.",
+			decisions: [
+				{ chosen: "A plain sentence", alternative: null, why: null },
+				{ chosen: "On every list", alternative: null, why: null },
+			],
+			other_decisions: 0,
+			review: null,
+			check: { command: "npm test", exit_code: 0, commit: "5".repeat(40) },
+			can_merge: true,
+			changed_at: minutesAgo(2),
+			screenshots: null,
+			reason: null,
+		};
+	}
+
+	function refused(): WaitingList["refused_cards"][number] {
+		return {
+			project_id: PROJECT,
+			project_name: "Personal-platform",
+			owner: "Adamniels",
+			number: 4,
+			title: "Count the habits",
+			web_url: "https://github.com/Adamniels/Personal-platform/issues/4",
+			missing: ["Which page shows the count"],
+			refused_at: minutesAgo(5),
+		};
+	}
+
+	function everything(): WaitingList {
+		return list({
+			count: 5,
+			cards: [waitingCard()],
+			refused_cards: [refused()],
+			items: [
+				item({ number: 304, title: "The vault" }),
+				item({ number: 306, title: "Import a photo", kind: "stopped" }),
+				item({ number: 307, title: "The board", sent_back: true }),
+			],
+		});
+	}
+
+	function queue() {
+		return within(screen.getByRole("navigation", { name: "The queue" }));
+	}
+
+	/** The queue's rows, each its title and its meta line. */
+	function rows() {
+		return queue()
+			.getAllByRole("link")
+			.map((row) => row.textContent);
+	}
+
+	test("the queue lists every group with its count and the first item is open", async () => {
+		openWith(answering(everything()));
+
+		await panel().findByRole("navigation", { name: "The queue" });
+		// Every group the list holds, in its order, each with its count.
+		expect(
+			queue()
+				.getAllByRole("region")
+				.map((region) => region.getAttribute("aria-labelledby"))
+				.map((id) => document.getElementById(id ?? "")?.textContent),
+		).toEqual([
+			"Pull requests waiting",
+			"Stopped",
+			"Refused",
+			"Sent back, the runner has it",
+		]);
+		const waiting = within(
+			queue().getByRole("region", { name: "Pull requests waiting" }),
+		);
+		expect(waiting.getByText("2")).toBeTruthy();
+		// Each item a row with its title and a meta line of its project, its
+		// number and the one fact that matters.
+		expect(rows()).toEqual([
+			"Add the empty statePersonal-platform · #40 · 2 decisions",
+			"The vaultPersonal-platform · #304",
+			"Import a photoPersonal-platform · #306 · stopped",
+			"Count the habitsPersonal-platform · card #4 · too thin",
+			"The boardPersonal-platform · #307 · sent back",
+		]);
+		const meta = queue().getByText("Personal-platform · #304");
+		expect(meta.className).toMatch(/meta/);
+		// The queue has no button; the first item's detail is beside it.
+		expect(queue().queryAllByRole("button")).toHaveLength(0);
+		expect(panel().getAllByRole("article")).toHaveLength(1);
+		expect(await card("Add the empty state")).toBeTruthy();
+		expect(
+			queue()
+				.getByRole("link", { name: /Add the empty state/ })
+				.getAttribute("aria-current"),
+		).toBe("true");
+	});
+
+	test("choosing an item opens it and sets its address", async () => {
+		openWith(answering(everything()));
+		const push = vi.spyOn(window.history, "pushState");
+
+		const vault = await panel().findByRole("link", { name: /The vault/ });
+		fireEvent.click(vault);
+
+		expect(await card("The vault")).toBeTruthy();
+		expect(panel().queryByRole("article", { name: "Add the empty state" })).toBeNull();
+		expect(vault.getAttribute("aria-current")).toBe("true");
+		expect(
+			queue()
+				.getByRole("link", { name: /Add the empty state/ })
+				.getAttribute("aria-current"),
+		).toBeNull();
+		const key = item({ number: 304 }).id;
+		expect(push).toHaveBeenCalledWith(null, "", `/devflow?item=${key}`);
+		expect(window.location.search).toBe(`?item=${key}`);
+		expect(vault.getAttribute("href")).toBe(`/devflow?item=${key}`);
+		// Each kind has its own key.
+		expect(
+			queue()
+				.getByRole("link", { name: /Add the empty state/ })
+				.getAttribute("href"),
+		).toBe(`/devflow?item=card/${PROJECT}/${CARD}`);
+		expect(
+			queue()
+				.getByRole("link", { name: /Count the habits/ })
+				.getAttribute("href"),
+		).toBe(`/devflow?item=refused/${PROJECT}/4`);
+		push.mockRestore();
+	});
+
+	test("an address opens its item, an unknown one the first", async () => {
+		openWith(
+			answering(everything()),
+			`/devflow?item=refused/${PROJECT}/4`,
+		);
+		expect(await card("Count the habits")).toBeTruthy();
+		expect(panel().getAllByRole("article")).toHaveLength(1);
+
+		// Back and Forward come back as popstate, and the item follows.
+		window.history.pushState(null, "", `/devflow?item=card/${PROJECT}/${CARD}`);
+		window.dispatchEvent(new PopStateEvent("popstate"));
+		expect(await card("Add the empty state")).toBeTruthy();
+		cleanup();
+
+		openWith(answering(everything()), "/devflow?item=card/nobody/1");
+		expect(await card("Add the empty state")).toBeTruthy();
+		expect(panel().getAllByRole("article")).toHaveLength(1);
+	});
+});

@@ -270,6 +270,19 @@ def test_the_page_header_follows_the_layout(
     assert abs(gap - px(page, "--space-4")) < 0.5, gap
 
 
+def choose(page: Page, title: str) -> Locator:
+    """Chooses the item titled `title` in the inbox's queue and answers its
+    detail, the item's card beside the queue."""
+    row = page.get_by_role("navigation", name="The queue").get_by_role(
+        "link", name=re.compile(re.escape(title))
+    )
+    row.click()
+    expect(row).to_have_attribute("aria-current", "true")
+    item = page.get_by_role("article", name=title)
+    expect(item).to_be_visible()
+    return item
+
+
 def test_an_item_follows_the_card_rule(
     page: Page, invite_code: str, base_url: str, devflow_world
 ):
@@ -286,13 +299,24 @@ def test_an_item_follows_the_card_rule(
     pad = resolve(page, "--card-pad", "padding-top")
     accent = resolve(page, "--accent-border", "border-top-color")
     border = resolve(page, "--border", "border-top-color")
+
+    # The queue is a card of its own, first, with the detail beside it.
+    queue = page.get_by_role("navigation", name="The queue")
+    look = style(queue)
+    assert look["background"] == surface
+    assert look["borderWidths"] == ["1px"] * 4
+    assert look["borderColors"] == [border] * 4
+    assert look["radii"] == [radius] * 4
+    assert look["boxShadow"] == "none"
+
+    fill = resolve(page, "--surface-2", "background-color")
+    strong = resolve(page, "--border-strong", "border-top-color")
     for name, outline in (
         ("The vault", accent),
         ("Import a photo", border),
         ("The board", border),
     ):
-        item = page.get_by_role("article", name=name)
-        expect(item).to_be_visible()
+        item = choose(page, name)
         look = style(item)
         assert look["background"] == surface, name
         assert look["borderWidths"] == ["1px"] * 4, name
@@ -300,6 +324,20 @@ def test_an_item_follows_the_card_rule(
         assert look["padding"] == [pad] * 4, name
         assert look["borderColors"] == [outline] * 4, name
         assert look["boxShadow"] == "none", name
+        # The detail is the item alone, to the right of the queue.
+        expect(page.get_by_role("article")).to_have_count(1)
+        beside, detail = queue.bounding_box(), item.bounding_box()
+        assert detail["x"] >= beside["x"] + beside["width"], name
+        assert abs(detail["y"] - beside["y"]) < 0.5, name
+        # The chosen row on --surface-2, ringed 1px; the others plain.
+        for row in queue.get_by_role("link").all():
+            look = style(row)
+            if row.get_attribute("aria-current") == "true":
+                assert look["background"] == fill, name
+                assert look["borderColors"] == [strong] * 4, name
+            else:
+                assert look["background"] == "rgba(0, 0, 0, 0)", name
+            assert look["borderWidths"] == ["1px"] * 4, name
 
 
 def test_rows_inside_an_item_are_inset_rows(
@@ -313,7 +351,8 @@ def test_rows_inside_an_item_are_inset_rows(
 
     page.goto("/devflow")
 
-    vault = page.get_by_role("article", name="The vault")
+    choose(page, "Import a photo")
+    vault = choose(page, "The vault")
     decided = vault.get_by_role("list", name="The agent decided")
     assert_inset_rows(page, decided.locator(":scope > li"), 2, "the decisions")
     reviewer = vault.get_by_role("list", name="The reviewer")

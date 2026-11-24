@@ -12,6 +12,7 @@ from pathlib import Path
 from playwright.sync_api import Browser, Page, expect
 
 from conftest import (
+    VIEWPORTS,
     account_in_access_cookie,
     capture,
     link_github,
@@ -787,6 +788,108 @@ def test_the_waiting_list_passes_the_accessibility_check(
     expect(page.get_by_role("tab", name="Waiting for you 3")).to_be_visible()
     assert _axe_violations(page) == []
     capture(page, "devflow-waiting-list")
+
+
+def _queue(page: Page):
+    """The inbox's queue, every waiting item a row in it."""
+    return page.get_by_role("navigation", name="The queue")
+
+
+def _row(page: Page, title: str):
+    """The queue's row of the item titled `title`."""
+    return _queue(page).get_by_role("link", name=re.compile(re.escape(title)))
+
+
+def test_the_inbox_opens_the_item_in_its_address(
+    page: Page, invite_code: str, base_url: str, devflow_world
+):
+    page.set_viewport_size(VIEWPORTS["desktop"])
+    register_and_log_in(page, invite_code, base_url)
+    project, _ = _built_card(page, base_url, devflow_world)
+    # A runner's pull request beside the card, after it in its group.
+    world = page.request.get("/devflow/api/fake/world").json()
+    _approved(world, 305, "The poll", ["owner-merge"])
+    devflow_world(world)
+    _read(page, base_url, project)
+
+    address = f"{base_url}/devflow?item=card/{project}/{CARD}"
+    page.goto(address)
+    expect(page.get_by_role("article", name=CARD_TITLE)).to_be_visible()
+    expect(page.get_by_role("article")).to_have_count(1)
+    expect(_row(page, CARD_TITLE)).to_have_attribute("aria-current", "true")
+    capture(page, "devflow-inbox")
+
+    # Choosing another shows it, at an address of its own.
+    _row(page, "The poll").click()
+    expect(page.get_by_role("article", name="The poll")).to_be_visible()
+    expect(page.get_by_role("article", name=CARD_TITLE)).to_have_count(0)
+    expect(page).to_have_url(re.compile(r"/devflow\?item=[0-9a-f-]{36}$"))
+    expect(_row(page, "The poll")).to_have_attribute("aria-current", "true")
+
+    # Back shows the first again.
+    page.go_back()
+    expect(page).to_have_url(address)
+    expect(page.get_by_role("article", name=CARD_TITLE)).to_be_visible()
+    expect(page.get_by_role("article", name="The poll")).to_have_count(0)
+    expect(_row(page, CARD_TITLE)).to_have_attribute("aria-current", "true")
+
+
+def test_the_inbox_on_phone_is_two_screens(
+    page: Page, invite_code: str, base_url: str, devflow_world
+):
+    page.set_viewport_size(VIEWPORTS["phone"])
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    _decision(world)
+    _ready_to_merge(world)
+    _approved(world, 308, "The list", ["owner-merge"])
+    _approved(world, 309, "The theme", ["owner-merge"])
+    _stopped(world)
+    _sent_back(world)
+    devflow_world(world)
+    _connect_and_read(page, base_url)
+
+    # The queue alone.
+    page.goto("/devflow")
+    expect(_queue(page).get_by_role("link")).to_have_count(6)
+    expect(page.get_by_role("article")).to_have_count(0)
+    assert_nothing_scrolls_sideways(page)
+    capture(page, "devflow-inbox")
+
+    # Choosing an item shows it alone, with the way back and its position.
+    _row(page, "The vault").click()
+    expect(page).to_have_url(re.compile(r"/devflow\?item=[0-9a-f-]{36}$"))
+    vault = page.get_by_role("article", name="The vault")
+    expect(vault).to_be_visible()
+    expect(_queue(page)).to_be_hidden()
+    back = page.get_by_role("link", name="Waiting for you", exact=True)
+    expect(back).to_be_visible()
+    expect(page.get_by_text("1 of 6", exact=True)).to_be_visible()
+
+    # Its actions sit in a bar above the tab bar, in view without scrolling.
+    merge = vault.get_by_role("button", name="Merge")
+    expect(merge).to_be_visible()
+    tab_bar = page.evaluate(
+        "() => parseFloat(getComputedStyle(document.documentElement)"
+        ".getPropertyValue('--tab-bar-h'))"
+    )
+    box = merge.bounding_box()
+    assert box["y"] + box["height"] <= VIEWPORTS["phone"]["height"] - tab_bar, box
+    assert_nothing_scrolls_sideways(page)
+    capture(page, "devflow-inbox-item")
+
+    # Back shows the queue.
+    page.go_back()
+    expect(page).to_have_url(f"{base_url}/devflow")
+    expect(_queue(page)).to_be_visible()
+    expect(page.get_by_role("article")).to_have_count(0)
+
+    # So does the back link, from the second item.
+    _row(page, "The poll").click()
+    expect(page.get_by_text("2 of 6", exact=True)).to_be_visible()
+    back.click()
+    expect(page).to_have_url(f"{base_url}/devflow")
+    expect(_queue(page)).to_be_visible()
 
 
 def test_the_waiting_list_when_nothing_waits(
