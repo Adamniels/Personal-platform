@@ -165,10 +165,7 @@ def test_a_test_can_stage_a_pull_request(
     assert read.json() == world
 
 
-LINK_INVITE = (
-    "Link your GitHub account to connect repositories and to merge and comment "
-    "as yourself."
-)
+NOT_LINKED = "Not linked"
 
 
 def test_i_link_my_github_account(
@@ -177,15 +174,15 @@ def test_i_link_my_github_account(
     register_and_log_in(page, invite_code, base_url)
     page.goto("/devflow/projects")
     card = page.get_by_role("article", name="GitHub")
-    expect(card.get_by_text(LINK_INVITE)).to_be_visible()
+    expect(card.get_by_text(NOT_LINKED, exact=True)).to_be_visible()
     capture(page, "devflow-projects-unlinked")
 
     link_github(page, base_url)
 
     expect(
-        page.get_by_role("article", name="GitHub").get_by_text("Linked as @octo-owner")
+        page.get_by_role("article", name="GitHub").get_by_text("linked as @octo-owner")
     ).to_be_visible()
-    expect(page.get_by_text(LINK_INVITE)).to_have_count(0)
+    expect(page.get_by_text(NOT_LINKED, exact=True)).to_have_count(0)
     capture(page, "devflow-projects-linked")
     status = page.request.get("/devflow/api/status")
     assert status.json()["github"] == {"state": "linked", "login": "octo-owner"}
@@ -216,8 +213,8 @@ def test_i_unlink_my_github_account(page: Page, invite_code: str, base_url: str)
     dialog.get_by_role("button", name="Unlink GitHub").click()
 
     expect(dialog).to_be_hidden()
-    expect(card.get_by_text(LINK_INVITE)).to_be_visible()
-    expect(page.get_by_text("Linked as @octo-owner")).to_have_count(0)
+    expect(card.get_by_text(NOT_LINKED, exact=True)).to_be_visible()
+    expect(page.get_by_text("linked as @octo-owner")).to_have_count(0)
     assert page.request.get("/devflow/api/status").json()["github"] == {
         "state": "none",
         "login": None,
@@ -227,7 +224,6 @@ def test_i_unlink_my_github_account(page: Page, invite_code: str, base_url: str)
     expect(page.get_by_role("button", name="Link GitHub")).to_be_visible()
 
 
-RUNNER_LINE = "Read the way this repository's runner writes."
 NOT_INSTALLED = "The GitHub App is not installed on any repository you can reach."
 
 
@@ -255,8 +251,10 @@ def test_i_connect_a_repository(
     account.get_by_role("button", name="Connect Adamniels/Personal-platform").click()
 
     projects = page.get_by_role("region", name="Projects")
-    expect(projects.get_by_text("Adamniels/Personal-platform")).to_be_visible()
-    expect(projects.get_by_text(RUNNER_LINE)).to_be_visible()
+    card = projects.get_by_role("article", name="Adamniels/Personal-platform")
+    expect(card).to_be_visible()
+    # Connected but not set up: no worker has said hello, so no card can run.
+    expect(card.get_by_text("No worker yet, so no card can run.")).to_be_visible()
     expect(page.get_by_role("region", name="Adamniels")).to_have_count(0)
     expect(page.get_by_text("No project connected yet")).to_have_count(0)
     capture(page, "devflow-projects-connected")
@@ -302,7 +300,7 @@ def test_i_disconnect_a_project(
 
     expect(dialog).to_be_hidden()
     expect(page.get_by_text("No project connected yet")).to_be_visible()
-    expect(page.get_by_role("region", name="Projects")).to_have_count(0)
+    expect(projects.get_by_role("article")).to_have_count(0)
     assert page.request.get("/devflow/api/projects").json() == {"projects": []}
     page.reload()
     expect(page.get_by_text("No project connected yet")).to_be_visible()
@@ -1216,7 +1214,7 @@ def _open_project(
     _choose(page)
     page.get_by_role("button", name=f"Connect {full_name}").click()
     page.get_by_role("region", name="Projects").get_by_role(
-        "link", name=full_name
+        "link", name=f"Open {full_name}"
     ).click()
     expect(page).to_have_url(
         re.compile(rf"{re.escape(base_url)}/devflow/projects/[0-9a-f-]{{36}}$")
@@ -2024,32 +2022,35 @@ def test_i_give_dev_flow_my_claude_login(
     register_and_log_in(page, invite_code, base_url)
     page.goto("/devflow/projects")
     login = _claude_login(page)
-    expect(login).to_contain_text(CLAUDE_PURPOSE)
-    expect(login.get_by_text("Not set yet.")).to_be_visible()
-    expect(login.get_by_role("button", name="Remove")).to_have_count(0)
+    expect(login.get_by_text("Not set", exact=True)).to_be_visible()
+    # The field is hidden until Give a token opens it below the line.
+    expect(login.get_by_label("Claude token")).to_have_count(0)
     capture(page, "devflow-claude-login-empty")
 
+    login.get_by_role("button", name="Give a token").click()
+    expect(login).to_contain_text(CLAUDE_PURPOSE)
+    expect(login.get_by_role("button", name="Remove")).to_have_count(0)
     field = login.get_by_label("Claude token")
     expect(field).to_have_attribute("type", "password")
     field.fill(CLAUDE_TOKEN)
     login.get_by_role("button", name="Save").click()
 
-    # The field empties, and the section says when it was given and is due.
-    expect(field).to_have_value("")
+    # The field closes, and the line says when it was given and is due.
+    expect(login.get_by_label("Claude token")).to_have_count(0)
     status = page.request.get("/devflow/api/claude-login").json()
     assert status["state"] == "ok"
     said = (
-        f"Set on {_day(page, status['given_at'])}, "
-        f"renew by {_day(page, status['renew_by'])}."
+        f"given {_day(page, status['given_at'])} · due {_day(page, status['renew_by'])}"
     )
     expect(login.get_by_text(said)).to_be_visible()
+    expect(login.get_by_text("Given", exact=True)).to_be_visible()
     expect(login.get_by_role("button", name="Replace")).to_be_visible()
-    expect(login.get_by_role("button", name="Remove")).to_be_visible()
     capture(page, "devflow-claude-login")
 
     # Never shown again, not even in part, and still set after a reload.
     page.reload()
     expect(login.get_by_text(said)).to_be_visible()
+    login.get_by_role("button", name="Replace").click()
     expect(login.get_by_label("Claude token")).to_have_value("")
     assert CLAUDE_TOKEN[10:] not in page.content()
     assert CLAUDE_TOKEN[-12:] not in page.content()
@@ -2059,7 +2060,7 @@ def test_i_give_dev_flow_my_claude_login(
     page.get_by_role("dialog", name="Remove the Claude login?").get_by_role(
         "button", name="Remove the login"
     ).click()
-    expect(login.get_by_text("Not set yet.")).to_be_visible()
+    expect(login.get_by_text("Not set", exact=True)).to_be_visible()
     assert page.request.get("/devflow/api/claude-login").json()["set"] is False
 
 
@@ -2086,11 +2087,9 @@ def test_dev_flow_tells_me_when_my_claude_login_is_due(
     login = _claude_login(page)
     # In the attention style, the card's outline and "Needs you" for a reader.
     expect(login).to_contain_text("Needs you")
+    expect(login.get_by_text("Due", exact=True)).to_be_visible()
     expect(
-        login.get_by_text(
-            f"Renew it by {_day(page, status['renew_by'])}: "
-            "agents cannot run once it runs out."
-        )
+        login.get_by_text(f"due {_day(page, status['renew_by'])}", exact=False)
     ).to_be_visible()
     capture(page, "devflow-claude-login-due")
 

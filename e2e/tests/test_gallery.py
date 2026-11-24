@@ -1057,6 +1057,47 @@ def test_the_empty_state_title_is_in_capitals(page: Page, theme: str):
 
 
 @pytest.mark.parametrize("theme", THEMES)
+def test_a_needs_you_banner_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    region = page.get_by_role("region", name="Needs you banner")
+
+    # --accent-soft fill, 1px --accent-border, --radius-md, padding 14px 16px.
+    message = region.get_by_text("No worker yet, so no card can run.", exact=True)
+    root = message.locator("../..")
+    style = root.evaluate(BOX_STYLE)
+    assert style["background"] == resolve(page, "--accent-soft", "background-color")
+    assert style["borders"] == [resolve(page, "--accent-border", "color")] * 4
+    assert style["borderWidths"] == ["1px"] * 4
+    assert style["radii"] == radii(page, "--radius-md")
+    assert style["padding"] == ["14px", "16px", "14px", "16px"]
+    assert style["shadow"] == "none"
+
+    # The warning icon and "Needs you" in --accent-text, the words in caption
+    # style at 600, then the message at 600 and the detail in --text-2.
+    icon = root.locator("svg").evaluate(BOX_STYLE)
+    assert icon["color"] == resolve(page, "--accent-text", "color")
+    words = root.get_by_text("Needs you", exact=True).evaluate(BOX_STYLE)
+    assert words["color"] == resolve(page, "--accent-text", "color")
+    assert words["fontSize"] == resolve(page, "--text-caption-size", "font-size")
+    assert words["weight"] == "600"
+    assert message.evaluate(BOX_STYLE)["weight"] == "600"
+    detail = root.get_by_text("Make the project's key", exact=False).evaluate(BOX_STYLE)
+    assert detail["color"] == resolve(page, "--text-2", "color")
+
+    # One action, and none on the banner given none.
+    expect(root.get_by_role("button")).to_have_count(1)
+    bare = region.get_by_text("The check of the setup failed.", exact=True)
+    expect(bare.locator("../..").get_by_role("button")).to_have_count(0)
+
+    # The card holding it takes the accent border.
+    card = region.get_by_role("article", name="adamniels/personal-platform")
+    assert (
+        card.evaluate(BOX_STYLE)["borders"]
+        == [resolve(page, "--accent-border", "color")] * 4
+    )
+
+
+@pytest.mark.parametrize("theme", THEMES)
 def test_a_timeline_entry_reads_its_values(page: Page, theme: str):
     open_gallery(page, theme)
     region = page.get_by_role("region", name="Timeline entry")

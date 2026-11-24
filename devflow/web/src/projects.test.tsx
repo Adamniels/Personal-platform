@@ -16,7 +16,6 @@ import {
 	type Project,
 	Projects,
 	type ProjectsProps,
-	RUNNER_LINE,
 } from "./projects";
 
 // jsdom has HTMLDialogElement and its `open` attribute, but neither showModal
@@ -48,6 +47,42 @@ const PLATFORM: Project = {
 		feature: null,
 	},
 };
+
+/** The test's clock: a minute after FODR's worker was last seen. */
+const NOW = Date.parse("2026-11-24T12:00:00+00:00");
+
+/** A project running: two of its nine cards need me, one builds, and its
+ * worker was seen a minute ago. */
+const FODR: Project = {
+	...PLATFORM,
+	id: "0190a8f0-0000-7000-8000-000000000002",
+	repository_id: 9003,
+	name: "fodr",
+	summary: {
+		cards: { needs_you: 2, in_progress: 1, queued: 3, done: 3 },
+		workers: {
+			count: 1,
+			last_seen_at: "2026-11-24T11:59:00+00:00",
+			held: null,
+			cannot_run: null,
+		},
+		setting_up: null,
+		feature: {
+			number: 12,
+			title: "Export the feeding plan",
+			landed: 1,
+			total: 3,
+		},
+	},
+};
+
+/** FODR's summary with its workers changed. */
+const workers = (
+	change: Partial<Project["summary"]["workers"]>,
+): Project["summary"] => ({
+	...FODR.summary,
+	workers: { ...FODR.summary.workers, ...change },
+});
 
 const CONNECTABLE: Connectable = {
 	installations: [
@@ -99,37 +134,183 @@ function renderProjects(
 			return Promise.resolve();
 		}),
 	};
-	render(<Projects linked={true} {...actions} {...props} />);
+	render(<Projects linked={true} now={() => NOW} {...actions} {...props} />);
 	return actions;
 }
 
 describe("the projects on the Projects tab", () => {
-	test("lists each project by its owner and name, with how it is read", async () => {
+	test("the heading says Projects, with Connect a repository as the view's one primary", async () => {
 		renderProjects({ projects: [PLATFORM] });
 
 		const list = await screen.findByRole("region", { name: "Projects" });
-		expect(within(list).getByText("Adamniels/Personal-platform")).toBeTruthy();
-		// The name opens the project's page, an address of its own.
-		const open = within(list).getByRole("link", {
+		const heading = within(list).getByRole("heading", { name: "Projects" });
+		const connect = within(list).getByRole("button", {
+			name: "Connect a repository",
+		});
+		expect(connect.className).toMatch(/primary/);
+		expect(heading.compareDocumentPosition(connect)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING,
+		);
+		// The heading comes before the cards.
+		const card = within(list).getByRole("article", {
 			name: "Adamniels/Personal-platform",
+		});
+		expect(connect.compareDocumentPosition(card)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING,
+		);
+	});
+
+	test("each project is a card with its needs-you count, its ticks and its three rows", async () => {
+		renderProjects({ projects: [FODR] });
+
+		const card = await screen.findByRole("article", { name: "Adamniels/fodr" });
+		// The hero label is the name, the card label the full name.
+		expect(within(card).getByText("fodr")).toBeTruthy();
+		// It needs me, so it takes the accent border, said in words too.
+		expect(within(card).getByText("Needs you")).toBeTruthy();
+
+		// The count in thin numerals, with its two line caption.
+		const count = within(card).getByText("2");
+		expect(count.className).toMatch(/count/);
+		expect(within(card).getByText("need you")).toBeTruthy();
+		expect(within(card).getByText("of 9 cards")).toBeTruthy();
+
+		// One tick per card, the ones that need me first and in --accent.
+		const ticks = within(card).getByRole("img", {
+			name: "2 of 9 cards need you",
+		});
+		const each = Array.from(ticks.children);
+		expect(each).toHaveLength(9);
+		expect(each.map((tick) => /needsYou/.test(tick.className))).toEqual([
+			true,
+			true,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+		]);
+
+		// The three rows: what is building, the feature, the worker.
+		const rows = within(card).getAllByRole("listitem");
+		expect(rows).toHaveLength(3);
+		expect(rows[0]?.textContent).toContain("Building");
+		expect(rows[0]?.textContent).toContain("1 in progress");
+		expect(rows[0]?.textContent).toContain("3 queued");
+		expect(rows[1]?.textContent).toContain("Feature");
+		expect(rows[1]?.textContent).toContain("Export the feeding plan");
+		expect(rows[1]?.textContent).toContain("1 / 3 landed");
+		expect(rows[2]?.textContent).toContain("Worker");
+		expect(rows[2]?.textContent).toContain("1 worker · seen 1 minute ago");
+		expect(within(rows[2] as HTMLElement).getByText("Running")).toBeTruthy();
+
+		// No banner: it can run.
+		expect(
+			within(card).queryByText("No worker yet, so no card can run."),
+		).toBeNull();
+	});
+
+	test("a card's arrow link opens its project's page, and Disconnect sits at its foot", async () => {
+		renderProjects({ projects: [PLATFORM] });
+
+		const card = await screen.findByRole("article", {
+			name: "Adamniels/Personal-platform",
+		});
+		const open = within(card).getByRole("link", {
+			name: "Open Adamniels/Personal-platform",
 		});
 		expect(open.getAttribute("href")).toBe(`/devflow/projects/${PLATFORM.id}`);
 		fireEvent.click(open);
 		expect(window.location.pathname).toBe(`/devflow/projects/${PLATFORM.id}`);
-		expect(within(list).getByText(RUNNER_LINE)).toBeTruthy();
-		expect(
-			within(list).getByRole("button", {
-				name: "Disconnect Adamniels/Personal-platform",
-			}),
-		).toBeTruthy();
-		expect(RUNNER_LINE).toBe("Read the way this repository's runner writes.");
+		const disconnect = within(card).getByRole("button", {
+			name: "Disconnect Adamniels/Personal-platform",
+		});
+		expect(disconnect.className).toMatch(/ghost/);
 	});
 
-	test("with none, it says so", async () => {
+	test("a project that cannot run yet shows a Needs you banner and its one action", async () => {
+		const setting: Project = {
+			...FODR,
+			id: "setting",
+			name: "setting",
+			summary: {
+				...FODR.summary,
+				cards: { needs_you: 0, in_progress: 0, queued: 0, done: 0 },
+				// A worker has said hello: without one, no worker is what it needs.
+				workers: { ...FODR.summary.workers, held: "unwatched" },
+				setting_up: { done: 2, total: 6 },
+				feature: null,
+			},
+		};
+		const noWorker: Project = {
+			...FODR,
+			id: "no-worker",
+			name: "no-worker",
+			summary: {
+				...FODR.summary,
+				cards: { needs_you: 0, in_progress: 0, queued: 0, done: 0 },
+				workers: { count: 0, last_seen_at: null, held: null, cannot_run: null },
+				feature: null,
+			},
+		};
+		const held: Project = {
+			...FODR,
+			id: "held",
+			name: "held",
+			summary: workers({ held: "no_claude_login" }),
+		};
+		const cannot: Project = {
+			...FODR,
+			id: "cannot",
+			name: "cannot",
+			summary: workers({
+				cannot_run:
+					"Dev flow cannot run Adamniels/cannot's cards: the network is down",
+			}),
+		};
+		renderProjects({ projects: [setting, noWorker, held, cannot] });
+
+		const expected: [Project, string, string][] = [
+			[setting, "Setting up: 2 of 6 steps done.", "Continue setting up"],
+			[noWorker, "No worker yet, so no card can run.", "Set up a worker"],
+			[
+				held,
+				"No work is handed out until you give your Claude login on the Projects tab.",
+				"Open the project",
+			],
+			[
+				cannot,
+				"Dev flow cannot run Adamniels/cannot's cards: the network is down",
+				"Open the project",
+			],
+		];
+		for (const [project, message, action] of expected) {
+			const card = await screen.findByRole("article", {
+				name: `Adamniels/${project.name}`,
+			});
+			expect(within(card).getByText(message)).toBeTruthy();
+			// The banner is in place of the count and the ticks.
+			expect(within(card).queryByRole("img")).toBeNull();
+			expect(within(card).queryByText("need you")).toBeNull();
+			// Its one action links the project's page.
+			const link = within(card).getByRole("link", { name: action });
+			expect(link.getAttribute("href")).toBe(`/devflow/projects/${project.id}`);
+			expect(link.className).toMatch(/secondary/);
+			// Needs you, said once by the banner, and the card's outline.
+			expect(within(card).getAllByText("Needs you").length).toBeGreaterThan(0);
+		}
+	});
+
+	test("with none, it says so under the heading", async () => {
 		renderProjects({ projects: [] });
 
-		expect(await screen.findByText("No project connected yet")).toBeTruthy();
-		expect(screen.queryByRole("region", { name: "Projects" })).toBeNull();
+		const list = await screen.findByRole("region", { name: "Projects" });
+		expect(
+			await within(list).findByText("No project connected yet"),
+		).toBeTruthy();
+		expect(within(list).queryByRole("article")).toBeNull();
 	});
 
 	test("connecting is offered only when GitHub is linked", async () => {

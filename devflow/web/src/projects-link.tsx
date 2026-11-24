@@ -3,17 +3,19 @@
 // it. Starting a link asks Dev flow for the code host's address and sends the browser there; the
 // code host sends it back to /devflow/github/callback, which comes back here. See "The pages" in
 // devflow/README.md and "Acting as the owner" in devflow/docs/devflow-architecture.md.
-import { Button, Card, Dialog } from "@platform/ui";
+import { Button, Dialog, Status } from "@platform/ui";
 import { type ReactElement, useState } from "react";
-import styles from "./projects-link.module.css";
-import type { Status } from "./status";
+import { Connection } from "./connection";
+import styles from "./connection.module.css";
+import { BranchIcon } from "./icons";
+import type { Status as PageStatus } from "./status";
 
 export const NOT_LINKED = "GitHub was not linked. Try again.";
 export const NOT_UNLINKED = "GitHub was not unlinked. Try again.";
 
 export type GitHubLinkProps = {
 	/** The caller's link, undefined before the status answers. */
-	github: Status["github"] | undefined;
+	github: PageStatus["github"] | undefined;
 	/** Whether the page was sent back from a return that did not link. */
 	failed: boolean;
 	/** Starts a link, answering the code host's address. */
@@ -24,10 +26,11 @@ export type GitHubLinkProps = {
 	go: (url: string) => void;
 };
 
-/** The link as a card of the package's: an invitation and "Link GitHub" when
- * nothing is linked, the login and a quiet "Unlink" behind a confirmation when
- * it is, and the attention style with "Link again" when GitHub stopped taking
- * it. Nothing before the status answers. */
+/** The link as one line of Connections: linked as the login, with a quiet
+ * "Unlink" behind a confirmation; not linked, with "Link GitHub"; or expired,
+ * in the attention style, with "Link again". Both are secondary, so "Connect a
+ * repository" stays the view's one primary. An error is a line under the item.
+ * Nothing before the status answers. */
 export function GitHubLink({
 	github,
 	failed,
@@ -62,44 +65,48 @@ export function GitHubLink({
 	};
 
 	const linkButton = (label: string) => (
-		<Button kind="primary" disabled={starting} onClick={link}>
+		<Button kind="secondary" disabled={starting} onClick={link}>
 			{label}
 		</Button>
 	);
 
 	let line: string;
+	let status: ReactElement;
 	let action: ReactElement;
 	if (github.state === "linked") {
-		line = `Linked as @${github.login}`;
+		line = `linked as @${github.login}`;
+		status = <Status tone="done">Linked</Status>;
 		action = (
 			<Button kind="ghost" onClick={() => setConfirming(true)}>
 				Unlink
 			</Button>
 		);
 	} else if (github.state === "needs_relink") {
-		line = "Your GitHub link has expired.";
+		line = "your link has expired";
+		status = <Status tone="needs-you">Expired</Status>;
 		action = linkButton("Link again");
 	} else {
-		line =
-			"Link your GitHub account to connect repositories and to merge and comment as yourself.";
+		line = "to connect repositories and act as you";
+		status = <Status tone="idle">Not linked</Status>;
 		action = linkButton("Link GitHub");
 	}
 
 	return (
 		<>
-			<Card
-				title="GitHub"
+			<Connection
+				name="GitHub"
+				icon={<BranchIcon />}
+				line={line}
+				status={status}
+				action={action}
 				attention={github.state === "needs_relink"}
-				className={styles.card}
-				footer={action}
 			>
 				{error === null ? null : (
 					<p className={styles.error} role="alert">
 						{error}
 					</p>
 				)}
-				<p className={styles.line}>{line}</p>
-			</Card>
+			</Connection>
 			<Dialog
 				open={confirming}
 				title="Unlink GitHub?"

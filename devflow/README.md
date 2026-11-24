@@ -145,42 +145,71 @@ is `src/banner.tsx`, the page's own component, since no other feature needs it, 
 `GET /devflow/api/status` once as the page loads; before the answer, with `github`, or when the
 status cannot be read, it shows nothing.
 
-The Projects tab shows the GitHub link above its list, `src/projects-link.tsx`, as the package's
-`Card` titled "GitHub": with nothing linked, "Link your GitHub account to connect repositories and
-to merge and comment as yourself." and a primary "Link GitHub", which posts to
-`/devflow/api/github/link` and sends the browser to the address it answers; linked, "Linked as
-@<login>" and a ghost "Unlink" behind the package's `Dialog`, "Unlink GitHub?"; and with
-`needs_relink`, the card's attention style, "Your GitHub link has expired." and "Link again". At
-`?link=failed`, or when starting fails, it says "GitHub was not linked. Try again." as an alert.
-Before the status answers it shows nothing.
+The Projects tab is a dashboard: Connections, then the projects. Connections is a region named
+"Connections", a wrapping row of two items, each `flex: 1 1 360px`, so on phone they stack at the
+full width. An item, `src/connection.tsx`, is an `article` named by its name, a `--surface` card
+64px high on desktop: an icon, the name over a mono line, a status label and its one action. On
+phone the status and the action take a line of their own under the name. An item that needs the
+owner takes `--accent-border`, with "Needs you" for assistive technology.
 
-Under the link is the Claude login, `src/claude-login.tsx`, the package's `Card` titled "Claude
-login", read from `GET /devflow/api/claude-login` as the tab loads: "Agents run on your
-subscription with this. Make it with `claude setup-token`.", then where it stands, "Not set yet.",
-or "Set on <date>, renew by <date>.", the dates in the reader's own zone. From a month before it is
-due the card takes the attention style and says "Set on <date>. Renew it by <date>: agents cannot
-run once it runs out.", and once past it "Set on <date>. It ran out on <date>: agents cannot run
-until you replace it.", in `--accent-text` at weight 600. Under that, a password field labelled
-"Claude token" and a secondary "Save", or "Replace" once one is set, enabled only while the field
-holds something, and, once set, a ghost "Remove" behind a destructive `Dialog`, "Remove the Claude
-login?". Saving empties the field whatever the answer; a token the service refuses says "That is
-not a setup token. Make one with claude setup-token and paste all of it." on the field, and any
-other failure says so as an alert. The page never reads the token back, not even a part of it.
-The buttons are secondary, since the tab's one primary is "Link GitHub" or "Connect a repository".
+The first item is GitHub, `src/projects-link.tsx`, in three states: with nothing linked, "to
+connect repositories and act as you", the status "Not linked" and a secondary "Link GitHub", which
+posts to `/devflow/api/github/link` and sends the browser to the address it answers; linked,
+"linked as @<login>", "Linked" and a ghost "Unlink" behind the package's `Dialog`, "Unlink
+GitHub?"; and with `needs_relink`, "your link has expired", "Expired", the attention style and a
+secondary "Link again". At `?link=failed`, or when starting fails, "GitHub was not linked. Try
+again." is an alert on a line under the item. Before the status answers it shows nothing.
 
-Under it are the projects, `src/projects.tsx`. A primary "Connect a repository", enabled only
-while GitHub is linked, opens "Choose a repository": the repositories the app reaches for the
-owner, read from `GET /devflow/api/github/repositories`, as one package `Table` per account, named
-and headed by it, each repository a row with "Connect", or a `Badge` "Connected" when it is a
-project already; with the app installed nowhere he can reach, "The GitHub App is not installed on
-any repository you can reach." with a link "Install it on GitHub" to the answer's `install_url`.
-Connecting closes it and reads the projects again. The projects are a `Table` named "Projects",
-each row "<owner>/<name>" over "Read the way this repository's runner writes." with a ghost
-"Disconnect" behind a destructive `Dialog`, "Disconnect <owner>/<name>?", which says Dev flow
-forgets the project and everything it read for it and that nothing changes on GitHub; with none,
-and the choice closed, the `EmptyState` "No project connected yet". A read, a connect or a
-disconnect that fails says so as an alert. Each row's "<owner>/<name>" is a link to the project's
-page.
+The second is the Claude login, `src/claude-login.tsx`, read from `GET /devflow/api/claude-login`
+as the tab loads, in four states: not set, "make one with claude setup-token" and "Not set"; set,
+"given <date> · due <date>" and "Given"; from a month before it is due, the attention style and
+"Due"; and past it, "given <date> · ran out <date>", the attention style and "Expired"; the dates
+in the reader's own zone. Its action is a ghost "Give a token", or "Replace" once one is set, which
+opens a form below the line: a password field labelled "Claude token", its help "Agents run on
+your subscription with this. Make it with claude setup-token.", a secondary "Save", enabled only
+while the field holds something, a ghost "Cancel", and, once one is set, a ghost "Remove" behind a
+destructive `Dialog`, "Remove the Claude login?". Saving empties the field whatever the answer and
+closes it once saved; a token the service refuses says "That is not a setup token. Make one with
+claude setup-token and paste all of it." on the field, which stays open, and any other failure
+says so as an alert under the line. The page never reads the token back, not even a part of it.
+
+Under Connections are the projects, `src/projects.tsx`, a region named by its heading,
+"Projects", with a primary "Connect a repository" on its right, the view's one primary, enabled
+only while GitHub is linked. It opens "Choose a repository" below the heading: the repositories the
+app reaches for the owner, read from `GET /devflow/api/github/repositories`, as one package
+`Table` per account, named and headed by it, each repository a row with "Connect", or a `Badge`
+"Connected" when it is a project already; with the app installed nowhere he can reach, "The GitHub
+App is not installed on any repository you can reach." with a link "Install it on GitHub" to the
+answer's `install_url`. Connecting closes it and reads the projects again. With none, and the
+choice closed, the `EmptyState` "No project connected yet". A read, a connect or a disconnect that
+fails says so as an alert.
+
+Each project is the package's `Card`, in a wrapping row, `flex: 1 1 480px`, drawn from its
+`summary`, see "Connecting a repository". Its label is "<owner>/<name>", with an arrow link, "Open
+<owner>/<name>", to the project's page, a plain click opening it in place. Its hero label is the
+name. Beside it is how many of its cards need the owner, in thin numerals at `--text-num-l-size`,
+with "need you", or "needs you" for one, and "of N cards" to its right, and under it a tick bar,
+one tick per card, those that need the owner first in `--accent` and the rest in `--text-2`, an
+image named by its numbers, such as "2 of 9 cards need you"; past 48 cards the ticks touch, so the
+bar fits. Then at most three inset rows: Building,
+how many cards are in progress, or "Nothing in progress", and how many are queued; Feature, the
+open feature's title with "<landed> / <total> landed"; and Worker, how many and when the one seen
+last was seen, "Running" within ten minutes and "Not seen" after, as the project's page says it.
+A project with no card yet has one row, "Cards", "None yet". A project with a card that needs the
+owner takes the accent border. At its foot is a ghost "Disconnect" behind a destructive `Dialog`,
+"Disconnect <owner>/<name>?", which says Dev flow forgets the project and everything it read for
+it and that nothing changes on GitHub; "A project's settings page" will move it there.
+
+A project that cannot run yet shows the package's `NeedsYouBanner` in place of the count and the
+ticks, and takes the accent border, with one action, a link to the project's page drawn as a
+secondary button. The first that applies: no worker has said hello, "No worker yet, so no card can
+run.", "Make the project's key, then start a worker with the two commands on its page." and "Set
+up a worker", first since setting up runs on a worker too; setting up, "Setting up: <done> of <total>
+steps done.", "No card runs until it is set up." and "Continue setting up"; `held`, its reason in
+the workers list's words, see "Workers", and "Open the project"; and `cannot_run`, its message,
+and "Open the project". A registered project whose setup check failed is not a banner here: it
+waits in "Waiting for you" as a setup item. The summary names no card and no worker, so the rows
+say counts; the picture's card title and worker name would need the summary to carry them.
 
 A project's page, `src/project.tsx`, is at `/devflow/projects/<id>`, under the Projects tab, which
 stays selected there, and puts the project's cards first. Its header, the page header of section 2
@@ -1790,7 +1819,7 @@ never calls it. A project has a key and a worker its calls, which the worker pro
 below, makes; the image it runs in and the commands that start it are "Starting a worker". Why it
 is built so is "Workers" in `docs/devflow-architecture.md`.
 
-**As the owner does it.** On the Projects tab, open a project by its name, and in its Workers card
+**As the owner does it.** On the Projects tab, open a project by the arrow on its card, and in its Workers card
 press "Make a key". Copy the key then, or the command that saves it, which "Start a worker" shows
 with it: it is shown once and never again. A worker started with it, as "Starting a worker" says,
 says hello and is listed in the card, with a notice when it needs building again. "Make a new key" replaces it, and every worker holding
@@ -2541,11 +2570,11 @@ The Claude login is the token the owner makes with `claude setup-token`, which e
 is handed so it runs on his subscription. Why it is held by Dev flow, and how it reaches a run, is
 "Workers" in `docs/devflow-architecture.md`.
 
-**As the owner does it.** In a normal terminal, run `claude setup-token`, and paste what it prints
-into "Claude login" on the Projects tab, then "Save". The field empties and the section says when
-it was given and when to renew it, a year later. A month before then the section, the nav's dot
-and the front page's card say it is due: make a new token the same way and "Replace" the old one.
-"Remove" forgets it.
+**As the owner does it.** In a normal terminal, run `claude setup-token`; on the Projects tab press
+"Give a token" on the Claude login's line, paste what it printed, then "Save". The field closes and
+the line says when it was given and when it is due, a year later. A month before then the line,
+the nav's dot and the front page's card say it is due: make a new token the same way and paste it
+after "Replace". "Remove", beside the field "Replace" opens, forgets it.
 
 **One per user**, not per project, since the subscription is the user's. The token is sealed in
 the vault, see "The vault", under the purpose `claude-login`, and nowhere else.
@@ -4442,7 +4471,7 @@ Then, on the app's page:
 3. **Install App**, on the repositories Dev flow is to read, only those.
 4. **Try the link on the laptop first.** Start Dev flow there with `DEVFLOW_CODE_HOST=github`, a
    `DEVFLOW_VAULT_KEY` made as "The vault" says, and the app's four settings, open the Projects
-   tab, press "Link GitHub", authorize on GitHub, and see "Linked as @<your login>"; then press
+   tab, press "Link GitHub", authorize on GitHub, and see "linked as @<your login>"; then press
    "Connect a repository" and see the repositories you installed it on. Then release
    the hosted copy, see `infra/hosted/README.md`.
 

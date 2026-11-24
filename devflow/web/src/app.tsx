@@ -316,9 +316,9 @@ export function App(props: AppProps = {}) {
 
 /** Dev flow's frame: the fake mode's banner, the page's heading, a tab per
  * section, tied to the address, and the section the address names: what
- * waits, with its count on its tab, and the Projects tab with the GitHub link
- * and the Claude login above its projects, or, at a project's address, that
- * project's page. */
+ * waits, with its count on its tab, and the Projects tab with Connections,
+ * the GitHub link and the Claude login one line each, above its projects, or,
+ * at a project's address, that project's page. */
 function Frame({
 	loadStatus = readStatus,
 	projects = projectsApi,
@@ -419,17 +419,22 @@ function Frame({
 							/>
 						) : section.key === "projects" ? (
 							<>
-								<GitHubLink
-									github={status?.github}
-									failed={failed}
-									start={startLink}
-									unlink={async () => {
-										await client.send("DELETE", "/github/link");
-										await reload();
-									}}
-									go={(url) => window.location.assign(url)}
-								/>
-								<ClaudeLogin {...claudeLogin} />
+								<section
+									className={styles.connections}
+									aria-label="Connections"
+								>
+									<GitHubLink
+										github={status?.github}
+										failed={failed}
+										start={startLink}
+										unlink={async () => {
+											await client.send("DELETE", "/github/link");
+											await reload();
+										}}
+										go={(url) => window.location.assign(url)}
+									/>
+									<ClaudeLogin {...claudeLogin} />
+								</section>
 								<Projects
 									linked={status?.github.state === "linked"}
 									{...projects}

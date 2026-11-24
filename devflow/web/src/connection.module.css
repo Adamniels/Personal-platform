@@ -1,0 +1,116 @@
+/* An item of Connections on the Projects tab. Tokens only. */
+
+/* A --surface card of its own, one line 64px high, of a wrapping row of two,
+ * flex: 1 1 360px as the slice settles, so on phone each is the full width.
+ * Thin borders, no shadow (hard rule 3). */
+.item {
+	box-sizing: border-box;
+	position: relative;
+	flex: 1 1 360px;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	gap: var(--space-3);
+	min-height: 64px;
+	padding: var(--space-2) var(--space-4);
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+}
+
+/* It needs the user: its one border in the accent border, in place of the
+ * plain one, as a card that needs the user takes in section 4. */
+.attention {
+	border-color: var(--accent-border);
+}
+
+/* The icon, the name over its mono line, then the status and the action. */
+.row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	min-width: 0;
+}
+
+.icon {
+	flex: none;
+	display: flex;
+	color: var(--text-2);
+}
+
+.text {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+/* The item's heading, in the UI font and never in capitals, as a card's
+ * label is: page.css gives a heading the heading font at no specificity. */
+.name {
+	margin: 0;
+	color: var(--text);
+	font-family: var(--font-ui);
+	font-size: var(--text-label-size);
+	line-height: var(--text-label-line);
+	font-weight: 500;
+	letter-spacing: normal;
+	text-transform: none;
+}
+
+/* Whom it is linked as, or its dates: mono, hard rule 8. */
+.line {
+	margin: 0;
+	color: var(--text-2);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+	overflow-wrap: anywhere;
+}
+
+.end {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+/* On phone the item is the full width, and the status and the action move
+ * to a line of their own under the name, the status on the left and the
+ * action on the right, so the name and its mono line keep the width. */
+@media (max-width: 639.98px) {
+	.row {
+		flex-wrap: wrap;
+		row-gap: var(--space-2);
+	}
+
+	.text {
+		flex-basis: calc(100% - 20px - var(--space-3));
+	}
+
+	.end {
+		flex: 1 1 100%;
+		justify-content: space-between;
+	}
+}
+
+/* "Needs you" for assistive technology alone, so the outline is never the
+ * only signal (hard rule 5). */
+.hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* What did not happen, the line under the item, read as an alert. */
+.error {
+	margin: 0;
+	color: var(--accent-text);
+	font-weight: 600;
+}

@@ -31,3 +31,13 @@
 	color: var(--info);
 	font-weight: 600;
 }
+
+/* Connections, GitHub and the Claude login, a wrapping row of one line items
+ * above the projects, a section's gap from them. Each item's flex-basis is
+ * its own, so on phone they stack. */
+.connections {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-4);
+	margin-bottom: var(--space-4);
+}
