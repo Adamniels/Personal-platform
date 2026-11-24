@@ -28,7 +28,11 @@ import {
 	sectionAt,
 	settingsAt,
 } from "./sections";
-import type { ProjectSettings } from "./settings";
+import {
+	type ProjectSettings,
+	SettingsPage,
+	type SettingsPageApi,
+} from "./settings";
 import { loadStatus as readStatus, type Status, useStatus } from "./status";
 import { useWaiting, Waiting, type WaitingApi } from "./waiting";
 
@@ -53,6 +57,10 @@ export type AppProps = {
 	/** How an item is merged and sent back, the service's by default; a test
 	 * passes its own. */
 	actions?: ActionsApi;
+	/** How a project's settings page reads and saves its settings and
+	 * values and disconnects it, the service's by default; a test passes its
+	 * own. */
+	settings?: SettingsPageApi;
 	/** How a card's page reads its card, the service's by default; a test
 	 * passes its own. */
 	card?: CardApi;
@@ -154,6 +162,17 @@ const projectApi: ProjectApi = {
 			`/projects/${encodeURIComponent(id)}/values/${encodeURIComponent(name)}`,
 		);
 	},
+};
+
+/** A project's settings page, through Dev flow's API. */
+const settingsApi: SettingsPageApi = {
+	loadProjects: projectsApi.loadProjects,
+	loadSettings: projectApi.loadSettings,
+	saveSettings: projectApi.saveSettings,
+	loadValues: projectApi.loadValues,
+	giveValue: projectApi.giveValue,
+	removeValue: projectApi.removeValue,
+	disconnect: projectsApi.disconnect,
 };
 
 /** A card's story, through Dev flow's API; a card the caller does not have
@@ -324,6 +343,7 @@ function Frame({
 	loadStatus = readStatus,
 	projects = projectsApi,
 	project = projectApi,
+	settings = settingsApi,
 	claudeLogin = claudeLoginApi,
 	waiting = waitingApi,
 	actions = actionsApi,
@@ -391,6 +411,14 @@ function Frame({
 								now={now}
 								link={status?.github.state}
 								actions={actions}
+							/>
+						) : section.key === "projects" && settingsOf ? (
+							<SettingsPage
+								key={settingsOf}
+								id={settingsOf}
+								back={() => navigate(projectPath(settingsOf))}
+								disconnected={() => navigate(section.path)}
+								{...settings}
 							/>
 						) : section.key === "projects" && cardOf ? (
 							<CardPage

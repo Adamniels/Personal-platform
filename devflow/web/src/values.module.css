@@ -1,0 +1,63 @@
+/* The Values card of a project's settings page. Tokens only; what it shares
+ * with the setup's values step, the list, its lines and the forms, comes
+ * from setup.module.css. */
+
+.settingsCard {
+	margin: 0;
+}
+
+/* "Inset list row" in section 4 of design/DESIGN.md, hard rule 3: the name,
+ * when it was set and its actions on one line where there is room, wrapping
+ * at phone width rather than scrolling sideways, hard rule 13. */
+.settingsValue {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	min-width: 0;
+	min-height: var(--row-h);
+	box-sizing: border-box;
+	justify-content: center;
+	padding: 8px 12px;
+	border-radius: var(--radius-sm);
+	background: var(--surface-2);
+}
+
+.valueLine {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-1) var(--space-3);
+	min-width: 0;
+}
+
+/* The name, hard rule 8, breaking anywhere since it has no spaces. */
+.valueName {
+	flex: 1 1 12rem;
+	min-width: 0;
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	overflow-wrap: anywhere;
+}
+
+/* When it was set, a date, hard rule 8. */
+.valueSet {
+	color: var(--text-2);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+}
+
+.valueActions {
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+}
+
+/* Remove takes a value away: a ghost in the danger colour, two classes to
+ * outrank the ghost button's own. */
+.valueActions .remove,
+.valueActions .remove:hover:not(:disabled) {
+	color: var(--danger);
+}

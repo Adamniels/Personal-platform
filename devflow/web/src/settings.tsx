@@ -11,14 +11,27 @@ import {
 	Button,
 	Card,
 	Checkbox,
+	Dialog,
+	EmptyState,
 	Select,
+	Switch,
 	TextArea,
 	TextField,
 } from "@platform/ui";
-import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react";
+import {
+	type FormEvent,
+	type KeyboardEvent,
+	useEffect,
+	useId,
+	useState,
+} from "react";
+import { plainClick } from "./address";
 import { ApiError } from "./api/client";
 import type { components } from "./api/schema";
+import type { Project } from "./projects";
+import { projectPath } from "./sections";
 import styles from "./settings.module.css";
+import { type ValuesApi, ValuesCard } from "./values";
 
 export type ProjectSettings = components["schemas"]["ProjectSettings"];
 /** What saving takes: the settings, the trusted accounts as plain logins. */
@@ -673,5 +686,699 @@ export function SettingsPanel({
 				</form>
 			)}
 		</Card>
+	);
+}
+
+export const NOT_DISCONNECTED = "The project was not disconnected. Try again.";
+/** What the side column says of when a change counts. */
+export const CHANGE_COUNTS =
+	"A change counts from the next decision Dev flow makes. A run under way keeps the model and limits it started with.";
+
+/** What each preset means, in one line, as the side column says it. */
+export const PRESET_LINES: Record<Preset, string> = {
+	fully_automatic:
+		"Cards start on the agent's recommendations, and a pull request merges alone once its check and review pass.",
+	guided:
+		"Cards start on the agent's recommendations. A pull request waits for you when one of the three conditions holds; the rest merge alone.",
+	only_i_merge:
+		"A card with questions waits for your answers, and every pull request waits for you to merge it.",
+	custom: "Your own mix of the settings below; it matches no preset.",
+};
+
+/** What the page reads and changes: the project, its settings and values,
+ * and disconnecting it; Dev flow's API in the page and a test's own in a
+ * test. */
+export type SettingsPageApi = SettingsApi &
+	ValuesApi & {
+		loadProjects: () => Promise<Project[]>;
+		disconnect: (id: string) => Promise<void>;
+	};
+
+export type SettingsPageProps = SettingsPageApi & {
+	id: string;
+	/** Goes to the project's page. */
+	back: () => void;
+	/** Goes to the Projects tab, once the project is disconnected. */
+	disconnected: () => void;
+};
+
+/** The form as it is edited: the settings, with the paths and the limits as
+ * their fields show them, as text. */
+type Form = {
+	values: ProjectSettings;
+	lines: string;
+	limits: LimitTexts;
+};
+
+const formOf = (settings: ProjectSettings): Form => ({
+	values: settings,
+	lines: asLines(settings.wait_paths),
+	limits: asTexts(settings),
+});
+
+/** The settings compared one by one, each counted once. */
+const PLAIN: (
+	| LabelField
+	| ModelField
+	| ConditionField
+	| "questions"
+	| "waits_for_owner"
+)[] = [
+	"pickup_label",
+	"hold_label",
+	"attention_label",
+	"review_label",
+	"model_reading",
+	"model_building",
+	"model_reviewing",
+	"questions",
+	"waits_for_owner",
+	"wait_when_marked",
+	"wait_when_paths",
+	"wait_when_decision",
+];
+
+/** How many of the eighteen settings the form changes from the settings as
+ * last read or saved. */
+export const unsaved = (form: Form, base: ProjectSettings): number => {
+	let count = PLAIN.filter(
+		(field) => form.values[field] !== base[field],
+	).length;
+	const logins = (settings: ProjectSettings) =>
+		settings.trusted_logins.map((entry) => entry.login).join("\n");
+	if (logins(form.values) !== logins(base)) count += 1;
+	if (asPaths(form.lines).join("\n") !== base.wait_paths.join("\n")) count += 1;
+	for (const { field } of LIMITS)
+		if (form.limits[field].trim() !== String(base[field])) count += 1;
+	return count;
+};
+
+/** The count as the Save bar says it. */
+export const unsavedLine = (count: number): string =>
+	count === 0
+		? "No unsaved changes"
+		: count === 1
+			? "1 unsaved change"
+			: `${count} unsaved changes`;
+
+/** The help of each model on the page, the building one as the slice
+ * words it. */
+const MODEL_HELP: Record<ModelField, string> = {
+	model_reading: "Reads each card before anything is built.",
+	model_building: "A build, a fix, a conflict.",
+	model_reviewing: "Reviews a card, and a whole feature.",
+};
+
+/** The anchors of the four sections, which the side column links to. */
+const SECTION_LINKS: { anchor: string; label: string }[] = [
+	{ anchor: "alone", label: "How much happens alone" },
+	{ anchor: "picked", label: "How cards are picked" },
+	{ anchor: "runs", label: "Runs" },
+	{ anchor: "values", label: "Values" },
+];
+
+/** A project's settings page, /devflow/projects/<id>/settings: the header
+ * with the way back to the project; the form, how much happens alone, how
+ * cards are picked and runs, with the Values card and one Save bar under it;
+ * and the side column with the preset the form matches, links to the four
+ * sections and Disconnect. Nothing before the project is read. */
+export function SettingsPage({
+	id,
+	back,
+	disconnected,
+	loadProjects,
+	loadSettings,
+	saveSettings,
+	loadValues,
+	giveValue,
+	removeValue,
+	disconnect,
+}: SettingsPageProps) {
+	const [project, setProject] = useState<Project | null>();
+	const [projectFailed, setProjectFailed] = useState(false);
+	// The settings as last read or saved, which Undo goes back to.
+	const [base, setBase] = useState<ProjectSettings>();
+	const [form, setForm] = useState<Form>();
+	const [readFailed, setReadFailed] = useState(false);
+	const [saving, setSaving] = useState(false);
+	const [saved, setSaved] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const [invalid, setInvalid] = useState<Partial<Record<Field, string>>>({});
+	const [adding, setAdding] = useState("");
+	const [leaving, setLeaving] = useState(false);
+	const [leaveError, setLeaveError] = useState<string | null>(null);
+	const formId = useId();
+	const presetLabel = useId();
+	const anchor = (name: string) => `settings-${name}`;
+
+	useEffect(() => {
+		let current = true;
+		loadProjects().then(
+			(projects) => {
+				if (current) setProject(projects.find((p) => p.id === id) ?? null);
+			},
+			() => {
+				if (current) setProjectFailed(true);
+			},
+		);
+		return () => {
+			current = false;
+		};
+	}, [id, loadProjects]);
+
+	useEffect(() => {
+		let current = true;
+		loadSettings(id).then(
+			(answer) => {
+				if (!current) return;
+				setBase(answer);
+				setForm(formOf(answer));
+			},
+			() => {
+				if (current) setReadFailed(true);
+			},
+		);
+		return () => {
+			current = false;
+		};
+	}, [id, loadSettings]);
+
+	/** Changes the form, and with it whether it was just saved. */
+	const edit = (change: (before: Form) => Form) => {
+		setForm((before) => (before ? change(before) : before));
+		setSaved(false);
+	};
+
+	const set = <K extends keyof ProjectSettings>(
+		field: K,
+		value: ProjectSettings[K],
+	) =>
+		edit((before) => ({
+			...before,
+			values: { ...before.values, [field]: value },
+		}));
+
+	/** Fills in what the preset covers, and nothing else; saved only with
+	 * Save, as any change. */
+	const choose = (fills: Partial<Covered>) =>
+		edit((before) => ({ ...before, values: { ...before.values, ...fills } }));
+
+	/** Lists the login typed, unless it is empty or already listed whatever
+	 * its case, as GitHub compares logins. Its shape is Dev flow's to judge
+	 * when it is saved. */
+	const add = () => {
+		const login = adding.trim();
+		setAdding("");
+		if (login === "") return;
+		edit((before) =>
+			before.values.trusted_logins.some(
+				(entry) => entry.login.toLowerCase() === login.toLowerCase(),
+			)
+				? before
+				: {
+						...before,
+						values: {
+							...before.values,
+							trusted_logins: [
+								...before.values.trusted_logins,
+								{ login, mine: false },
+							],
+						},
+					},
+		);
+	};
+
+	/** Enter in the field adds the login rather than saving the form. */
+	const addOnEnter = (event: KeyboardEvent<HTMLInputElement>) => {
+		if (event.key !== "Enter") return;
+		event.preventDefault();
+		add();
+	};
+
+	const remove = (login: string) =>
+		edit((before) => ({
+			...before,
+			values: {
+				...before.values,
+				trusted_logins: before.values.trusted_logins.filter(
+					(entry) => entry.mine || entry.login !== login,
+				),
+			},
+		}));
+
+	/** Puts the form back to the settings as last read or saved. */
+	const undo = () => {
+		if (base === undefined) return;
+		setForm(formOf(base));
+		setInvalid({});
+		setError(null);
+		setSaved(false);
+		setAdding("");
+	};
+
+	const save = async (event: FormEvent) => {
+		event.preventDefault();
+		if (form === undefined) return;
+		// A limit that is not a whole number is named under its field, and
+		// nothing is sent.
+		const numbers: Partial<Record<LimitField, number>> = {};
+		const wrong: LimitField[] = [];
+		for (const { field } of LIMITS) {
+			const number = asNumber(form.limits[field]);
+			if (number === undefined) wrong.push(field);
+			else numbers[field] = number;
+		}
+		if (wrong.length > 0) {
+			setInvalid(
+				Object.fromEntries(wrong.map((field) => [field, NOT_A_NUMBER])),
+			);
+			setError(null);
+			setSaved(false);
+			return;
+		}
+		setSaving(true);
+		try {
+			const answer = await saveSettings(id, {
+				...requestOf(form.values),
+				...(numbers as Record<LimitField, number>),
+				wait_paths: asPaths(form.lines),
+			});
+			setBase(answer);
+			setForm(formOf(answer));
+			setInvalid({});
+			setError(null);
+			setSaved(true);
+		} catch (refused) {
+			const errors =
+				refused instanceof ApiError && refused.problem.status === 422
+					? refused.problem.errors
+					: undefined;
+			setInvalid(
+				Object.fromEntries(
+					Object.entries(errors ?? {}).map(([field, messages]) => [
+						field,
+						messages[0] ?? "is not valid",
+					]),
+				),
+			);
+			setError(errors ? null : NOT_SAVED);
+			setSaved(false);
+		}
+		setSaving(false);
+	};
+
+	const confirmDisconnect = async () => {
+		setLeaving(false);
+		try {
+			await disconnect(id);
+			setLeaveError(null);
+			disconnected();
+		} catch {
+			setLeaveError(NOT_DISCONNECTED);
+		}
+	};
+
+	if (projectFailed) {
+		return (
+			<p className={styles.error} role="alert">
+				The project could not be read. Try again.
+			</p>
+		);
+	}
+	if (project === undefined) return null;
+	if (project === null) {
+		return (
+			<EmptyState
+				title="There is no such project"
+				detail="It may have been disconnected."
+				action={
+					<a className={styles.back} href="/devflow/projects">
+						Go to Projects
+					</a>
+				}
+			/>
+		);
+	}
+
+	const fullName = `${project.owner}/${project.name}`;
+	const values = form?.values;
+	const preset = values === undefined ? undefined : presetOf(values);
+	const count =
+		form === undefined || base === undefined ? 0 : unsaved(form, base);
+	// Mine first, as it is always on.
+	const trusted =
+		values === undefined
+			? []
+			: [
+					...values.trusted_logins.filter((entry) => entry.mine),
+					...values.trusted_logins.filter((entry) => !entry.mine),
+				];
+
+	return (
+		<>
+			<header className={styles.header}>
+				<a
+					className={styles.back}
+					href={projectPath(id)}
+					onClick={(event) => {
+						if (plainClick(event)) {
+							event.preventDefault();
+							back();
+						}
+					}}
+				>
+					<svg
+						className={styles.chevron}
+						viewBox="0 0 24 24"
+						width="16"
+						height="16"
+						aria-hidden="true"
+					>
+						<path d="m15 18-6-6 6-6" />
+					</svg>
+					{project.name}
+				</a>
+				<p className={styles.caption}>{fullName}</p>
+				<h2 className={styles.title}>Settings</h2>
+				<p className={styles.lede}>
+					How much Dev flow does on its own in {project.name}, which cards it
+					takes, and how its runs are set.
+				</p>
+			</header>
+			<div className={styles.columns}>
+				<div className={styles.main}>
+					{readFailed ? (
+						<p className={styles.error} role="alert">
+							{NOT_READ}
+						</p>
+					) : null}
+					{error === null ? null : (
+						<p className={styles.error} role="alert">
+							{error}
+						</p>
+					)}
+					{form === undefined || values === undefined ? null : (
+						// The browser's own checks are off, so a value out of range is
+						// named under its field as Dev flow judges it, as every other
+						// field is.
+						<form
+							id={formId}
+							aria-label="Settings"
+							className={styles.sections}
+							onSubmit={save}
+							noValidate
+						>
+							<Card
+								title="How much happens alone"
+								id={anchor("alone")}
+								className={styles.section}
+							>
+								<div className={styles.group}>
+									<div className={styles.preset}>
+										<span id={presetLabel} className={styles.label}>
+											Preset
+										</span>
+										<div
+											role="radiogroup"
+											aria-labelledby={presetLabel}
+											className={styles.track}
+										>
+											{PRESETS.map(({ value, name, fills }) => (
+												<label key={value} className={styles.segment}>
+													<input
+														type="radio"
+														name={`${formId}-preset`}
+														value={value}
+														className={styles.radio}
+														checked={preset === value}
+														onChange={() => choose(fills)}
+													/>
+													{name}
+												</label>
+											))}
+										</div>
+										<p className={styles.hint}>
+											A preset fills in the settings below. Change one by hand
+											and it shows Custom.
+										</p>
+									</div>
+									<Switch
+										className={styles.rule}
+										label="Questions before starting"
+										help="On: a card with questions waits for your answers under Waiting for you. Off: it starts on the agent's recommendations, listed on the card."
+										checked={values.questions}
+										onChange={(event) => set("questions", event.target.checked)}
+									/>
+									<div className={styles.waits}>
+										<div className={styles.wait}>
+											<Select
+												label="Pull requests wait for you"
+												help="Whether a card's pull request waits for you to merge it."
+												value={values.waits_for_owner}
+												error={invalid.waits_for_owner}
+												onChange={(event) =>
+													set("waits_for_owner", event.target.value)
+												}
+											>
+												<option value="never">Never</option>
+												<option value="sometimes">Sometimes</option>
+												<option value="always">Always</option>
+											</Select>
+										</div>
+										{values.waits_for_owner === "sometimes" ? (
+											<fieldset className={styles.when}>
+												<legend className={styles.label}>
+													Waits for you when
+												</legend>
+												{CONDITIONS.map(({ field, label }) => (
+													<Checkbox
+														key={field}
+														label={label}
+														checked={values[field]}
+														onChange={(event) =>
+															set(field, event.target.checked)
+														}
+													/>
+												))}
+											</fieldset>
+										) : null}
+									</div>
+									{values.waits_for_owner === "sometimes" ? (
+										<TextArea
+											label="Paths"
+											help="One pattern a line, from the repository's top: * within a folder, ** across folders, and a folder ending in / for everything under it."
+											autoComplete="off"
+											spellCheck={false}
+											rows={4}
+											className={styles.mono}
+											value={form.lines}
+											error={invalid.wait_paths}
+											onChange={(event) => {
+												const lines = event.target.value;
+												edit((before) => ({ ...before, lines }));
+											}}
+										/>
+									) : null}
+								</div>
+							</Card>
+							<Card
+								title="How cards are picked"
+								id={anchor("picked")}
+								className={styles.section}
+							>
+								<div className={styles.group}>
+									<div className={styles.pairs}>
+										{LABELS.map(({ field, label, help }) => (
+											<TextField
+												key={field}
+												label={label}
+												help={help}
+												autoComplete="off"
+												spellCheck={false}
+												maxLength={50}
+												value={values[field]}
+												error={invalid[field]}
+												onChange={(event) => set(field, event.target.value)}
+											/>
+										))}
+									</div>
+									<div className={styles.rule}>
+										<h3 className={styles.label}>Trusted accounts</h3>
+										<p className={styles.hint}>
+											Only the cards, edits, labels and comments of these GitHub
+											accounts count; anyone else&apos;s are shown and never
+											acted on. A login you add counts once you save.
+										</p>
+									</div>
+									<ul
+										className={styles.trustedList}
+										aria-label="Trusted accounts"
+									>
+										{trusted.map((entry) => (
+											<li key={entry.login} className={styles.trustedRow}>
+												<span className={styles.trustedName}>
+													{entry.login}
+												</span>
+												{entry.mine ? (
+													<span className={styles.always}>you, always on</span>
+												) : (
+													<Button
+														kind="ghost"
+														aria-label={`Remove ${entry.login}`}
+														onClick={() => remove(entry.login)}
+													>
+														Remove
+													</Button>
+												)}
+											</li>
+										))}
+									</ul>
+									<div className={styles.add}>
+										<TextField
+											label="Add a trusted account"
+											placeholder="GitHub login"
+											autoComplete="off"
+											spellCheck={false}
+											maxLength={39}
+											value={adding}
+											error={invalid.trusted_logins}
+											onChange={(event) => setAdding(event.target.value)}
+											onKeyDown={addOnEnter}
+										/>
+										<Button kind="secondary" onClick={add}>
+											Add
+										</Button>
+									</div>
+								</div>
+							</Card>
+							<Card title="Runs" id={anchor("runs")} className={styles.section}>
+								<div className={styles.group}>
+									<div className={styles.models}>
+										{MODELS.map(({ field, label }) => (
+											<Select
+												key={field}
+												label={label}
+												help={MODEL_HELP[field]}
+												value={values[field]}
+												error={invalid[field]}
+												onChange={(event) => set(field, event.target.value)}
+											>
+												{MODEL_NAMES.map(({ value, name }) => (
+													<option key={value} value={value}>
+														{name}
+													</option>
+												))}
+											</Select>
+										))}
+									</div>
+									<div className={`${styles.limits} ${styles.rule}`}>
+										{LIMITS.map(({ field, label, min, max }) => (
+											<TextField
+												key={field}
+												label={label}
+												help={`${min} to ${max}`}
+												className={styles.mono}
+												type="number"
+												inputMode="numeric"
+												min={min}
+												max={max}
+												step={1}
+												value={form.limits[field]}
+												error={invalid[field]}
+												onChange={(event) => {
+													const text = event.target.value;
+													edit((before) => ({
+														...before,
+														limits: { ...before.limits, [field]: text },
+													}));
+												}}
+											/>
+										))}
+									</div>
+								</div>
+							</Card>
+						</form>
+					)}
+					<ValuesCard
+						id={id}
+						anchor={anchor("values")}
+						loadValues={loadValues}
+						giveValue={giveValue}
+						removeValue={removeValue}
+					/>
+					{form === undefined ? null : (
+						<section className={styles.bar} aria-label="Save the settings">
+							<output className={styles.count}>{unsavedLine(count)}</output>
+							<div className={styles.barActions}>
+								{saved ? (
+									<output className={styles.saved}>{SAVED}</output>
+								) : null}
+								<Button kind="ghost" disabled={count === 0} onClick={undo}>
+									Undo changes
+								</Button>
+								<Button
+									kind="primary"
+									type="submit"
+									form={formId}
+									disabled={saving}
+								>
+									Save
+								</Button>
+							</div>
+						</section>
+					)}
+				</div>
+				<div className={styles.side}>
+					<Card title="These settings" className={styles.section}>
+						{preset === undefined ? null : (
+							<div className={styles.group}>
+								<p className={styles.hero}>{PRESET_NAMES[preset]}</p>
+								<p className={styles.hint}>{PRESET_LINES[preset]}</p>
+								<p className={styles.hint}>{CHANGE_COUNTS}</p>
+							</div>
+						)}
+					</Card>
+					<nav className={styles.jump} aria-label="Sections">
+						<ul className={styles.jumpList}>
+							{SECTION_LINKS.map((link) => (
+								<li key={link.anchor}>
+									<a
+										className={styles.jumpLink}
+										href={`#${anchor(link.anchor)}`}
+									>
+										{link.label}
+									</a>
+								</li>
+							))}
+						</ul>
+					</nav>
+					{leaveError === null ? null : (
+						<p className={styles.error} role="alert">
+							{leaveError}
+						</p>
+					)}
+					<div className={styles.leave}>
+						<Button
+							kind="ghost"
+							className={styles.danger}
+							onClick={() => setLeaving(true)}
+						>
+							Disconnect {project.name}
+						</Button>
+					</div>
+				</div>
+			</div>
+			<Dialog
+				open={leaving}
+				title={`Disconnect ${fullName}?`}
+				confirmLabel="Disconnect"
+				kind="destructive"
+				onConfirm={confirmDisconnect}
+				onCancel={() => setLeaving(false)}
+			>
+				Dev flow forgets this project and everything it read for it. Nothing
+				changes on GitHub.
+			</Dialog>
+		</>
 	);
 }

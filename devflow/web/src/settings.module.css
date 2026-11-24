@@ -187,3 +187,379 @@
 .paths {
 	font-family: var(--font-mono);
 }
+
+/* A project's settings page. */
+
+/* The page header of section 2 of design/DESIGN.md: the way back to the
+ * project, the mono caption, the page title and one line of what the page is
+ * for; --space-4 above the columns, as the content column's sections are. */
+.header {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: var(--space-2);
+	margin-bottom: var(--space-4);
+}
+
+.back {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	border-radius: var(--radius-sm);
+	color: var(--info);
+	font-weight: 600;
+}
+
+.chevron {
+	flex: none;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+/* The repository, hard rule 8, in capitals as the top bar's crumb is,
+ * breaking anywhere rather than scrolling sideways (hard rule 13). */
+.caption {
+	margin: 0;
+	color: var(--text-3);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	text-transform: uppercase;
+	overflow-wrap: anywhere;
+}
+
+/* The page title, the heading font at the display size. Two classes, to
+ * outrank page.css's `.page h2`. */
+.header .title {
+	margin: 0;
+	font-size: var(--text-display-size);
+	line-height: var(--text-display-line);
+	letter-spacing: var(--tracking-display);
+}
+
+.lede {
+	margin: 0;
+	color: var(--text-2);
+	font-size: var(--text-body-lg-size);
+	line-height: var(--text-body-lg-line);
+}
+
+/* "Main plus side panel" of section 2 of design/DESIGN.md: a wrapping row,
+ * the form taking the room and the side column at least 300px, so the side
+ * column stacks under the form on phone without a breakpoint. */
+.columns {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	gap: var(--space-4);
+}
+
+.main {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	flex: 999 1 560px;
+	min-width: 0;
+}
+
+.side {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	flex: 1 1 300px;
+	min-width: 0;
+}
+
+/* The form's three cards, a section gap apart. */
+.sections {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	min-width: 0;
+}
+
+.section {
+	margin: 0;
+}
+
+/* A field's or a group's label, in caption style as section 4 has a
+ * field's. */
+.label {
+	margin: 0;
+	padding: 0;
+	color: var(--text-2);
+	font-size: var(--text-caption-size);
+	line-height: var(--text-caption-line);
+	font-weight: 500;
+}
+
+/* Help in caption style, --text-3. */
+.hint {
+	margin: 0;
+	color: var(--text-3);
+	font-size: var(--text-caption-size);
+	line-height: var(--text-caption-line);
+}
+
+/* A part of a card set off from the one above by a 1px line. */
+.rule {
+	padding-top: var(--space-3);
+	border-top: 1px solid var(--border);
+}
+
+.mono {
+	font-family: var(--font-mono);
+}
+
+.preset {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-width: 0;
+}
+
+/* The preset as the Tabs track of section 4: surface fill, 1px border, a
+ * pill with 4px padding, as wide as its segments and wrapping onto further
+ * lines rather than scrolling. It is a radio group, not a tablist, so it is
+ * drawn here rather than with Tabs. */
+.track {
+	box-sizing: border-box;
+	display: flex;
+	flex-wrap: wrap;
+	align-self: flex-start;
+	max-width: 100%;
+	padding: 4px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-full);
+	background: var(--surface);
+}
+
+/* A segment: control-h, padding 0 16px, a pill, text-2, weight 500. */
+.segment {
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 0;
+	height: var(--control-h);
+	padding: 0 16px;
+	border-radius: var(--radius-full);
+	color: var(--text-2);
+	font-weight: 500;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+/* The radio is read by assistive technology and the keyboard, and the
+ * segment shows it. */
+.radio {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* The focus ring of tokens.css on the segment, since its radio is not
+ * seen. */
+.segment:has(.radio:focus-visible) {
+	outline: var(--focus-ring);
+	outline-offset: var(--focus-offset);
+}
+
+/* Chosen: active means inverted (hard rule 11), never amber. */
+.segment:has(.radio:checked) {
+	background: var(--text);
+	color: var(--bg);
+	font-weight: 600;
+}
+
+/* Whether pull requests wait, beside the three conditions where there is
+ * room, the conditions under it on phone. */
+.waits {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	gap: var(--space-3) var(--space-4);
+	padding-top: var(--space-3);
+	border-top: 1px solid var(--border);
+}
+
+.wait {
+	flex: 1 1 14rem;
+	min-width: 0;
+}
+
+.when {
+	flex: 2 1 18rem;
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+/* The four labels two by two where there is room, one under another at
+ * phone width. */
+.pairs {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
+	gap: var(--space-3) var(--space-4);
+}
+
+/* The trusted accounts as inset rows of one line, hard rule 3: the login in
+ * the mono font, and Remove or "you, always on" on the right. */
+.trustedList {
+	display: flex;
+	flex-direction: column;
+	gap: var(--inset-gap);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.trustedRow {
+	box-sizing: border-box;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-1) var(--space-3);
+	min-height: var(--row-h);
+	padding: 4px 4px 4px 12px;
+	border-radius: var(--radius-sm);
+	background: var(--surface-2);
+}
+
+.trustedName {
+	min-width: 0;
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	overflow-wrap: anywhere;
+}
+
+.always {
+	padding-right: 8px;
+	color: var(--text-2);
+	font-size: var(--text-caption-size);
+	line-height: var(--text-caption-line);
+}
+
+/* The three models in a row where there is room, the limits four across. */
+.models {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr));
+	gap: var(--space-3) var(--space-4);
+}
+
+.limits {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(8rem, 100%), 1fr));
+	gap: var(--space-3) var(--space-4);
+}
+
+/* The Save bar at the foot of the form, as a card: the mono count of
+ * unsaved changes on the left, Undo and Save on the right. */
+.bar {
+	box-sizing: border-box;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2) var(--space-3);
+	padding: 12px var(--card-pad);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	background: var(--surface);
+}
+
+.count {
+	color: var(--text-2);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+}
+
+.barActions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+/* The preset the form matches as the side card's hero label, in the heading
+ * font, which is always 600 and in capitals (hard rule 12). */
+.hero {
+	margin: 0;
+	color: var(--text);
+	font-family: var(--font-heading);
+	font-size: var(--text-hero-size);
+	line-height: var(--text-hero-line);
+	font-weight: 600;
+	text-transform: uppercase;
+	overflow-wrap: anywhere;
+}
+
+/* The links to the four sections, on a surface as a card is. */
+.jump {
+	box-sizing: border-box;
+	padding: var(--space-2);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	background: var(--surface);
+}
+
+.jumpList {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.jumpLink {
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	min-height: var(--row-h);
+	padding: 0 12px;
+	border-radius: var(--radius-sm);
+	color: var(--text);
+	font-weight: 500;
+	text-decoration: none;
+}
+
+.jumpLink:hover {
+	background: var(--surface-2);
+}
+
+/* Disconnect: a ghost in the danger colour, two classes to outrank the
+ * ghost button's own. */
+.leave .danger,
+.leave .danger:hover:not(:disabled) {
+	color: var(--danger);
+}
+
+/* On phone the links are not shown, the sections following each other, and
+ * the Save bar sticks to the bottom above the tab bar. */
+@media (max-width: 639.98px) {
+	.jump {
+		display: none;
+	}
+
+	.bar {
+		position: sticky;
+		bottom: calc(
+			var(--tab-bar-h) +
+			env(safe-area-inset-bottom, 0px) +
+			var(--space-2)
+		);
+		z-index: 1;
+	}
+}

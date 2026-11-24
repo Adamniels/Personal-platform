@@ -54,6 +54,15 @@ function openAt(path: string) {
 				giveValue: () => Promise.resolve(),
 				removeValue: () => Promise.resolve(),
 			}}
+			settings={{
+				loadProjects: () => Promise.resolve([PROJECT]),
+				loadSettings: () => new Promise(() => {}),
+				saveSettings: () => new Promise(() => {}),
+				loadValues: () => new Promise(() => {}),
+				giveValue: () => Promise.resolve(),
+				removeValue: () => Promise.resolve(),
+				disconnect: () => Promise.resolve(),
+			}}
 			projects={{
 				loadProjects: () => Promise.resolve([]),
 				loadRepositories: () => new Promise(() => {}),
@@ -192,6 +201,32 @@ describe("the address decides the tab, and a tab changes the address", () => {
 		).toBeTruthy();
 		expect(panel.getByRole("article", { name: "Workers" })).toBeTruthy();
 		expect(panel.queryByText("No project connected yet")).toBeNull();
+	});
+
+	test("a project's settings address opens its settings page under Projects, and its way back goes to the project", async () => {
+		const nav = document.body.appendChild(
+			document.createElement("platform-nav"),
+		);
+		openAt("/devflow/projects/0190a8f0-0000-7000-8000-000000000001/settings");
+
+		expect(selectedTab()?.textContent).toBe("Projects");
+		const panel = within(screen.getByRole("tabpanel"));
+		expect(
+			await panel.findByRole("heading", { name: "Settings" }),
+		).toBeTruthy();
+		// The crumb is the Projects tab's.
+		expect(nav.getAttribute("crumb")).toBe("Dev flow / Projects");
+		nav.remove();
+
+		fireEvent.click(panel.getByRole("link", { name: "Personal-platform" }));
+		expect(window.location.pathname).toBe(
+			"/devflow/projects/0190a8f0-0000-7000-8000-000000000001",
+		);
+		expect(
+			await within(screen.getByRole("tabpanel")).findByRole("article", {
+				name: "Workers",
+			}),
+		).toBeTruthy();
 	});
 
 	test("the way back from a project's page goes to Projects", async () => {

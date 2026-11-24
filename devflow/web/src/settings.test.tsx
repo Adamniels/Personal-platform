@@ -11,6 +11,7 @@ import { ApiError } from "./api/client";
 import type { Project } from "./projects";
 import {
 	NOT_A_NUMBER,
+	NOT_DISCONNECTED,
 	NOT_READ,
 	NOT_SAVED,
 	type ProjectSettings,
@@ -21,6 +22,18 @@ import {
 	type SettingsRequest,
 } from "./settings";
 import type { ProjectValueList } from "./values";
+
+// jsdom has HTMLDialogElement and its `open` attribute, but neither showModal
+// nor close, as in projects.test.tsx.
+HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+	this.open = true;
+	this.querySelector("button")?.focus();
+};
+HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+	if (!this.open) return;
+	this.open = false;
+	this.dispatchEvent(new Event("close"));
+};
 
 afterEach(cleanup);
 
@@ -991,5 +1004,71 @@ describe("the settings page", () => {
 		expect(removeValue).toHaveBeenCalledWith(ID, "FODR_TEST_SMTP_PASSWORD");
 		expect(saveSettings).not.toHaveBeenCalled();
 		expect(screen.getByText("No unsaved changes")).toBeTruthy();
+	});
+	test("Disconnect sits in the side column behind its confirmation", async () => {
+		const { disconnect, disconnected } = renderPage();
+		const leave = await screen.findByRole("button", {
+			name: "Disconnect Personal-platform",
+		});
+
+		// Cancelled, nothing happens.
+		fireEvent.click(leave);
+		const dialog = within(
+			screen.getByRole("dialog", {
+				name: "Disconnect Adamniels/Personal-platform?",
+			}),
+		);
+		expect(dialog.getByText(/Nothing changes on GitHub\./)).toBeTruthy();
+		fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+		expect(disconnect).not.toHaveBeenCalled();
+
+		// Confirmed, the project is disconnected and the page goes to the tab.
+		fireEvent.click(leave);
+		fireEvent.click(dialog.getByRole("button", { name: "Disconnect" }));
+		await waitFor(() => expect(disconnected).toHaveBeenCalledOnce());
+		expect(disconnect).toHaveBeenCalledWith(ID);
+	});
+
+	test("a disconnect that failed says so, and stays", async () => {
+		const { disconnect, disconnected } = renderPage();
+		disconnect.mockImplementation(() => Promise.reject(new Error("down")));
+
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "Disconnect Personal-platform",
+			}),
+		);
+		fireEvent.click(
+			within(
+				screen.getByRole("dialog", {
+					name: "Disconnect Adamniels/Personal-platform?",
+				}),
+			).getByRole("button", { name: "Disconnect" }),
+		);
+
+		expect((await screen.findByRole("alert")).textContent).toBe(
+			NOT_DISCONNECTED,
+		);
+		expect(disconnected).not.toHaveBeenCalled();
+	});
+
+	test("a project the caller does not have is not found", async () => {
+		render(
+			<SettingsPage
+				id="0190a8f0-0000-7000-8000-0000000000ff"
+				loadProjects={() => Promise.resolve([PLATFORM])}
+				loadSettings={() => Promise.resolve(DEFAULTS)}
+				saveSettings={() => new Promise(() => {})}
+				loadValues={() => new Promise(() => {})}
+				giveValue={() => Promise.resolve()}
+				removeValue={() => Promise.resolve()}
+				disconnect={() => Promise.resolve()}
+				back={() => {}}
+				disconnected={() => {}}
+			/>,
+		);
+
+		expect(await screen.findByText("There is no such project")).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
 	});
 });
