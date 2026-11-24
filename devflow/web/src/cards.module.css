@@ -250,3 +250,12 @@ a.title {
 	gap: 2px;
 	min-width: 0;
 }
+
+/* The title in its cell: a link sized by its text, since the row's flex
+ * basis of .title would make it tall in this column. */
+a.cellTitle {
+	border-radius: var(--radius-sm);
+	color: var(--info);
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}

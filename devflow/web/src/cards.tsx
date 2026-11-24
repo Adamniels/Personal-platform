@@ -344,7 +344,7 @@ export function CardsTable({
 			cell: (card) => (
 				<div className={styles.cardCell}>
 					<PageLink
-						className={styles.title}
+						className={styles.cellTitle}
 						href={cardPath(project, card.number)}
 					>
 						{card.title}
