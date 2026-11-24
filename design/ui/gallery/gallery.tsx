@@ -12,6 +12,7 @@ import { NeedsYouBannerSection } from "./sections/needs-you-banner-section";
 import { ProgressSection } from "./sections/progress-section";
 import { SelectSection } from "./sections/select-section";
 import { StatusSection } from "./sections/status-section";
+import { StepListSection } from "./sections/step-list-section";
 import { TableSection } from "./sections/table-section";
 import { TabsSection } from "./sections/tabs-section";
 import { TextAreaSection } from "./sections/text-area-section";
@@ -53,6 +54,7 @@ export function Gallery() {
 					<EmptyStateSection />
 					<NeedsYouBannerSection />
 					<TimelineSection />
+					<StepListSection />
 					<TableSection />
 					<DialogSection />
 					<ToastSection />

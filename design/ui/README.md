@@ -102,6 +102,14 @@ included, and each follows its entry in section 4 of `DESIGN.md`.
   no line. Each `TimelineEntry` takes `time`, already formatted and shown in the mono font; its
   line as children; an optional `detail`; and `attention`, the filled accent dot, with a visually
   hidden "Needs you" as on the card. The rail is hidden from assistive technology.
+- `StepList`, with `StepListItem`: `StepList` is an `ol`, so give it an `aria-label` where no
+  heading names it, and its items are its direct children, so each knows its number, from one.
+  Each `StepListItem` takes `state`, one of `done`, `current` and `to-come`; `title`; an optional
+  `aside`, such as a status label beside the title; and its content as children: one line of what
+  happened when done, the step's content open when current, one line of what comes there when to
+  come. The circle is drawn, a check when done and the number otherwise, and hidden from assistive
+  technology, which hears the current step as `aria-current="step"` and the others as "Done:" or
+  "To come:" before the title.
 - `Table`: `label`, the table's accessible name; `columns`; `rows`, shown in the order given; and
   `rowKey`, a stable key for a row. **The caller owns the data**: it sorts, filters and pages the
   rows, and holds what an edit changes, while the table renders what it is given and reports what
@@ -177,7 +185,7 @@ itself: `open`, `aria-labelledby`, and the `onCancel`, `onClose`, `onClick`, `on
 `onKeyDown` it handles. `ToastProvider` renders no element of its own beside the stack.
 
 `Status`, `Badge`, `Chip`, `Progress`, `Meter`, `Card`, `NeedsYouBanner`, `EmptyState`, `Timeline`,
-`TimelineEntry`, `TabPanel`, `Table`, `FilterRow`, `FilterPill` and `Paging` render a `span`, a
+`TimelineEntry`, `StepList`, `StepListItem`, `TabPanel`, `Table`, `FilterRow`, `FilterPill` and `Paging` render a `span`, a
 `div`, an `article`, an `ol`, an `li`, a `section` or a `nav`, the table's being its wrapper, and
 take everything that element takes, apart from the props they set themselves, such as a panel's `id`,
 `role`, `hidden` and `aria-labelledby`. `Tabs` takes a `div`'s, and `Tab` a `button`'s, without

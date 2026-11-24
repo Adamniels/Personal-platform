@@ -1,4 +1,5 @@
-// A project's Settings panel, under its page's header, in three groups: how cards are picked, the
+// A project's Settings panel, "Edit settings", at the top of its page's cards column once the
+// settings summary's "Edit settings" opens it, in three groups: how cards are picked, the
 // four labels and the trusted accounts whose cards, edits and comments count; how much happens
 // alone, the presets, whether a card's questions wait for the owner's answers, and whether a card's
 // pull request waits for him, with what "sometimes" waits for; and the models and limits its runs
@@ -449,7 +450,7 @@ export function SettingsPanel({
 	const preset = values === undefined ? undefined : presetOf(values);
 
 	return (
-		<Card title="Settings" className={styles.card}>
+		<Card title="Edit settings" className={styles.card}>
 			{readFailed ? (
 				<p className={styles.error} role="alert">
 					{NOT_READ}
