@@ -1,17 +1,16 @@
 // A feature's page, /devflow/projects/{project}/features/{number}, under the Projects tab, opened
-// from the project's Cards panel and from each of its cards' pages: the feature's whole story so
-// far, read from GET /devflow/api/projects/{id}/features/{number}, what Dev flow stored and never
-// the code host. Top to bottom: its title and state, with the reason and a link to its pull request
-// once there is one, "Merge into <default>" while it is offered, and "Send the whole feature back"
-// while it is ready or waits for you; the reviews of the whole feature, newest first, each with its
-// findings and whether it covers the head; its fix rounds, each with the review that started it or
-// your comment, the developer's replies and the review after it; what the agents want you to know,
-// every decision its cards' latest reports marked for you, each answered "Fine as it is" here and
-// nowhere else, sent back with its card, or confirmed by merging the feature; its branch with the
-// command to check it out; every card's screenshots, by card; its cards in order, "Send back" on
-// each that has landed while the feature is open, and those you sent back with your words; and its
-// own runs, such as an agent resolving a conflict, as a card's page shows its runs. Every text came
-// from the code host or an agent and is shown as text. See "A feature's page", "Sending a card
+// from the project's page and from each of its cards' pages: the feature's whole story so far, read
+// from GET /devflow/api/projects/{id}/features/{number}, what Dev flow stored and never the code
+// host. What the owner acts on comes first: its header, with its state, its caption, its reason
+// and its links; the merge card, CI, the review of the whole feature and the decisions as tiles,
+// "Merge into <default>" while it is offered, the page's one primary, and "Send the whole feature
+// back" while it is ready or waits for him. Then the main column, the decisions its cards' latest
+// reports marked for him, each answered "Fine as it is" here and nowhere else, sent back with its
+// card, or confirmed by merging the feature; its cards in order as rows, "Send back" on each that
+// has landed while the feature is open, and what he wrote under one he sent back; and every card's
+// screenshots. Beside it the side column, stacking under it on phone: the branch with the command
+// to check it out, the reviews and fix rounds of the whole feature, and its own runs. Every text
+// came from the code host or an agent and is shown as text. See "A feature's page", "Sending a card
 // back" and "Merging a feature" in devflow/README.md.
 import {
 	Badge,

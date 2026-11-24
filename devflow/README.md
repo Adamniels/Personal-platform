@@ -3427,8 +3427,9 @@ feature's page" in `docs/devflow-architecture.md`.
 
 **The route.** `GET /devflow/api/projects/{id}/features/{number}`, under the `Api` policy, answers
 a feature's whole story so far, read in one transaction through the door as the caller, never from
-GitHub: `number`, the parent's, `title` as last read, `web_url`, `state`, `reason`, null when there
-is nothing to say; `branch`, `{"name", "commit"}`, null before the branch is made, `commit` the one
+GitHub: `number`, the parent's, `repository`, the project's as `owner/name`, `title` as last read,
+`web_url`, `state`, `reason`, null when there is nothing to say; `default_branch`, the branch the
+project's watch of its default branch names, null before it is watched; `branch`, `{"name", "commit"}`, null before the branch is made, `commit` the one
 its watch recorded after the newest change it judged, `branch_watches.last_commit`, or the one it
 was made at before any, null for a watch that began before the column and has judged nothing
 since; `pull_request`, `{"number", "url"}`, its pull request to the default branch, null before
@@ -3472,55 +3473,82 @@ so a newer report's decisions are answered again. `migrations/0027_feature_page.
 
 **The page**, `src/feature.tsx`, is at `/devflow/projects/<id>/features/<number>`, under the
 Projects tab, which stays selected there, read from the route above as it loads, and laid out as
-the feature page of the spec's mockup `2-feature-and-running-now.html`. Its header is a link "Back
-to the project" over the feature's title as a section heading; a feature the caller does not have
-is the `EmptyState` "There is no such feature", and one that cannot be read an alert. Under it the
-package's `Card`s, top to bottom:
+`docs/redesign/feature-page.png`: what the owner acts on first, merging and the decisions, then the
+cards, with the branch, the reviews and rounds and the feature's own runs beside them. A feature
+the caller does not have is the `EmptyState` "There is no such feature", and one that cannot be
+read an alert. Top to bottom:
 
-- "The feature": its state, as the project's cards say a state, "Merged" and "Closed" among them, with
-  its reason beside it; the links "Issue #<number>" and, once there is one, "Pull request
-  #<number>", in a new tab with `rel="noreferrer"` when their address is https and plain text
-  otherwise; "<done> of <all> cards done"; while the feature is offered for merging, the primary
-  "Merge into <default>", see "Merging a feature"; and, while it is `ready` or `waiting_for_owner`
-  with its pull request, "Send the whole feature back", which opens a comment box, see "Fixing a
-  feature" under "Reviewing a feature". With both shown, the line saying why neither can be pressed
-  while GitHub is not linked or its link has expired is said once, under the merge, and both point
-  at it.
-- "The review of the whole feature", once it has a review: the list "Reviews of the feature",
-  newest first, each as a card's page shows a review, its commit, its verdict, whether it covers the
-  pull request's head, its summary, its findings and its views for the owner.
-- "Fix rounds, <n> of <m> used", `m` the project's `fix_rounds_feature` as it is now, once a fix of
-  the whole feature has run: the list "Fix rounds of the feature", newest first, each as a card's
-  page shows a round, "Round <n> of <m>" or "Your comment",
-  how its fix went, the review that started it, his words, the developer's replies and the commit
-  it left with the review of it.
-- "What the agents want you to know", only when a card has a decision for the owner, in attention
-  while any is not answered: the list "Decisions for you", each "#<card>: <chosen>", "Instead of
-  <alternative>", "Because <why>" and "Reviewer: <view>", or "Reviewer: gave no view on it.", then a
-  secondary "Fine as it is", which posts the answer and shows it in place, and, while its card can
-  be sent back, a secondary "Send back", which opens a comment box "What should the developer change
-  in #<card>?" with Send and Cancel; once answered, the `done` status "Fine as it is", "Sent back",
-  or "Confirmed by merging" for one merging confirmed, and "answered <when>". A refused answer reads
-  the story again and shows an alert under the decision.
-- "The branch": "Its branch is made when its first card starts." before it is; "The feature is
-  merged, and its branch is no longer watched." once it is merged; and otherwise a line saying the
-  feature is not in main yet, or that its pull request was closed without merging so it is not in
-  main, with the commit it is at, short, and the region "Check out
-  the branch", `git fetch origin <branch> && git switch <branch>` in the mono font with a secondary
+- **The header**: a link "Back to the project"; the state's status label, as the project's cards
+  say a state, "Merged" and "Closed" among them, beside `OWNER/NAME · FEATURE #N · N CARDS` in mono
+  capitals; the title as the page title; its reason in body large; and the links "Issue #<number>"
+  and, once there is one, "Pull request #<number>", in a new tab with `rel="noreferrer"` when their
+  address is https and plain text otherwise.
+- **The merge card**, the `Card` "Merging into <default>", or "Merged into <default>" once it is,
+  the default branch the route answers, "the default branch" before it is watched, with "head
+  <commit>" in mono on its right, the head the merge would name while it is offered and otherwise
+  the commit its branch is at; in attention, `--accent-border`, while the feature is `ready` or
+  `waiting_for_owner`. Three `VerdictTile`s, "At a glance": "CI", "Passed" on the head while the
+  merge is offered or once it is merged, "Not passed", "merging waits for it", otherwise; "The
+  review of the whole feature", the newest review's verdict with whether it covers the head and its
+  open, blocking, findings, or "Not reviewed"; and "Decisions for you", "<answered> of <all>
+  answered", needing the owner while one is open, or "None". Then, while the feature is offered for
+  merging, the primary "Merge into <default>", the page's one, see "Merging a feature"; "Send the
+  whole feature back" beside it as a secondary while the feature is `ready` or `waiting_for_owner`
+  with its pull request, which opens a comment box, see "Fixing a feature" under "Reviewing a
+  feature"; and, with a decision open, the mono line from `confirms`, "Merging confirms <n>
+  decisions you have not answered.". With both buttons shown, the line saying why neither can be
+  pressed while GitHub is not linked or its link has expired is said once, under the merge, and
+  both point at it.
+
+Under it a main column and a side column, "Main plus side panel" in `design/DESIGN.md`, the side
+column stacking under the main one on phone. The main column:
+
+- **"What the agents want you to know"**, only when a card has a decision for the owner, "<open>
+  open · <answered> answered" in mono on its right, in attention while any is open: the list
+  "Decisions for you". An open one is an inset: "#<card> · <title>" in mono, what was chosen in body
+  large at weight 500, "Instead of <alternative>", "Because <why>" and "Reviewer: <view>", or
+  "Reviewer: gave no view on it.", then a secondary "Fine as it is", which posts the answer and
+  shows it in place, and, while its card can be sent back, a secondary "Send back #<card>", which
+  opens a comment box "What should the developer change in #<card>?" with Send and Cancel. An
+  answered one is one plain line under its card: what was chosen, the `done` status "Fine as it
+  is", "Sent back", or "Confirmed by merging" for one merging confirmed, and "answered <when>". A
+  refused answer reads the story again and shows an alert under the decision.
+- **"Cards"**, "<landed> of <all> landed" in mono on its right, an ignored card in neither, over a
+  steps bar, one step per card, landed, the first not landed current, the rest to do: the list
+  "Cards of the feature", each card a row in order, its number in mono, its title linked to its
+  page, a badge "<n> decisions" while it has open ones, its state, "Landed" once done, and, on each
+  that can be sent back, "Send back" as a ghost, which opens the comment box "What should the
+  developer change in #<card>?" under its row. A card sent back shows under its row "You sent it
+  back once", or "<n> times", "from pull request #<n>:", and his words as he wrote them, in mono
+  `--accent-text`. "Send back" is disabled, with why above the list, while GitHub is not linked or
+  its link has expired. On phone a row's state and Send back drop to a second line, under the title.
+  A card's fix rounds and tokens are on its own page.
+- **"Screenshots"**, only when a card has any, "<n> cards with pictures" on its right: a grid of
+  regions "Screenshots of #<card>", each with the card's number and title and its pictures as its
+  own page shows them.
+
+The side column:
+
+- **"The branch"**: "Its branch is made when its first card starts." before it is; "The feature is
+  merged, and its branch is no longer watched." once it is merged; and otherwise its name in mono,
+  "Watched while the feature is open. Check it out to try it yourself:", or, for a pull request
+  closed without merging, that it is not in the default branch, then the region "Check out the
+  branch", `git fetch origin <branch> && git switch <branch>` in the mono font with a secondary
   "Copy the command" that reads "Copied" once it has, as a worker's commands are copied.
-- "Screenshots", only when a card has any: a region "Screenshots of #<card>" per card with its
-  number and title, each card's pictures as its own page shows them.
-- "Cards": the table "Cards of the feature", each card's number and title linked to its page, its
-  state, its fix rounds, its tokens and how many decisions it has for the owner, the numbers folded
-  under the card at phone width; under it a secondary "Send back #<card>" for each card that can be
-  sent back, kept out of the table so its rows stay readable at phone width, which opens the comment
-  box "What should the developer change in #<card>?"; then, once a card was sent back, "Sent back", the list "Cards you sent back", each card's
-  number and title, "Sent back from pull request #<n>", with how many times when more than once, and
-  his words as he wrote them. "Send back" is disabled, with why under it, while GitHub is not
-  linked or its link has expired.
-- "Runs", only when the feature has a run of its own: the list "Runs of the feature", each run as a
-  card's page shows one, its kind "Conflict", a failure's cause said to lie in the job, "so the
-  feature waits for you", or outside it, "so it runs again".
+- **"Reviews and rounds"**: "Fix rounds", "<n> of <m> used" with a steps bar, `m` the project's
+  `fix_rounds_feature` as it is now; then, newest first, the reviews of the whole feature and its
+  fix rounds together, a round placed by when its run started. The newest three are insets, the
+  list "The latest reviews and rounds": a review's "Review of <commit>" with its verdict, when, and
+  "covers the head" or "<n> findings, older commit"; a round's "Round <n> of <m>", or "Your comment",
+  with how its fix went, when, and the commit it left. "Read every review and round" opens them all
+  in place, the list "Every review and round", each as a card's page shows a review, with its
+  summary, findings and views for the owner, or a round, with the review that started it, his
+  words, the developer's replies and the commit it left with the review of it. Before any, "The
+  whole feature has not been reviewed yet."
+- **"Its own runs"**, only when the feature has a run of its own: label and value rows, the run's
+  kind, "Conflict" or "Review of the feature" among them, and its result and how long it took; a
+  failed one also why, its cause said to lie in the job, "so the feature waits for you", or outside
+  it, "so it runs again".
 
 Every text from the code host or an agent goes through `src/format.tsx`, as everywhere in Dev flow;
 the owner's own words are shown as he wrote them, his line breaks kept. The comment boxes of "Send back" and "Send the whole
@@ -4403,7 +4431,8 @@ reason, and `503` when GitHub did not answer, after the project is read again. T
 **On its page**, the feature's story answers `fix_rounds`, the rounds its reviews started, and
 `rounds`, each fix newest first as a card's page answers its rounds: `run_id`, `round`,
 `review_run_id`, `comments`, `result`, `replies`, `fixed_commit` and `review_after_run_id`. The
-page shows them under "Fix rounds, <n> of <m> used", after its reviews, `m` being `most_rounds`, the
+page counts them under "Reviews and rounds", "<n> of <m> used", and tells each with its reviews,
+newest first, `m` being `most_rounds`, the
 project's `fix_rounds_feature` as it is now; a card's story answers its `fix_rounds_card` as
 `most_rounds` too.
 
