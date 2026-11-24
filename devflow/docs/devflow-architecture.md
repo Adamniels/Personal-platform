@@ -270,6 +270,36 @@ records.
 three, and the migration gave every project there was the same, so Fodr, on `always` before, became
 exactly "Only I merge". Part 6's setup run proposes a preset for each project.
 
+**A project's summary is computed as the list is read, never stored.** The Projects tab draws
+every project's card from `GET /devflow/api/projects`, so each project there carries how it is
+doing: its cards by group, its workers' health, its setup steps while it sets up and its open
+feature furthest on, in the shape "Connecting a repository" in `devflow/README.md` gives. It is a
+field on the list rather than a route of its own, since the tab already reads that one, and it is
+worked out from the tables each part already keeps, with no migration: a stored count would be a
+second truth that every change of a card's state would have to keep. Its parts reuse what already
+says them rather than a copy: `held` is `WatchStore.HoldSql` and then `Dispatcher.HeldFor`, as the
+workers list has it, `cannot_run` the fragment `ProjectWaits.CannotRunOf` reads through, and
+setting up `SetupStore.Of`, asked only for a project not registered, since its values step is
+worked out in C# from the newest setup report.
+
+The groups are written once, in `ProjectSummaries.Groups`, over the thirteen card states the
+`cards.state` check allows:
+
+| Group | Card states |
+| --- | --- |
+| needs you | `needs_answers`, `waiting_for_owner`, `stopped`, `refused` |
+| in progress | `reading`, `building`, `checking`, `reviewing`, `fixing` |
+| queued | `queued`, `held` |
+| done | `done` |
+
+`ignored` is in none: an ignored card is one Dev flow will not build, so it is neither work nor the
+owner's turn. `STATES` in `web/src/cards.tsx` also names feature states, `bringing_in`,
+`resolving`, `ready`, `merged` and `closed`; they are not card states and are not counted. A
+feature's `landed` is its cards in `done`, and its `total` its cards in any group, so an ignored
+sub-issue does not hold a feature short of its total. An open feature is one neither merged,
+closed nor ignored, the last being a parent that failed the rules a card is held to, and the one
+named is the one with the most cards landed, the lowest number among equals.
+
 **A person connects only what GitHub lists for them.** The repositories to choose from are read as
 the person, with their user token, `GET /user/installations` and each installation's
 repositories, never as the app: the app may be installed where the person cannot reach, and the
