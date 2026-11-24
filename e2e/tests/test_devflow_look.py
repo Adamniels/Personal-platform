@@ -277,7 +277,11 @@ def choose(page: Page, title: str) -> Locator:
         "link", name=re.compile(re.escape(title))
     )
     row.click()
-    expect(row).to_have_attribute("aria-current", "true")
+    # On a phone the queue is hidden once an item is chosen.
+    chosen = page.get_by_role(
+        "navigation", name="The queue", include_hidden=True
+    ).get_by_role("link", name=re.compile(re.escape(title)), include_hidden=True)
+    expect(chosen).to_have_attribute("aria-current", "true")
     item = page.get_by_role("article", name=title)
     expect(item).to_be_visible()
     return item
@@ -370,7 +374,7 @@ def test_screenshots_in_an_item_do_not_scroll_sideways(
 
     page.goto("/devflow")
 
-    poll = page.get_by_role("article", name="The poll")
+    poll = choose(page, "The poll")
     shots = poll.get_by_role("list", name="Screenshots")
     expect(shots.get_by_role("listitem")).to_have_count(5)
     thumbnails = shots.get_by_role("img")
@@ -505,7 +509,8 @@ def test_devflow_follows_the_look(
     devflow_world(world)
     read(page, base_url, project)
     page.goto("/devflow")
-    expect(page.get_by_role("article")).to_have_count(4)
+    queue = page.get_by_role("navigation", name="The queue")
+    expect(queue.get_by_role("link")).to_have_count(4)
     for thumbnail in (
         page.get_by_role("list", name="Screenshots").get_by_role("img").all()
     ):

@@ -522,8 +522,7 @@ def test_the_waiting_list_shows_a_decision(
 
     page.goto("/devflow")
 
-    group = page.get_by_role("region", name="Pull requests waiting")
-    vault = group.get_by_role("article", name="The vault")
+    vault = _item(page, "The vault", "Pull requests waiting")
     expect(vault).to_be_visible()
     expect(vault.get_by_text("Adamniels/Personal-platform")).to_be_visible()
     expect(vault.get_by_text("#304")).to_be_visible()
@@ -557,9 +556,7 @@ def test_the_waiting_list_shows_why_a_pull_request_waits(
 
     page.goto("/devflow")
 
-    poll = page.get_by_role("region", name="Pull requests waiting").get_by_role(
-        "article", name="The poll"
-    )
+    poll = _item(page, "The poll", "Pull requests waiting")
     expect(poll.get_by_text("Why it waits")).to_be_visible()
     expect(poll.get_by_text("High risk slice.")).to_be_visible()
     expect(poll.get_by_role("list", name="The agent decided")).to_have_count(0)
@@ -576,9 +573,7 @@ def test_the_waiting_list_shows_a_stopped_pull_request(
 
     page.goto("/devflow")
 
-    stopped = page.get_by_role("region", name="Stopped").get_by_role(
-        "article", name="Import a photo"
-    )
+    stopped = _item(page, "Import a photo", "Stopped")
     expect(stopped.get_by_text("Stopped", exact=True)).to_be_visible()
     expect(stopped.get_by_text("Why it stopped")).to_be_visible()
     expect(
@@ -611,8 +606,8 @@ def test_something_landed_on_main_and_i_resume(
 
     page.goto("/devflow")
     expect(page.get_by_role("tab", name="Waiting for you 1")).to_be_visible()
-    stopped = page.get_by_role("region", name="Stopped").get_by_role(
-        "article", name="Something landed on main that Dev flow did not put there"
+    stopped = _item(
+        page, "Something landed on main that Dev flow did not put there", "Stopped"
     )
     expect(stopped.get_by_text("Stopped", exact=True)).to_be_visible()
     expect(stopped.get_by_text(f"{OWNER}/{NAME}")).to_be_visible()
@@ -707,9 +702,10 @@ def test_a_change_on_a_features_branch_stops_the_project(
 
     page.goto("/devflow")
     expect(page.get_by_role("tab", name="Waiting for you 1")).to_be_visible()
-    stopped = page.get_by_role("region", name="Stopped").get_by_role(
-        "article",
-        name=f"Something landed on {FEATURE_BRANCH} that Dev flow did not put there",
+    stopped = _item(
+        page,
+        f"Something landed on {FEATURE_BRANCH} that Dev flow did not put there",
+        "Stopped",
     )
     expect(stopped.get_by_text("Stopped", exact=True)).to_be_visible()
     expect(stopped.get_by_text(f"{OWNER}/{NAME}")).to_be_visible()
@@ -780,9 +776,11 @@ def test_the_waiting_list_passes_the_accessibility_check(
 
     page.goto("/devflow")
 
-    expect(page.get_by_role("article")).to_have_count(4)
+    expect(_queue(page).get_by_role("link")).to_have_count(4)
     sent_back = page.get_by_role("region", name="Sent back, the runner has it")
-    expect(sent_back.get_by_role("article", name="The board")).to_be_visible()
+    expect(
+        sent_back.get_by_role("link", name=re.compile("^The board "))
+    ).to_be_visible()
     expect(page.get_by_text("Updated less than a minute ago")).to_be_visible()
     # Three wait for the owner; the one sent back is the runner's.
     expect(page.get_by_role("tab", name="Waiting for you 3")).to_be_visible()
@@ -798,6 +796,17 @@ def _queue(page: Page):
 def _row(page: Page, title: str):
     """The queue's row of the item titled `title`."""
     return _queue(page).get_by_role("link", name=re.compile(re.escape(title)))
+
+
+def _item(page: Page, title: str, group: str | re.Pattern | None = None):
+    """Chooses the item titled `title` in the queue, in the group named
+    `group` when given, as the owner does, and answers its detail. On a phone
+    the detail shows only once an item is chosen."""
+    rows = _queue(page)
+    if group is not None:
+        rows = rows.get_by_role("region", name=group)
+    rows.get_by_role("link", name=re.compile(f"^{re.escape(title)} ")).click()
+    return page.get_by_role("article", name=title)
 
 
 def test_the_inbox_opens_the_item_in_its_address(
@@ -967,7 +976,7 @@ def test_i_merge_a_waiting_pull_request(
     _connect_and_read(page, base_url)
     page.goto("/devflow")
     expect(page.get_by_role("tab", name="Waiting for you 2")).to_be_visible()
-    vault = page.get_by_role("article", name="The vault")
+    vault = _item(page, "The vault")
 
     vault.get_by_role("button", name="Merge").click()
 
@@ -1031,9 +1040,7 @@ def test_i_send_a_pull_request_back(
     devflow_world(world)
     _connect_and_read(page, base_url)
     page.goto("/devflow")
-    poll = page.get_by_role("region", name="Pull requests waiting").get_by_role(
-        "article", name="The poll"
-    )
+    poll = _item(page, "The poll", "Pull requests waiting")
     text = "Rename the loop to `Poller`.\n\nThen it is fine."
 
     poll.get_by_role("button", name="Send back").click()
@@ -1048,8 +1055,15 @@ def test_i_send_a_pull_request_back(
     poll.get_by_role("button", name="Send").click()
 
     expect(page.get_by_text("Sent back #305")).to_be_visible()
-    sent_back = page.get_by_role("region", name="Sent back, the runner has it")
-    expect(sent_back.get_by_role("article", name="The poll")).to_be_visible()
+    # Its row moves to the group, behind the item's own screen on a phone.
+    sent_back = page.get_by_role(
+        "region", name="Sent back, the runner has it", include_hidden=True
+    )
+    expect(
+        sent_back.get_by_role(
+            "link", name=re.compile("^The poll "), include_hidden=True
+        )
+    ).to_have_count(1)
     expect(page.get_by_role("tab", name="Waiting for you 1")).to_be_visible()
     capture(page, "devflow-sent-back")
     assert _writes(page) == [
@@ -1267,7 +1281,7 @@ def test_an_item_shows_its_screenshots(
 
     page.goto("/devflow")
 
-    poll = page.get_by_role("article", name="The poll")
+    poll = _item(page, "The poll")
     shots = poll.get_by_role("list", name="Screenshots")
     expect(shots.get_by_role("listitem")).to_have_count(1)
     expect(shots.get_by_text("devflow-poll", exact=True)).to_be_visible()
@@ -2398,9 +2412,17 @@ def _opened(page: Page) -> dict:
 
 
 def _waiting_card(page: Page):
-    return page.get_by_role(
-        "region", name=re.compile("Pull requests waiting")
-    ).get_by_role("article", name=CARD_TITLE)
+    """The card, chosen under Pull requests waiting, in the detail."""
+    return _item(page, CARD_TITLE, "Pull requests waiting")
+
+
+def _waiting_row(page: Page):
+    """The card's row under Pull requests waiting."""
+    return (
+        _queue(page)
+        .get_by_role("region", name="Pull requests waiting")
+        .get_by_role("link", name=re.compile(f"^{re.escape(CARD_TITLE)} "))
+    )
 
 
 def test_a_built_card_waits_for_me_with_its_pull_request(
@@ -2475,7 +2497,7 @@ def test_i_merge_a_card_from_the_list(
     dialog.get_by_role("button", name="Merge").click()
 
     expect(page.get_by_text(f"Merged #{pull['number']}")).to_be_visible()
-    expect(_waiting_card(page)).to_have_count(0)
+    expect(_waiting_row(page)).to_have_count(0)
 
     # Merged as the owner, naming the commit shown, and never as the app.
     merges = [write for write in _writes(page) if write["kind"] == "merge"]
@@ -2705,7 +2727,7 @@ def test_a_built_card_is_reviewed(
 
     # It is not on Waiting for you while it is fixed.
     page.goto("/devflow")
-    expect(_waiting_card(page)).to_have_count(0)
+    expect(_waiting_row(page)).to_have_count(0)
 
     page.goto(f"/devflow/projects/{project}/cards/{CARD}")
     expect(page.get_by_role("article", name="Reviews")).to_be_visible()
@@ -2853,7 +2875,7 @@ def test_i_send_a_card_back_with_a_comment(
     card.get_by_role("textbox", name="What should the developer change?").fill(said)
     card.get_by_role("button", name="Send", exact=True).click()
     expect(page.get_by_text(f"Sent back #{pull['number']}")).to_be_visible()
-    expect(_waiting_card(page)).to_have_count(0)
+    expect(_waiting_row(page)).to_have_count(0)
 
     # Posted as the owner on the card's pull request, never as the app.
     mine = [
@@ -3051,7 +3073,7 @@ def test_a_stopped_card_tells_me_why_and_i_run_it_again(
 
     # "Waiting for you" shows it under Stopped, with why, and no Merge.
     page.goto("/devflow")
-    stopped = _stopped_region(page).get_by_role("article", name=CARD_TITLE)
+    stopped = _item(page, CARD_TITLE, re.compile("^Stopped"))
     expect(stopped).to_be_visible()
     expect(stopped.get_by_text("Stopped", exact=True)).to_be_visible()
     expect(stopped).to_contain_text(f"{OWNER}/{NAME}")
@@ -3152,9 +3174,7 @@ def test_a_thin_card_is_refused_and_read_again(
     # "Waiting for you" lists it under Refused, with what is missing and its
     # issue, and counts it.
     page.goto("/devflow")
-    refused = page.get_by_role("region", name=re.compile("^Refused")).get_by_role(
-        "article", name=CARD_TITLE
-    )
+    refused = _item(page, CARD_TITLE, re.compile("^Refused"))
     expect(refused).to_be_visible()
     expect(refused).to_contain_text(f"{OWNER}/{NAME}")
     missing = refused.get_by_role("list", name="What is missing")
@@ -3343,7 +3363,7 @@ def test_a_project_that_cannot_run_its_cards_says_so(
     message = f"Dev flow cannot run {NAME}'s cards: {LOGGED_OUT}"
 
     page.goto("/devflow")
-    failing = _stopped_region(page).get_by_role("article", name=message)
+    failing = _item(page, message, re.compile("^Stopped"))
     expect(failing).to_be_visible()
     expect(failing.get_by_text("Cannot run", exact=True)).to_be_visible()
     expect(failing).to_contain_text("6 runs in a row failed outside their cards")
@@ -3446,7 +3466,7 @@ def test_i_answer_a_cards_questions(
     # each question with the recommendation and why, and counts it.
     page.goto("/devflow")
     group = page.get_by_role("region", name=re.compile("^Questions before starting"))
-    asked = group.get_by_role("article", name=CARD_TITLE)
+    asked = _item(page, CARD_TITLE, re.compile("^Questions before starting"))
     expect(asked).to_be_visible()
     expect(asked).to_contain_text(f"{OWNER}/{NAME}")
     questions = asked.get_by_role("group")
@@ -3559,7 +3579,7 @@ def test_an_approved_card_merges_by_itself(
 
     # Nothing waits for the owner on its account.
     page.goto("/devflow")
-    expect(_waiting_card(page)).to_have_count(0)
+    expect(_waiting_row(page)).to_have_count(0)
 
     page.goto(f"/devflow/projects/{project}/cards/{CARD}")
     expect(page.get_by_role("article", name="The merge")).to_be_visible()
@@ -3644,7 +3664,7 @@ def test_i_choose_a_preset(
     merges = [write for write in _writes(page) if write["kind"] == "merge"]
     assert [merge["commit"] for merge in merges] == [ran["head_commit"]]
     page.goto("/devflow")
-    expect(_waiting_card(page)).to_have_count(0)
+    expect(_waiting_row(page)).to_have_count(0)
 
 
 def test_with_always_an_approved_card_waits_for_me(
@@ -3950,7 +3970,7 @@ def test_a_decision_for_me_becomes_an_issue(
     # the alternative, why and the reviewer's view.
     page.goto("/devflow")
     decisions = page.get_by_role("region", name=re.compile("Decisions to look at"))
-    decision = decisions.get_by_role("article", name="Show it on every list")
+    decision = _item(page, "Show it on every list", re.compile("Decisions to look at"))
     expect(decision).to_be_visible()
     expect(decision).to_contain_text("Only on habits")
     expect(decision).to_contain_text("The lists look the same")
@@ -3983,7 +4003,7 @@ def test_a_decision_for_me_becomes_an_issue(
     )
     assert refreshed.status == 204, refreshed.text()
     page.reload()
-    expect(decisions.get_by_role("article")).to_have_count(0)
+    expect(decisions.get_by_role("link")).to_have_count(0)
 
 
 def test_a_features_card_lands_in_its_branch(
@@ -4839,7 +4859,7 @@ def test_a_reviewed_feature_is_ready_for_me(
     page.goto("/devflow")
     group = page.get_by_role("region", name="Features ready for your review")
     expect(group).to_be_visible()
-    item = group.get_by_role("article", name="The feature's branch")
+    item = _item(page, "The feature's branch", "Features ready for your review")
     expect(item).to_contain_text("Ready for you")
     expect(item).to_contain_text(
         "The feature does what its parent asks, and its cards fit together."
@@ -5151,7 +5171,7 @@ def test_i_merge_a_feature_into_main(
     # naming the pull request and its commit.
     page.goto("/devflow")
     group = page.get_by_role("region", name="Features ready for your review")
-    item = group.get_by_role("article", name="The feature's branch")
+    item = _item(page, "The feature's branch", "Features ready for your review")
     expect(item).to_contain_text("Ready for you")
     item.get_by_role("button", name="Merge into main").click()
     dialog = page.get_by_role("dialog", name="Merge feature #60 into main?")
@@ -5165,7 +5185,9 @@ def test_i_merge_a_feature_into_main(
     # Merged as me: the fake world holds my merge of its pull request, a merge
     # commit naming the head that was shown, and the item is gone.
     expect(page.get_by_text("Merged feature #60")).to_be_visible()
-    expect(group.get_by_role("article", name="The feature's branch")).to_have_count(0)
+    expect(
+        group.get_by_role("link", name=re.compile("^The feature's branch "))
+    ).to_have_count(0)
     # A person's merges, with no key's purpose: the app's merge of the card into
     # the feature's branch is not among them.
     merges = [
