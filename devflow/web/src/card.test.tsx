@@ -462,6 +462,11 @@ describe("a card's page", () => {
 		expect(
 			within(reading).getByRole("list", { name: "Questions" }).textContent,
 		).toContain("Is the count shown?");
+		fireEvent.click(
+			within(reading).getByRole("button", {
+				name: "Show the 2 earlier readings",
+			}),
+		);
 		const earlier = within(reading).getByRole("list", {
 			name: "Earlier readings",
 		});
@@ -479,7 +484,6 @@ describe("a card's page", () => {
 			within(thin).getByRole("list", { name: "Missing then" }).textContent,
 		).toBe("Which page shows the list");
 	});
-
 	test("a card read once shows no earlier readings", async () => {
 		open(() =>
 			Promise.resolve(
@@ -524,9 +528,6 @@ describe("a card's page", () => {
 			screen.getByRole("tab", { name: "Projects", selected: true }),
 		).toBeTruthy();
 		expect(
-			screen.getByText("Waiting for CI to report on its commit"),
-		).toBeTruthy();
-		expect(
 			screen.getByRole("link", { name: "Issue #4" }).getAttribute("href"),
 		).toBe("https://github.com/Adamniels/Fodr/issues/4");
 		const pull = screen.getByRole("link", { name: "Pull request #7" });
@@ -535,51 +536,57 @@ describe("a card's page", () => {
 		);
 		expect(pull.getAttribute("rel")).toBe("noreferrer");
 
-		// Newest first, each with what the owner reads of it.
-		const runs = within(
-			screen.getByRole("list", { name: "Runs" }),
-		).getAllByRole("listitem");
-		expect(runs).toHaveLength(2);
-		const [built, failed] = runs.map((run) => within(run));
-		expect(built?.getByText("Build")).toBeTruthy();
-		expect(built?.getByText("Succeeded")).toBeTruthy();
-		expect(built?.getByText("took 3 min 4 s")).toBeTruthy();
-		expect(built?.getByText("Logged in with oauth_token")).toBeTruthy();
-		expect(built?.getByText("Tokens 41 in, 6,113 out")).toBeTruthy();
-		expect(built?.getByText("Check exit 0 on abc1234")).toBeTruthy();
-		expect(failed?.getByText("Failed")).toBeTruthy();
+		// Oldest first, each with what the owner reads of it, ending in now
+		// with why the card is where it is.
+		const items = await entries();
+		expect(titles(items)).toEqual(["Build", "Build", "Now"]);
+		const [failed, built, now] = items.map((item) => within(item)) as [
+			ReturnType<typeof within>,
+			ReturnType<typeof within>,
+			ReturnType<typeof within>,
+		];
+		expect(failed.getByText("Failed")).toBeTruthy();
 		expect(
-			failed?.getByText(
+			failed.getByText(
 				"Claude's API did not answer It lay outside the card, so it goes back in the queue.",
 			),
 		).toBeTruthy();
-		expect(failed?.queryByRole("button", { name: "Show" })).toBeNull();
+		expect(failed.queryByRole("button", { name: "Show output" })).toBeNull();
+		expect(built.getByText("Succeeded")).toBeTruthy();
+		const line = items[1]?.textContent ?? "";
+		expect(line).toContain("fodr-worker");
+		expect(line).toContain("took 3 min 4 s");
+		expect(line).toContain("41 in / 6,113 out");
+		expect(line).toContain("logged in with oauth_token");
+		expect(
+			now.getByText("Waiting for CI to report on its commit"),
+		).toBeTruthy();
 
 		// The check's output only when asked for.
-		expect(built?.queryByText("Tests: 12 passed")).toBeNull();
-		const show = built?.getByRole("button", { name: "Show" });
-		expect(show?.getAttribute("aria-expanded")).toBe("false");
-		if (show) fireEvent.click(show);
-		expect(built?.getByText("Tests: 12 passed")).toBeTruthy();
+		expect(built.queryByText("Tests: 12 passed")).toBeNull();
+		const show = built.getByRole("button", { name: "Show output" });
+		expect(show.getAttribute("aria-expanded")).toBe("false");
+		fireEvent.click(show);
+		expect(built.getByText("Tests: 12 passed")).toBeTruthy();
 		expect(
 			built
-				?.getByRole("button", { name: "Hide" })
+				.getByRole("button", { name: "Hide output" })
 				.getAttribute("aria-expanded"),
 		).toBe("true");
 
-		// The latest report, each list under its label.
+		// What the agent did, each list under its label.
 		const report = within(
-			screen.getByRole("article", { name: "The latest report" }),
+			screen.getByRole("article", { name: "What the agent did" }),
 		);
 		expect(report.getByText("empty state").tagName).toBe("CODE");
 		expect(report.getByRole("list", { name: "Tasks" }).textContent).toContain(
-			"Not done Count the habits",
+			"Not doneCount the habits",
 		);
 		const decisions = within(report.getByRole("list", { name: "Decisions" }));
 		expect(decisions.getByText("For you")).toBeTruthy();
 		expect(decisions.getByText(/Instead of\s+Only on habits/)).toBeTruthy();
-		expect(report.getByRole("list", { name: "Tests" }).textContent).toContain(
-			"list.test.tsx: passed",
+		expect(report.getByRole("list", { name: "Tests" }).textContent).toBe(
+			"list.test.tsxpassed",
 		);
 		expect(report.getByRole("list", { name: "Pages" }).textContent).toContain(
 			"/habits Looked at",
@@ -588,7 +595,6 @@ describe("a card's page", () => {
 			"Count the habits in the title",
 		);
 	});
-
 	test("marks each page the agent did not look at", async () => {
 		const shown = story();
 		if (shown.report) {
@@ -600,7 +606,7 @@ describe("a card's page", () => {
 		open(() => Promise.resolve(shown));
 
 		const report = within(
-			await screen.findByRole("article", { name: "The latest report" }),
+			await screen.findByRole("article", { name: "What the agent did" }),
 		);
 		const pages = within(report.getByRole("list", { name: "Pages" }))
 			.getAllByRole("listitem")
@@ -692,26 +698,25 @@ describe("a card's page", () => {
 			),
 		);
 
-		const panel = within(
-			await screen.findByRole("article", { name: "Reviews" }),
-		);
-		const [newest, older] = panel
-			.getAllByRole("listitem")
-			.filter(
-				(each) => each.parentElement?.getAttribute("aria-label") === "Reviews",
+		const [older, newest] = (await entries())
+			.filter((item) =>
+				item.querySelector("h3")?.textContent?.startsWith("Review"),
 			)
-			.map((each) => within(each));
-		expect(newest?.getByText("abc1234").tagName).toBe("CODE");
-		expect(newest?.getByText("Changes asked for")).toBeTruthy();
-		expect(newest?.getByText("For the pull request's head")).toBeTruthy();
-		expect(newest?.queryByText("Not on the pull request yet")).toBeNull();
+			.map((each) => within(each)) as [
+			ReturnType<typeof within>,
+			ReturnType<typeof within>,
+		];
+		expect(newest.getByText("abc1234").tagName).toBe("CODE");
+		expect(newest.getByText("Changes asked for")).toBeTruthy();
+		expect(newest.getByText(/for the pull request's head/)).toBeTruthy();
+		expect(newest.queryByText(/not on the pull request yet/)).toBeNull();
 		expect(
-			newest?.getByText("The empty state shows only after a reload."),
+			newest.getByText("The empty state shows only after a reload."),
 		).toBeTruthy();
 
 		// Blocking findings first, each with where it is, what and why.
 		const findings = within(
-			newest?.getByRole("list", { name: "Findings" }) as HTMLElement,
+			newest.getByRole("list", { name: "Findings" }) as HTMLElement,
 		)
 			.getAllByRole("listitem")
 			.map((finding) => finding.textContent);
@@ -720,20 +725,19 @@ describe("a card's page", () => {
 			"Blocking No test covers an emptied list",
 			"Not blocking web/src/list.css:3 A colour by handBecause The tokens hold it",
 		]);
-		expect(newest?.getByText("once").tagName).toBe("CODE");
+		expect(newest.getByText("once").tagName).toBe("CODE");
 		expect(
-			newest?.getByRole("list", { name: "For the owner" }).textContent,
+			newest.getByRole("list", { name: "For the owner" }).textContent,
 		).toBe("Show it on every listAgreed: the lists share one component.");
 
 		// A review of an older commit says it does not count.
-		expect(older?.getByText("Approved")).toBeTruthy();
+		expect(older.getByText("Approved")).toBeTruthy();
 		expect(
-			older?.getByText("For an older commit, so it does not count"),
+			older.getByText(/for an older commit, so it does not count/),
 		).toBeTruthy();
-		expect(older?.getByText("Not on the pull request yet")).toBeTruthy();
-		expect(older?.queryByRole("list", { name: "Findings" })).toBeNull();
+		expect(older.getByText(/not on the pull request yet/)).toBeTruthy();
+		expect(older.queryByRole("list", { name: "Findings" })).toBeNull();
 	});
-
 	test("shows the pictures of its head commit, paired, with the worker's note", async () => {
 		open(() =>
 			Promise.resolve(
@@ -784,44 +788,99 @@ describe("a card's page", () => {
 	});
 
 	test("counts each round against the project's fix rounds", async () => {
-		open(() => Promise.resolve(story({ ...inRoundTwo(), most_rounds: 5 })));
+		open(() =>
+			Promise.resolve(
+				story({
+					...inRoundTwo(),
+					runs: [
+						run({ id: "f2", kind: "fix", result: null, finished_at: null }),
+						run({
+							id: "f1",
+							kind: "fix",
+							started_at: "2026-11-18T09:00:00+00:00",
+						}),
+					],
+					most_rounds: 5,
+				}),
+			),
+		);
 
-		const rounds = within(await screen.findByRole("list", { name: "Rounds" }));
-		expect(rounds.getByText("Round 2 of 5")).toBeTruthy();
-		expect(rounds.getByText("Round 1 of 5")).toBeTruthy();
-		expect(rounds.queryByText(/of 3$/)).toBeNull();
+		const shown = titles(await entries());
+		expect(shown).toContain("Fix, round 2 of 5");
+		expect(shown).toContain("Fix, round 1 of 5");
+		expect(shown.filter((title) => title?.endsWith("of 3"))).toEqual([]);
 	});
-
 	test("shows each round: what sent it back, the fix, its replies and the review after it", async () => {
-		open(() => Promise.resolve(story(inRoundTwo())));
+		const shown = inRoundTwo();
+		// Each round's fix is among the runs, oldest last, as the story has them.
+		shown.runs = [
+			run({
+				id: "f2",
+				kind: "fix",
+				started_at: "2026-11-18T11:05:00+00:00",
+				result: null,
+				finished_at: null,
+				duration_ms: null,
+				check: null,
+				head_commit: null,
+			}),
+			run({
+				id: "f1",
+				kind: "fix",
+				started_at: "2026-11-18T10:20:00+00:00",
+				head_commit: FIRST,
+			}),
+			run({
+				id: "f0",
+				kind: "fix",
+				started_at: "2026-11-18T09:00:00+00:00",
+				result: "failed_in_card",
+				reason: "The check failed with exit code 1",
+				in_card: true,
+				head_commit: SECOND,
+				stderr_tail: "",
+			}),
+		];
+		open(() => Promise.resolve(story(shown)));
 
-		const rounds = within(
-			await screen.findByRole("list", { name: "Rounds" }),
-		).getAllByRole("listitem", { name: /round|comment/i });
-		expect(rounds).toHaveLength(3);
-		const at = (index: number) => {
-			const round = rounds[index];
-			if (round === undefined) throw new Error(`no round ${index}`);
-			return within(round);
+		const items = await entries();
+		const at = (title: string) => {
+			const item = items.find(
+				(each) => each.querySelector("h3")?.textContent === title,
+			);
+			if (item === undefined) throw new Error(`no entry ${title}`);
+			return within(item);
 		};
-		const [second, first, comment] = [at(0), at(1), at(2)];
+		// Oldest first: the owner's comment, round 1, then round 2 under way.
+		expect(titles(items).filter((title) => title?.startsWith("Fix"))).toEqual([
+			"Fix, for your comment",
+			"Fix, round 1 of 3",
+			"Fix, round 2 of 3",
+		]);
+		const [comment, first, second] = [
+			at("Fix, for your comment"),
+			at("Fix, round 1 of 3"),
+			at("Fix, round 2 of 3"),
+		];
 
-		// Newest first: round 2, still running, asked for by the second review.
-		expect(second.getByText("Round 2 of 3")).toBeTruthy();
+		// Round 2, still running, asked for by the second review.
 		expect(second.getByText("Running")).toBeTruthy();
 		expect(second.getByText(/The review of/).textContent).toBe(
 			"The review of def5678 asked for changes.",
 		);
-		expect(second.queryByRole("list", { name: "Replies" })).toBeNull();
+		expect(
+			second.queryByRole("list", { name: "The developer's replies" }),
+		).toBeNull();
 
 		// Round 1: its review, its replies as text, the commit it left and the
 		// review after it.
-		expect(first.getByText("Round 1 of 3")).toBeTruthy();
 		expect(first.getByText("Succeeded")).toBeTruthy();
 		expect(first.getByText(/The review of/).textContent).toBe(
 			"The review of abc1234 asked for changes.",
 		);
-		const replies = within(first.getByRole("list", { name: "Replies" }));
+		const replies = within(
+			first.getByRole("list", { name: "The developer's replies" }),
+		);
 		expect(replies.getByText("The empty state is read once")).toBeTruthy();
 		expect(replies.getByText("change").tagName).toBe("CODE");
 		expect(first.getByText(/^It left/).textContent).toBe(
@@ -829,7 +888,6 @@ describe("a card's page", () => {
 		);
 
 		// The owner's comment, not a round, his words as he wrote them.
-		expect(comment.getByText("Your comment")).toBeTruthy();
 		expect(comment.getByText("You sent it back with a comment.")).toBeTruthy();
 		expect(
 			comment.getByRole("list", { name: "What you wrote" }).textContent,
@@ -837,7 +895,6 @@ describe("a card's page", () => {
 		expect(comment.getByText("Failed")).toBeTruthy();
 		expect(comment.getByText(/^It left/).textContent).toBe("It left fed8765.");
 	});
-
 	test("a card Dev flow merged says so, with the merge commit and the commit approved", async () => {
 		open(() =>
 			Promise.resolve(
@@ -854,32 +911,33 @@ describe("a card's page", () => {
 			),
 		);
 
-		const merge = within(
-			await screen.findByRole("article", { name: "The merge" }),
+		const glance = within(
+			await screen.findByRole("article", { name: "At a glance" }),
 		);
-		expect(
-			merge.getByText(/Dev flow merged #7 into main as the app/),
-		).toBeTruthy();
-		expect(merge.getByText("def5678").tagName).toBe("CODE");
-		expect(merge.getByText("abc1234").tagName).toBe("CODE");
+		expect(glance.getByRole("heading", { name: "The merge" })).toBeTruthy();
+		expect(glance.getByText(/by Dev flow as the app/).textContent).toBe(
+			"Into main, by Dev flow as the app.",
+		);
+		expect(glance.getByText("def5678").tagName).toBe("CODE");
+		expect(glance.getAllByText("abc1234")[0]?.tagName).toBe("CODE");
 	});
-
 	test("a card with no merge of Dev flow's shows none", async () => {
 		open(() => Promise.resolve(story()));
 
-		await screen.findByRole("heading", { name: "Add the empty state" });
-		expect(screen.queryByRole("article", { name: "The merge" })).toBeNull();
+		const glance = await screen.findByRole("article", { name: "At a glance" });
+		expect(
+			within(glance).queryByRole("heading", { name: "The merge" }),
+		).toBeNull();
 	});
-
 	test("a card that was never sent back shows no rounds", async () => {
 		open(() => Promise.resolve(story()));
 
+		const shown = titles(await entries());
+		expect(shown.filter((title) => title?.startsWith("Fix"))).toEqual([]);
 		expect(
-			await screen.findByRole("heading", { name: "Add the empty state" }),
+			screen.getByRole("img", { name: "Fix rounds: 0 of 3 used" }),
 		).toBeTruthy();
-		expect(screen.queryByRole("list", { name: "Rounds" })).toBeNull();
 	});
-
 	test("a card no run has taken says so, with no report", async () => {
 		open(() =>
 			Promise.resolve(
@@ -896,14 +954,13 @@ describe("a card's page", () => {
 		expect(
 			await screen.findByText("No run has taken this card yet."),
 		).toBeTruthy();
-		expect(screen.getByText("Queued")).toBeTruthy();
+		expect(titles(await entries())).toEqual(["Now"]);
+		expect(screen.getAllByText("Queued").length).toBeGreaterThan(0);
 		expect(
-			screen.queryByRole("article", { name: "The latest report" }),
+			screen.queryByRole("article", { name: "What the agent did" }),
 		).toBeNull();
-		expect(screen.queryByRole("article", { name: "Reviews" })).toBeNull();
 		expect(screen.queryByText(/Pull request #/)).toBeNull();
 	});
-
 	test("a card the caller does not have is not found, with the way back", async () => {
 		open(() => Promise.resolve(null));
 
@@ -1200,9 +1257,7 @@ describe("a card's page tells its story in order", () => {
 			const link = await screen.findByRole("link", {
 				name: "Decide in Waiting for you",
 			});
-			expect(link.getAttribute("href")).toBe(
-				`/devflow?item=${encodeURIComponent(key)}`,
-			);
+			expect(link.getAttribute("href")).toBe(`/devflow?item=${key}`);
 			expect(screen.getAllByText("Needs you").length).toBeGreaterThan(0);
 			cleanup();
 		}

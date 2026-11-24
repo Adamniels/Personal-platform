@@ -44,7 +44,11 @@ export function Timeline({ className, children, ...rest }: TimelineProps) {
 	);
 }
 
-export type TimelineEntryProps = Omit<ComponentProps<"li">, "children"> & {
+/** The li's own `title`, a tooltip string, gives way to the entry's title. */
+export type TimelineEntryProps = Omit<
+	ComponentProps<"li">,
+	"children" | "title"
+> & {
 	/** When it happened, already formatted, shown in the mono font. It may
 	 * carry more facts after the time, such as where it ran. */
 	time: string;
