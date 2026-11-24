@@ -272,3 +272,54 @@ def account_in_access_cookie(page: Page) -> str:
     return json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))[
         "sub"
     ]
+
+
+def fake_check(
+    page: Page,
+    base_url: str,
+    project: str,
+    exit_code: int,
+    output: str,
+    pictures: dict[str, bytes] | None = None,
+) -> dict:
+    """The fake worker takes the project's next job, the check of its setup,
+    and ends it as a check's worker does: the check ran with `exit_code` and
+    `output`, and, with `pictures`, the project's address taken at both sizes.
+    What it answered."""
+    result: dict = {
+        "outcome": "succeeded",
+        "report": None,
+        "failure": None,
+        "check": {"exit_code": exit_code, "output": output},
+        "auth_method": None,
+        "usage": {},
+        "duration_ms": 61000,
+        "stderr": "",
+    }
+    if pictures is not None:
+        result["screenshots"] = {"names": list(pictures), "note": None}
+        result["pictures"] = [
+            {"name": name, "png": base64.b64encode(content).decode()}
+            for name, content in pictures.items()
+        ]
+    ran = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={"project_id": project, "result": result, "for_check": True},
+        headers={"Origin": base_url},
+    )
+    assert ran.status == 200, ran.text()
+    return ran.json()
+
+
+def registered(page: Page, base_url: str, project: str) -> None:
+    """The fake worker passes the check of the project's setup, so the project
+    is registered and its page shows its cards rather than its setup steps.
+    See "Setting up a project" in devflow/README.md. The project is read first,
+    since a project whose default branch was not watched lately hands out no
+    job."""
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+    passed = fake_check(page, base_url, project, 0, "Tests  1 passed")
+    assert passed["kind"] == "check", passed

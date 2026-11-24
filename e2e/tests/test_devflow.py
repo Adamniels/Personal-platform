@@ -9,16 +9,19 @@ import struct
 import zlib
 from pathlib import Path
 
-from playwright.sync_api import Browser, Page, expect
+from playwright.sync_api import Browser, Locator, Page, expect
 
 from conftest import (
     account_in_access_cookie,
     capture,
+    fake_check,
     link_github,
     register_and_log_in,
+    registered,
 )
 from devflow_worlds import (
     APP_LOGIN,
+    CHECK,
     INSTALLATION,
     NAME,
     OWNER,
@@ -38,6 +41,7 @@ from devflow_worlds import (
     repository,
     reviewer_comment,
     status,
+    with_setup,
 )
 from look import (
     assert_active_is_inverted,
@@ -1217,7 +1221,35 @@ def _open_project(
     expect(page).to_have_url(
         re.compile(rf"{re.escape(base_url)}/devflow/projects/[0-9a-f-]{{36}}$")
     )
-    expect(page.get_by_role("heading", name=full_name)).to_be_visible()
+    expect(
+        page.get_by_role("heading", name=repository(world)["name"], exact=True)
+    ).to_be_visible()
+
+
+def _edit_settings(page: Page) -> Locator:
+    """Opens the Settings panel from the summary's "Edit settings", unless it
+    is open already, and answers it."""
+    edit = page.get_by_role("article", name="Settings", exact=True).get_by_role(
+        "button", name="Edit settings"
+    )
+    expect(edit).to_be_visible()
+    if edit.get_attribute("aria-expanded") == "false":
+        edit.click()
+    panel = page.get_by_role("article", name="Edit settings", exact=True)
+    expect(panel).to_be_visible()
+    return panel
+
+
+def _start_a_worker(page: Page) -> Locator:
+    """Shows the commands behind the Workers card's "Start a worker", unless
+    they show already, as they do once a key is made, and answers them."""
+    start = page.get_by_role("article", name="Workers", exact=True).get_by_role(
+        "button", name="Start a worker"
+    )
+    expect(start).to_be_visible()
+    if start.get_attribute("aria-expanded") == "false":
+        start.click()
+    return page.get_by_role("region", name="Start a worker")
 
 
 def _make_key(page: Page) -> str:
@@ -1311,7 +1343,7 @@ def test_i_set_a_projects_settings(
 ):
     register_and_log_in(page, invite_code, base_url)
     _open_project(page, base_url, devflow_world)
-    settings = page.get_by_role("article", name="Settings")
+    settings = _edit_settings(page)
 
     # A new project has the defaults.
     expect(settings.get_by_label("Pick-up label")).to_have_value("devflow")
@@ -1341,7 +1373,7 @@ def test_i_set_a_projects_settings(
 
     # Kept: a fresh load reads them back.
     page.reload()
-    settings = page.get_by_role("article", name="Settings")
+    settings = _edit_settings(page)
     expect(settings.get_by_label("Pick-up label")).to_have_value("agent: go")
     expect(settings.get_by_label("Hold label")).to_have_value("agent: wait")
     expect(settings.get_by_label("Attention label")).to_have_value("devflow-attention")
@@ -1356,10 +1388,10 @@ def test_i_trust_another_account(
     # trusted.
     world = one_repository()
     add_issue(world, 12, "The friend's card", author="octo-friend", labels=["devflow"])
-    _with_setup(world)
+    with_setup(world)
     _open_project(page, base_url, devflow_world, world)
     project = page.url.rsplit("/", 1)[1]
-    _registered(page, base_url, project)
+    registered(page, base_url, project)
 
     def read_again():
         refreshed = page.request.post(
@@ -1370,8 +1402,8 @@ def test_i_trust_another_account(
 
     def card():
         return (
-            page.get_by_role("list", name="Cards")
-            .get_by_role("listitem")
+            page.get_by_role("table", name="Cards on their own")
+            .locator("tbody tr")
             .filter(has=page.get_by_text("#12", exact=True))
         )
 
@@ -1382,7 +1414,7 @@ def test_i_trust_another_account(
     )
 
     # My own login is listed and cannot be removed; I add octo-friend.
-    settings = page.get_by_role("article", name="Settings")
+    settings = _edit_settings(page)
     trusted = settings.get_by_role("list", name="Trusted accounts")
     expect(trusted.get_by_role("listitem")).to_have_count(1)
     expect(trusted.get_by_role("listitem").first).to_contain_text("octo-owner")
@@ -1399,7 +1431,7 @@ def test_i_trust_another_account(
     # The next read queues the card octo-friend wrote.
     read_again()
     expect(card()).to_contain_text("Queued")
-    settings = page.get_by_role("article", name="Settings")
+    settings = _edit_settings(page)
     expect(
         settings.get_by_role("list", name="Trusted accounts").get_by_role("listitem")
     ).to_have_count(2)
@@ -1433,10 +1465,10 @@ def test_a_card_i_label_shows_as_queued(
         edits=[edit("UCE_17", "octo-stranger")],
     )
     add_pull_request(world, 18, labels=["devflow"])
-    _with_setup(world)
+    with_setup(world)
     _open_project(page, base_url, devflow_world, world)
     project = page.url.rsplit("/", 1)[1]
-    _registered(page, base_url, project)
+    registered(page, base_url, project)
 
     refreshed = page.request.post(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
@@ -1444,11 +1476,11 @@ def test_a_card_i_label_shows_as_queued(
     assert refreshed.status == 204, refreshed.text()
     page.reload()
 
-    cards = page.get_by_role("list", name="Cards")
-    expect(cards.get_by_role("listitem")).to_have_count(5)
+    cards = page.get_by_role("table", name="Cards on their own")
+    expect(cards.locator("tbody tr")).to_have_count(5)
 
     def row(number: int):
-        return cards.get_by_role("listitem").filter(
+        return cards.locator("tbody tr").filter(
             has=page.get_by_text(f"#{number}", exact=True)
         )
 
@@ -1507,10 +1539,10 @@ def test_a_strangers_label_starts_nothing(
             label_event("devflow-hold", "octo-stranger", change="removed"),
         ],
     )
-    _with_setup(world)
+    with_setup(world)
     _open_project(page, base_url, devflow_world, world)
     project = page.url.rsplit("/", 1)[1]
-    _registered(page, base_url, project)
+    registered(page, base_url, project)
 
     refreshed = page.request.post(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
@@ -1518,11 +1550,11 @@ def test_a_strangers_label_starts_nothing(
     assert refreshed.status == 204, refreshed.text()
     page.reload()
 
-    cards = page.get_by_role("list", name="Cards")
-    expect(cards.get_by_role("listitem")).to_have_count(2)
+    cards = page.get_by_role("table", name="Cards on their own")
+    expect(cards.locator("tbody tr")).to_have_count(2)
 
     def row(number: int):
-        return cards.get_by_role("listitem").filter(
+        return cards.locator("tbody tr").filter(
             has=page.get_by_text(f"#{number}", exact=True)
         )
 
@@ -1558,10 +1590,10 @@ def test_a_labelled_feature_shows_its_cards_in_order(
     add_issue(world, 43, "Store the feature")
     add_issue(world, 44, "A plain issue it waits for")
     add_issue(world, 50, "A card on its own", labels=["devflow"])
-    _with_setup(world)
+    with_setup(world)
     _open_project(page, base_url, devflow_world, world)
     project = page.url.rsplit("/", 1)[1]
-    _registered(page, base_url, project)
+    registered(page, base_url, project)
 
     refreshed = page.request.post(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
@@ -1576,7 +1608,10 @@ def test_a_labelled_feature_shows_its_cards_in_order(
     expect(feature.get_by_role("link", name="#40", exact=True)).to_have_attribute(
         "href", "https://github.com/Adamniels/Personal-platform/issues/40"
     )
-    expect(feature.locator(":scope > div").first).to_contain_text("Queued")
+    # Its state, in its card's header beside its label.
+    expect(
+        feature.get_by_role("article").locator(":scope > div").first
+    ).to_contain_text("Queued")
 
     # Its three cards in sub-issue order, each with its state.
     cards = feature.get_by_role("list", name="Cards of #40", exact=True)
@@ -1589,8 +1624,8 @@ def test_a_labelled_feature_shows_its_cards_in_order(
     expect(rows.nth(2)).to_contain_text("Waits for #44")
 
     # Beneath the features, the card on its own, and the parent is not one.
-    own = page.get_by_role("list", name="Cards", exact=True)
-    expect(own.get_by_role("listitem")).to_have_count(1)
+    own = page.get_by_role("table", name="Cards on their own")
+    expect(own.locator("tbody tr")).to_have_count(1)
     expect(own).to_contain_text("A card on its own")
     expect(page.get_by_text("#40", exact=True)).to_have_count(1)
 
@@ -1661,7 +1696,10 @@ def test_a_features_cards_are_built_in_order(
 
     features = page.get_by_role("list", name="Features", exact=True)
     feature = features.locator(":scope > li").first
-    expect(feature.locator(":scope > div").first).to_contain_text("Building")
+    # Its state, in its card's header beside its label.
+    expect(
+        feature.get_by_role("article").locator(":scope > div").first
+    ).to_contain_text("Building")
     rows = feature.get_by_role("list", name="Cards of #60", exact=True).get_by_role(
         "listitem"
     )
@@ -1862,8 +1900,9 @@ def test_the_project_page_shows_how_to_start_a_worker(
     _open_project(page, base_url, devflow_world)
     workers = page.get_by_role("article", name="Workers")
 
-    # Before a key, the command that builds and starts a worker, never the
-    # one that saves a key.
+    # Before a key, behind "Start a worker", the command that builds and
+    # starts a worker, never the one that saves a key.
+    _start_a_worker(page)
     start = workers.get_by_role("region", name="Build and start the worker")
     expect(start).to_contain_text("~/.devflow/personal-platform.env")
     expect(workers.get_by_role("region", name="Save the key")).to_have_count(0)
@@ -2074,7 +2113,6 @@ def test_dev_flow_tells_me_when_my_claude_login_is_due(
 
 CARD = 21
 CARD_TITLE = "Add the empty state"
-CHECK = "npm ci && npm test"
 
 
 def _reading(cards: list[dict]) -> dict:
@@ -2384,8 +2422,8 @@ def test_i_merge_a_card_from_the_list(
     # The card is done.
     page.goto(f"/devflow/projects/{project}")
     row = (
-        page.get_by_role("list", name="Cards")
-        .get_by_role("listitem")
+        page.get_by_role("table", name="Cards on their own")
+        .locator("tbody tr")
         .filter(has=page.get_by_text(f"#{CARD}", exact=True))
     )
     expect(row).to_contain_text("Done")
@@ -2400,7 +2438,9 @@ def test_a_cards_page_tells_its_story(
 
     # From the project's cards list to the card's page.
     page.goto(f"/devflow/projects/{project}")
-    page.get_by_role("list", name="Cards").get_by_role("link", name=CARD_TITLE).click()
+    page.get_by_role("table", name="Cards on their own").get_by_role(
+        "link", name=CARD_TITLE
+    ).click()
     expect(page).to_have_url(f"{base_url}/devflow/projects/{project}/cards/{CARD}")
     expect(page.get_by_role("heading", name=CARD_TITLE)).to_be_visible()
     expect(page.get_by_role("tab", name="Projects", selected=True)).to_be_visible()
@@ -3084,8 +3124,8 @@ def test_a_thin_card_is_refused_and_read_again(
     expect(page.get_by_role("region", name=re.compile("^Refused"))).to_have_count(0)
     page.goto(f"/devflow/projects/{project}")
     expect(
-        page.get_by_role("list", name="Cards")
-        .get_by_role("listitem")
+        page.get_by_role("table", name="Cards on their own")
+        .locator("tbody tr")
         .filter(has_text=CARD_TITLE)
     ).to_contain_text("Queued")
 
@@ -3170,8 +3210,8 @@ def test_an_edited_card_is_read_again(
         # While it is read, the card shows Reading.
         page.reload()
         row = (
-            page.get_by_role("list", name="Cards")
-            .get_by_role("listitem")
+            page.get_by_role("table", name="Cards on their own")
+            .locator("tbody tr")
             .filter(has_text=CARD_TITLE)
         )
         expect(row).to_contain_text("Reading")
@@ -3200,8 +3240,8 @@ def test_an_edited_card_is_read_again(
     # Read again as ready, it is Queued.
     page.reload()
     expect(
-        page.get_by_role("list", name="Cards")
-        .get_by_role("listitem")
+        page.get_by_role("table", name="Cards on their own")
+        .locator("tbody tr")
         .filter(has_text=CARD_TITLE)
     ).to_contain_text("Queued")
 
@@ -3373,8 +3413,8 @@ def test_i_answer_a_cards_questions(
     # The card is Queued, and my answers are on its issue as my comment.
     page.goto(f"/devflow/projects/{project}")
     row = (
-        page.get_by_role("list", name="Cards")
-        .get_by_role("listitem")
+        page.get_by_role("table", name="Cards on their own")
+        .locator("tbody tr")
         .filter(has=page.get_by_text(f"#{CARD}", exact=True))
     )
     expect(row).to_contain_text("Queued")
@@ -3484,7 +3524,7 @@ def test_i_choose_a_preset(
     page.goto(f"/devflow/projects/{project}")
     header = page.locator("header").filter(has=page.get_by_role("heading", level=2))
     expect(header).to_contain_text("Only I merge")
-    settings = page.get_by_role("article", name="Settings")
+    settings = _edit_settings(page)
     alone = settings.get_by_role("region", name="How much happens alone")
     matched = alone.get_by_role("status", name="Preset")
     expect(matched).to_have_text("Only I merge")
@@ -3521,9 +3561,7 @@ def test_i_choose_a_preset(
     page.reload()
     expect(header).to_contain_text("Fully automatic")
     expect(
-        page.get_by_role("article", name="Settings").get_by_label(
-            "Pull requests wait for you"
-        )
+        _edit_settings(page).get_by_label("Pull requests wait for you")
     ).to_have_value("never")
     page.evaluate("document.fonts.ready.then(() => null)")
     for check in (assert_headings_are_capitals, assert_nothing_scrolls_sideways):
@@ -3670,7 +3708,7 @@ def test_i_set_the_models_and_limits(
 ):
     register_and_log_in(page, invite_code, base_url)
     _card_project(page, base_url, devflow_world)
-    settings = page.get_by_role("article", name="Settings")
+    settings = _edit_settings(page)
     runs = settings.get_by_role("region", name="Models and limits")
 
     # A new project's: opus for each job, 90 minutes, 200 turns, and 3 fix
@@ -3714,9 +3752,7 @@ def test_i_set_the_models_and_limits(
 
     # Kept: a fresh load reads them back.
     page.reload()
-    runs = page.get_by_role("article", name="Settings").get_by_role(
-        "region", name="Models and limits"
-    )
+    runs = _edit_settings(page).get_by_role("region", name="Models and limits")
     for label, value in (
         ("Reading model", "opus"),
         ("Building model", "sonnet"),
@@ -3772,7 +3808,7 @@ def test_i_set_sometimes(
 ):
     register_and_log_in(page, invite_code, base_url)
     _open_project(page, base_url, devflow_world)
-    settings = page.get_by_role("article", name="Settings")
+    settings = _edit_settings(page)
 
     # Sometimes shows its conditions, all three ticked, and an empty list of
     # paths; the review label it reads is with the other labels.
@@ -3809,7 +3845,7 @@ def test_i_set_sometimes(
 
     # Kept: a fresh load reads them back.
     page.reload()
-    settings = page.get_by_role("article", name="Settings")
+    settings = _edit_settings(page)
     expect(settings.get_by_label("Pull requests wait for you")).to_have_value(
         "sometimes"
     )
@@ -5172,67 +5208,6 @@ def _png() -> bytes:
     )
 
 
-def _fake_check(
-    page: Page,
-    base_url: str,
-    project: str,
-    exit_code: int,
-    output: str,
-    pictures: dict[str, bytes] | None = None,
-) -> dict:
-    """The fake worker takes the project's next job, the check of its setup,
-    and ends it as a check's worker does: the check ran with `exit_code` and
-    `output`, and, with `pictures`, the project's address taken at both sizes.
-    What it answered."""
-    result: dict = {
-        "outcome": "succeeded",
-        "report": None,
-        "failure": None,
-        "check": {"exit_code": exit_code, "output": output},
-        "auth_method": None,
-        "usage": {},
-        "duration_ms": 61000,
-        "stderr": "",
-    }
-    if pictures is not None:
-        result["screenshots"] = {"names": list(pictures), "note": None}
-        result["pictures"] = [
-            {"name": name, "png": base64.b64encode(content).decode()}
-            for name, content in pictures.items()
-        ]
-    ran = page.request.post(
-        "/devflow/api/fake/worker/run",
-        data={"project_id": project, "result": result, "for_check": True},
-        headers={"Origin": base_url},
-    )
-    assert ran.status == 200, ran.text()
-    return ran.json()
-
-
-def _with_setup(world: dict) -> None:
-    """Puts a project.json on the world's default branch, so a check of its
-    setup can be handed out; a project without one stays setting up."""
-    add_file(
-        world,
-        ".devflow/project.json",
-        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
-    )
-
-
-def _registered(page: Page, base_url: str, project: str) -> None:
-    """The fake worker passes the check of the project's setup, so the project
-    is registered and its page shows its cards rather than its setup steps.
-    See "Setting up a project" in devflow/README.md. The project is read first,
-    since a project whose default branch was not watched lately hands out no
-    job."""
-    refreshed = page.request.post(
-        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
-    )
-    assert refreshed.status == 204, refreshed.text()
-    passed = _fake_check(page, base_url, project, 0, "Tests  1 passed")
-    assert passed["kind"] == "check", passed
-
-
 def _pass_the_check(worker, key: str, worker_id: str) -> None:
     """A worker on a version no check has passed is handed that check before
     anything else: it takes it and ends it passed, as a working recipe's
@@ -5315,7 +5290,7 @@ def test_a_project_is_checked_before_its_first_card(
     expect(steps.nth(3)).to_contain_text("The values its tests need")
     expect(steps.nth(4)).to_contain_text("To do")
     expect(steps.nth(5)).to_contain_text("To do")
-    expect(page.get_by_role("article", name="Cards")).to_have_count(0)
+    expect(page.get_by_role("region", name="Cards", exact=True)).to_have_count(0)
     assert (
         page.request.get(f"/devflow/api/projects/{project}/setup").json()["state"]
         == "setting_up"
@@ -5330,7 +5305,7 @@ def test_a_project_is_checked_before_its_first_card(
         + [f" ✓ src/habit-{n}.test.ts (3 tests)" for n in range(1, 9)]
         + [" × src/list.test.ts > shows the empty state", "Tests  1 failed | 24 passed"]
     )
-    failed = _fake_check(page, base_url, project, 1, output)
+    failed = fake_check(page, base_url, project, 1, output)
     assert failed["kind"] == "check"
     assert failed["card"] is None
     nothing = page.request.post(
@@ -5366,7 +5341,7 @@ def test_a_project_is_checked_before_its_first_card(
         )
     ).to_be_visible()
     picture = _png()
-    passed = _fake_check(
+    passed = fake_check(
         page,
         base_url,
         project,
@@ -5392,7 +5367,7 @@ def test_a_project_is_checked_before_its_first_card(
     assert read["kind"] == "read"
     assert read["card"] == CARD
     page.reload()
-    expect(page.get_by_role("article", name="Cards")).to_be_visible()
+    expect(page.get_by_role("region", name="Cards", exact=True)).to_be_visible()
     expect(page.get_by_role("article", name="Setting up")).to_have_count(0)
 
 
@@ -5707,7 +5682,7 @@ def test_i_accept_the_proposed_settings(
     step.get_by_role("button", name="Accept").click()
     expect(steps.nth(2)).to_contain_text("Done")
     expect(setup.get_by_role("region", name="The settings")).to_have_count(0)
-    settings = page.get_by_role("article", name="Settings")
+    settings = _edit_settings(page)
     expect(settings.locator("output")).to_have_text("Guided")
     expect(settings.get_by_label("Paths", exact=True)).to_have_value("migrations/**")
     saved = page.request.get(f"/devflow/api/projects/{project}/settings").json()
@@ -5865,7 +5840,7 @@ def test_i_send_a_failed_check_back(
         " × src/cache.test.ts > connects to Redis\n"
         "Tests  1 failed | 24 passed"
     )
-    failed = _fake_check(page, base_url, project, 1, output)
+    failed = fake_check(page, base_url, project, 1, output)
     assert failed["kind"] == "check"
 
     # I send it back with a comment from the check.

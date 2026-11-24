@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ApiError } from "./api/client";
+import type { Card as CardView, Feature as FeatureView } from "./cards";
 import {
 	heldNotice,
 	NO_WORKER,
@@ -22,6 +23,8 @@ import {
 	type Worker,
 	type WorkerList,
 } from "./project";
+import styles from "./project.module.css";
+import css from "./project.module.css?raw";
 import type { Project } from "./projects";
 import type { ProjectSettings, SettingsRequest } from "./settings";
 import {
@@ -70,6 +73,7 @@ const PLATFORM: Project = {
 	owner: "Adamniels",
 	name: "Personal-platform",
 	created_at: "2026-11-16T10:00:00+00:00",
+	last_read_at: "2026-11-17T11:58:00+00:00",
 	summary: {
 		cards: { needs_you: 0, in_progress: 0, queued: 0, done: 0 },
 		workers: { count: 0, last_seen_at: null, held: null, cannot_run: null },
@@ -468,7 +472,7 @@ describe("a project's setup", () => {
 		);
 		// Its features and cards are not shown, nor read.
 		expect(loadSetup).toHaveBeenCalledWith(ID);
-		expect(screen.queryByRole("article", { name: "Cards" })).toBeNull();
+		expect(screen.queryByRole("region", { name: "Cards" })).toBeNull();
 		expect(loadCards).not.toHaveBeenCalled();
 		// The workers are, since starting one is a step.
 		expect(
@@ -707,35 +711,18 @@ describe("a project's setup", () => {
 				"The newest version of this project's setup failed its check, so its workers on that version get no work.",
 			),
 		).toBeTruthy();
-		expect(await screen.findByRole("article", { name: "Cards" })).toBeTruthy();
+		expect(await screen.findByRole("region", { name: "Cards" })).toBeTruthy();
 	});
 
 	test("a registered project with nothing failed shows no setup", async () => {
 		renderPage();
 
-		expect(await screen.findByRole("article", { name: "Cards" })).toBeTruthy();
+		expect(await screen.findByRole("region", { name: "Cards" })).toBeTruthy();
 		expect(screen.queryByRole("article", { name: "Setting up" })).toBeNull();
 	});
 });
 
 describe("a project's page", () => {
-	test("is headed by the repository's name, with the way back", async () => {
-		const { back } = renderPage();
-
-		expect(
-			(
-				await screen.findByRole("heading", {
-					level: 2,
-					name: "Adamniels/Personal-platform",
-				})
-			).textContent,
-		).toBe("Adamniels/Personal-platform");
-		const link = screen.getByRole("link", { name: "Back to Projects" });
-		expect(link.getAttribute("href")).toBe("/devflow/projects");
-		fireEvent.click(link);
-		expect(back).toHaveBeenCalledOnce();
-	});
-
 	test("its heading shows the preset the saved settings match", async () => {
 		const saved = {
 			pickup_label: "devflow",
@@ -774,8 +761,13 @@ describe("a project's page", () => {
 		);
 
 		// The form's choice is not the project's until it is saved.
+		fireEvent.click(
+			within(
+				await screen.findByRole("article", { name: "Settings" }),
+			).getByRole("button", { name: "Edit settings" }),
+		);
 		const settings = within(
-			await screen.findByRole("article", { name: "Settings" }),
+			await screen.findByRole("article", { name: "Edit settings" }),
 		);
 		fireEvent.click(settings.getByRole("button", { name: "Fully automatic" }));
 		expect(header()?.textContent).toContain("Only I merge");
@@ -794,21 +786,23 @@ describe("a project's page", () => {
 		expect(screen.queryByRole("article", { name: "Settings" })).toBeNull();
 	});
 
-	test("shows the project's settings, then its cards, then its workers", async () => {
+	test("shows its cards, then its workers and its settings beside them", async () => {
 		const { loadSettings, loadCards } = renderPage();
 
-		const settings = await screen.findByRole("article", { name: "Settings" });
-		const cards = await screen.findByRole("article", { name: "Cards" });
+		const cards = await screen.findByRole("region", { name: "Cards" });
 		const workers = await panel();
+		const settings = await screen.findByRole("article", { name: "Settings" });
 		expect(loadSettings).toHaveBeenCalledWith(ID);
 		expect(loadCards).toHaveBeenCalledWith(ID);
 		expect(
-			settings.compareDocumentPosition(cards) &
-				Node.DOCUMENT_POSITION_FOLLOWING,
-		).toBeTruthy();
-		expect(
 			cards.compareDocumentPosition(workers) & Node.DOCUMENT_POSITION_FOLLOWING,
 		).toBeTruthy();
+		expect(
+			workers.compareDocumentPosition(settings) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		// The panel waits for "Edit settings".
+		expect(screen.queryByRole("article", { name: "Edit settings" })).toBeNull();
 	});
 
 	test("without a key or a worker, it offers to make the key", async () => {
@@ -869,10 +863,10 @@ describe("the worker key", () => {
 		});
 		const workers = within(await panel());
 
-		expect(await workers.findByText(/^Its key was made/)).toBeTruthy();
+		expect(await workers.findByText(/^Key made/)).toBeTruthy();
 		expect(
 			workers
-				.getByText(/^Its key was made/)
+				.getByText(/^Key made/)
 				.querySelector("time")
 				?.getAttribute("dateTime"),
 		).toBe("2026-11-17T08:30:00+00:00");
@@ -926,6 +920,9 @@ describe("the worker key", () => {
 describe("starting a worker", () => {
 	test("the start command is shown before a key, with a button that copies it", async () => {
 		const { copy } = renderPage();
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Start a worker" }),
+		);
 		const start = within(
 			await screen.findByRole("region", { name: "Start a worker" }),
 		);
@@ -972,6 +969,9 @@ describe("starting a worker", () => {
 
 	test("a command that could not be copied says so", async () => {
 		renderPage({ copy: () => Promise.reject(new Error("denied")) });
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Start a worker" }),
+		);
 		const command = within(
 			await screen.findByRole("region", { name: "Build and start the worker" }),
 		);
@@ -1043,7 +1043,7 @@ describe("the workers", () => {
 	test("a project that hands out work says nothing of it", async () => {
 		renderPage();
 		const workers = within(await panel());
-		await workers.findByText(PASTE);
+		await workers.findByText("It has no key yet.");
 		expect(workers.queryByText("No work")).toBeNull();
 	});
 
@@ -1325,5 +1325,349 @@ describe("a project's values", () => {
 
 		await screen.findByRole("region", { name: "The settings" });
 		expect(screen.queryByRole("region", { name: "The values" })).toBeNull();
+	});
+});
+
+describe("a project's page, cards first", () => {
+	const card = (
+		number: number,
+		state: string,
+		reason: string | null = null,
+	): CardView => ({
+		number,
+		title: `Card ${number}`,
+		web_url: `https://github.com/Adamniels/Personal-platform/issues/${number}`,
+		state,
+		reason,
+		waits_for: [],
+		priority: "none",
+		changed_at: "2026-11-17T11:00:00+00:00",
+	});
+
+	/** A feature of three cards and seven cards on their own: two being built,
+	 * two needing me, two queued and three done, and one ignored, in none. */
+	const CARDS: { cards: CardView[]; features: FeatureView[] } = {
+		features: [
+			{
+				number: 40,
+				title: "Export the feeding plan",
+				web_url: "https://github.com/Adamniels/Personal-platform/issues/40",
+				state: "building",
+				reason: null,
+				priority: "none",
+				changed_at: "2026-11-17T11:00:00+00:00",
+				cards: [card(43, "done"), card(41, "building"), card(42, "queued")],
+			},
+		],
+		cards: [
+			card(12, "waiting_for_owner"),
+			card(13, "needs_answers"),
+			card(14, "reviewing"),
+			card(15, "held", "Held by the label devflow-hold"),
+			card(16, "done"),
+			card(17, "done"),
+			card(18, "ignored", "octo-stranger is not a trusted account"),
+		],
+	};
+
+	/** The rule a selector's block holds in the page's CSS. */
+	const rule = (selector: string): string => {
+		const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		return css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
+	};
+
+	test("the header shows the name, the summary line and the stat pills", async () => {
+		const { back } = renderPage({ loadCards: () => Promise.resolve(CARDS) });
+
+		// The name as the page title, in the heading font at the display size.
+		const name = await screen.findByRole("heading", {
+			level: 2,
+			name: "Personal-platform",
+		});
+		expect(name.classList.contains(styles.name as string)).toBe(true);
+		expect(rule(".header .name")).toMatch(
+			/font-size:\s*var\(--text-display-size\)/,
+		);
+		const header = within(name.closest("header") as HTMLElement);
+
+		// The way back, "Projects".
+		const link = header.getByRole("link", { name: "Projects" });
+		expect(link.getAttribute("href")).toBe("/devflow/projects");
+		fireEvent.click(link);
+		expect(back).toHaveBeenCalledOnce();
+
+		// The mono caption: the repository and how long ago it was read.
+		const caption = header.getByText(
+			"Adamniels/Personal-platform · read 2 minutes ago",
+		);
+		expect(caption.classList.contains(styles.caption as string)).toBe(true);
+		expect(rule(".caption")).toMatch(/font-family:\s*var\(--font-mono\)/);
+		expect(rule(".caption")).toMatch(/text-transform:\s*uppercase/);
+
+		// One summary line, counted from the cards, ignored in none.
+		const line = await header.findByText(
+			"9 cards: 2 being built, 2 need you, 2 queued, 3 done.",
+		);
+		expect(line.classList.contains(styles.summary as string)).toBe(true);
+		expect(rule(".summary")).toMatch(/font-size:\s*var\(--text-body-lg-size\)/);
+
+		// The stat pills on the right, hidden on phone where the line says it.
+		const pills = header.getByRole("list", { name: "Cards by group" });
+		expect(
+			within(pills)
+				.getAllByRole("listitem")
+				.map((pill) => pill.textContent),
+		).toEqual(["In progress2", "Needs you2", "Done3"]);
+		expect(css).toMatch(
+			/@media \(max-width: 639\.98px\)\s*\{[^@]*\.pills\s*\{\s*display:\s*none/,
+		);
+	});
+
+	test("a project never read says so in its caption, and one card is a card", async () => {
+		renderPage({
+			loadProjects: vi.fn(() =>
+				Promise.resolve([{ ...PLATFORM, last_read_at: null }]),
+			),
+			loadCards: () =>
+				Promise.resolve({ cards: [card(12, "queued")], features: [] }),
+		});
+
+		expect(
+			await screen.findByText("Adamniels/Personal-platform · not read yet"),
+		).toBeTruthy();
+		expect(await screen.findByText("1 card: 1 queued.")).toBeTruthy();
+	});
+
+	test("workers are a compact card, and Start a worker shows the commands", async () => {
+		renderPage({
+			list: {
+				key_made_at: "2026-11-17T08:30:00+00:00",
+				workers: [worker("fodr-mini-1", "2026-11-17T11:59:00+00:00")],
+			},
+		});
+		const card = await panel();
+		const workers = within(card);
+
+		// Running, since a worker was seen in the last ten minutes.
+		expect(await workers.findByText("Running")).toBeTruthy();
+		// The count in thin numerals.
+		const count = workers.getByText("1", { selector: `.${styles.count}` });
+		expect(count).toBeTruthy();
+		expect(rule(".count")).toMatch(/font-weight:\s*300/);
+		expect(rule(".count")).toMatch(/font-size:\s*var\(--text-num-l-size\)/);
+		// Each worker an inset.
+		const [row] = within(
+			workers.getByRole("list", { name: "Workers" }),
+		).getAllByRole("listitem");
+		expect(row?.classList.contains(styles.worker as string)).toBe(true);
+		expect(within(row as HTMLElement).getByText("fodr-mini-1")).toBeTruthy();
+		// The key's date.
+		expect(
+			workers
+				.getByText(/^Key made/)
+				.querySelector("time")
+				?.getAttribute("dateTime"),
+		).toBe("2026-11-17T08:30:00+00:00");
+
+		// The commands are behind "Start a worker".
+		expect(
+			workers.queryByRole("region", { name: "Build and start the worker" }),
+		).toBeNull();
+		const start = workers.getByRole("button", { name: "Start a worker" });
+		expect(start.getAttribute("aria-expanded")).toBe("false");
+		fireEvent.click(start);
+		expect(start.getAttribute("aria-expanded")).toBe("true");
+		const commands = within(
+			workers.getByRole("region", { name: "Start a worker" }),
+		);
+		expect(commands.getByText(PASTE)).toBeTruthy();
+		expect(
+			commands.getByRole("region", { name: "Build and start the worker" }),
+		).toBeTruthy();
+		expect(commands.queryByRole("region", { name: "Save the key" })).toBeNull();
+
+		// A new key is still shown once, with the command that saves it.
+		fireEvent.click(workers.getByRole("button", { name: "Make a new key" }));
+		fireEvent.click(
+			within(screen.getByRole("dialog", { name: "Make a new key?" })).getByRole(
+				"button",
+				{ name: "Make a new key" },
+			),
+		);
+		expect(
+			await workers.findByRole("region", { name: "The new key" }),
+		).toBeTruthy();
+		expect(workers.getByRole("region", { name: "Save the key" })).toBeTruthy();
+	});
+
+	test("a worker quiet for ten minutes leaves the workers Idle", async () => {
+		renderPage({
+			list: {
+				key_made_at: "2026-11-17T08:30:00+00:00",
+				workers: [worker("fodr-mini-1", "2026-11-17T11:50:00+00:00")],
+			},
+		});
+
+		const workers = within(await panel());
+		expect(await workers.findByText("Idle")).toBeTruthy();
+		expect(workers.queryByText("Running")).toBeNull();
+	});
+
+	test("a new key opens the commands, so its save command is not missed", async () => {
+		renderPage();
+		const workers = within(await panel());
+
+		fireEvent.click(await workers.findByRole("button", { name: "Make a key" }));
+
+		expect(
+			await workers.findByRole("region", { name: "Save the key" }),
+		).toBeTruthy();
+		expect(
+			workers
+				.getByRole("button", { name: "Start a worker" })
+				.getAttribute("aria-expanded"),
+		).toBe("true");
+	});
+
+	test("settings are a summary with Edit settings", async () => {
+		const saved: ProjectSettings = {
+			pickup_label: "devflow",
+			hold_label: "devflow-hold",
+			attention_label: "devflow-attention",
+			review_label: "devflow-review",
+			waits_for_owner: "always",
+			wait_when_marked: true,
+			wait_when_paths: true,
+			wait_when_decision: true,
+			wait_paths: [],
+			trusted_logins: [{ login: "octo-owner", mine: true }],
+			model_reading: "opus",
+			model_building: "opus",
+			model_reviewing: "opus",
+			run_minutes: 90,
+			run_turns: 200,
+			fix_rounds_card: 3,
+			fix_rounds_feature: 3,
+			questions: true,
+			preset: "only_i_merge",
+		};
+		const saveSettings = vi.fn((_id: string, request: SettingsRequest) =>
+			Promise.resolve({
+				...saved,
+				questions: request.questions ?? saved.questions,
+				waits_for_owner: request.waits_for_owner ?? saved.waits_for_owner,
+				preset: "fully_automatic" as const,
+			}),
+		);
+		renderPage({
+			loadSettings: vi.fn(() => Promise.resolve(saved)),
+			saveSettings,
+		});
+
+		// A summary of label and value rows.
+		const summary = within(
+			await screen.findByRole("article", { name: "Settings" }),
+		);
+		const rows = async () => {
+			await summary.findAllByRole("term");
+			return Object.fromEntries(
+				summary
+					.getAllByRole("term")
+					.map((term, at) => [
+						term.textContent,
+						summary.getAllByRole("definition")[at]?.textContent,
+					]),
+			);
+		};
+		expect(await rows()).toEqual({
+			Preset: "Only I merge",
+			"Questions before starting": "On",
+			"Pull requests wait for you": "Always",
+			"Pick-up label": "devflow",
+			"Hold label": "devflow-hold",
+			"Attention label": "devflow-attention",
+			"Review label": "devflow-review",
+		});
+		expect(rule(".fact")).toMatch(/min-height:\s*36px/);
+
+		// "Edit settings" opens today's panel, at the top of the cards column.
+		expect(screen.queryByRole("article", { name: "Edit settings" })).toBeNull();
+		const edit = summary.getByRole("button", { name: "Edit settings" });
+		expect(edit.getAttribute("aria-expanded")).toBe("false");
+		fireEvent.click(edit);
+		expect(edit.getAttribute("aria-expanded")).toBe("true");
+		const panelElement = await screen.findByRole("article", {
+			name: "Edit settings",
+		});
+		const cards = await screen.findByRole("region", { name: "Cards" });
+		expect(
+			panelElement.compareDocumentPosition(cards) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+
+		// A save there updates the summary and the preset badge.
+		const form = within(panelElement);
+		fireEvent.click(
+			await form.findByRole("button", { name: "Fully automatic" }),
+		);
+		fireEvent.click(form.getByRole("button", { name: "Save" }));
+		await waitFor(() => expect(saveSettings).toHaveBeenCalledOnce());
+		await waitFor(async () =>
+			expect((await rows()).Preset).toBe("Fully automatic"),
+		);
+		expect((await rows())["Pull requests wait for you"]).toBe("Never");
+		expect((await rows())["Questions before starting"]).toBe("Off");
+		expect(document.querySelector("header")?.textContent).toContain(
+			"Fully automatic",
+		);
+	});
+
+	test("setup shows in place of the cards while setting up, and above them after a failed check", async () => {
+		const failing: ProjectSetup = {
+			...REGISTERED,
+			state: "setting_up",
+			steps: REGISTERED.steps.map((step) =>
+				step.step === "check" ? { ...step, done: false } : step,
+			),
+			check: {
+				id: "0190a8f0-0000-7000-8000-00000000c4e1",
+				version: "4f6c1c36b0bd2c24e3d5a8f5d8c0e0a3a0e3b9a1",
+				commit: "9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+				passed: false,
+				exit_code: 1,
+				output: "npm test\nFAIL src/list.test.ts",
+				pictures: [],
+				pictures_note: null,
+				checked_at: "2026-11-17T11:40:00+00:00",
+				again_asked: false,
+			},
+		};
+		const { loadCards } = renderPage({ setup: failing });
+
+		// Setting up: its steps in place of the cards, which are not read.
+		const setup = await screen.findByRole("article", { name: "Setting up" });
+		expect(screen.queryByRole("region", { name: "Cards" })).toBeNull();
+		expect(loadCards).not.toHaveBeenCalled();
+		// In the cards column, before the side column's workers.
+		expect(
+			setup.compareDocumentPosition(await panel()) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		cleanup();
+
+		// Registered, a newer version's check failed: above the cards.
+		renderPage({
+			setup: { ...failing, state: "registered" },
+			loadCards: () => Promise.resolve(CARDS),
+		});
+		const above = await screen.findByRole("article", { name: "Setting up" });
+		const cards = await screen.findByRole("region", { name: "Cards" });
+		expect(
+			above.compareDocumentPosition(cards) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(
+			cards.compareDocumentPosition(await panel()) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
 	});
 });

@@ -163,7 +163,7 @@ export interface paths {
         };
         /**
          * The caller's projects
-         * @description Each connected repository, by owner and name, with its summary, computed from what Dev flow stored: cards, its cards counted by group, needs_you (needs_answers, waiting_for_owner, stopped and refused), in_progress (reading, building, checking, reviewing and fixing), queued (queued and held) and done, an ignored card in none; workers, how many have said hello, last_seen_at, when the one seen last was seen, null with none, and held and cannot_run, the values listWorkers answers; setting_up, its setup steps done of total, six, while its state is setting_up, null once it is registered; and feature, its open feature, neither merged, closed nor ignored, with the most cards landed, the lowest number among equals, its number, title, landed, its cards in done, and total, its cards but an ignored one, null with none open. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description Each connected repository, by owner and name, with last_read_at, when its last read that succeeded was, null before any, and its summary, computed from what Dev flow stored: cards, its cards counted by group, needs_you (needs_answers, waiting_for_owner, stopped and refused), in_progress (reading, building, checking, reviewing and fixing), queued (queued and held) and done, an ignored card in none; workers, how many have said hello, last_seen_at, when the one seen last was seen, null with none, and held and cannot_run, the values listWorkers answers; setting_up, its setup steps done of total, six, while its state is setting_up, null once it is registered; and feature, its open feature, neither merged, closed nor ignored, with the most cards landed, the lowest number among equals, its number, title, landed, its cards in done, and total, its cards but an ignored one, null with none open. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         get: operations["listProjects"];
         put?: never;
@@ -1488,6 +1488,8 @@ export interface components {
             id: string;
             /** Format: int64 */
             installation_id: number;
+            /** Format: date-time */
+            last_read_at: null | string;
             name: string;
             owner: string;
             /** Format: int64 */

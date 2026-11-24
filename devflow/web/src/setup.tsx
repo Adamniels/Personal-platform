@@ -68,9 +68,9 @@ export const COMMENT_ON_PULL =
 export const SENT_BACK_RUN =
 	"You sent the failed check back: an agent writes .devflow/ again on a new branch and opens a pull request with it. Start its worker on the machine that runs your workers with this command, after saving the project's key below:";
 export const SETTINGS_PROPOSED =
-	"The setup run proposes these settings. Accept them, or change them in the Settings panel above and save it.";
+	"The setup run proposes these settings. Accept them, or change them under Edit settings and save them there.";
 export const SETTINGS_SAVE_ONCE =
-	"Look over the settings in the Settings panel above, and save them once. Until you do, this project hands out no reading or build.";
+	"Look over the settings under Edit settings, and save them once. Until you do, this project hands out no reading or build.";
 export const NOT_ACCEPTED = "The proposal was not saved.";
 export const SEND_BACK = "Send back with a comment";
 export const SEND_BACK_LABEL = "What should the setup do differently?";

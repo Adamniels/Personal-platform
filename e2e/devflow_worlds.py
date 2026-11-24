@@ -10,6 +10,7 @@ conftest.py stages one in the test's own account.
 """
 
 import base64
+import json
 import struct
 import zlib
 
@@ -21,6 +22,8 @@ WHEN = "2026-11-15T09:30:00+00:00"
 # Who the account is at the fake when a world names no user: the person linking
 # GitHub links, and so the owner whose cards are picked.
 FAKE_USER = "octo-owner"
+# The check a project's .devflow/project.json names, as `with_setup` writes it.
+CHECK = "npm ci && npm test"
 
 
 def one_repository(owner: str = OWNER, name: str = NAME) -> dict:
@@ -302,3 +305,13 @@ def add_activity(
     }
     changes.append(change)
     return change
+
+
+def with_setup(world: dict) -> None:
+    """Puts a project.json on the world's default branch, so a check of its
+    setup can be handed out; a project without one stays setting up."""
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
