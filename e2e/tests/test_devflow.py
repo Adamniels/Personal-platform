@@ -2613,11 +2613,23 @@ def test_i_merge_a_card_from_the_list(
     expect(row).to_contain_text("Done")
 
 
-def test_a_cards_page_tells_its_story(
+def test_a_card_page_tells_its_story(
     page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
 ):
     register_and_log_in(page, invite_code, base_url)
-    project, ran = _built_card(page, base_url, devflow_world)
+    read_once = {
+        "blocking": True,
+        "file": "web/src/list.tsx",
+        "line": 42,
+        "what": "The empty state is read once",
+        "why": "A list emptied later shows nothing",
+    }
+    # A build, a review asking for changes, a fix, and a review approving it.
+    project, ran = _built_card(
+        page, base_url, devflow_world, verdict=_verdict("changes", [read_once])
+    )
+    fixed = _fake_fix(page, base_url, project, _fix_report())
+    _fake_review(page, base_url, project, _verdict("approve"))
     pull = _opened(page)
 
     # From the project's cards list to the card's page.
@@ -2626,14 +2638,13 @@ def test_a_cards_page_tells_its_story(
         "link", name=CARD_TITLE
     ).click()
     expect(page).to_have_url(f"{base_url}/devflow/projects/{project}/cards/{CARD}")
-    expect(page.get_by_role("heading", name=CARD_TITLE)).to_be_visible()
     expect(page.get_by_role("tab", name="Projects", selected=True)).to_be_visible()
 
-    # Its state with its reason, and links to the issue and the pull request:
-    # approved, and with nothing from CI on its commit yet the merge check
-    # waits for it.
-    expect(page.get_by_text("Waiting for you", exact=True).first).to_be_visible()
-    expect(page.get_by_text("Waiting for CI to report on its commit")).to_be_visible()
+    # The header: its state, the mono line, the title and its links.
+    expect(page.get_by_role("heading", name=CARD_TITLE)).to_be_visible()
+    expect(
+        page.get_by_text(f"{OWNER}/{NAME} · CARD #{CARD} · NO FEATURE".upper())
+    ).to_be_visible()
     expect(page.get_by_role("link", name=f"Issue #{CARD}")).to_have_attribute(
         "href", f"https://github.com/{OWNER}/{NAME}/issues/{CARD}"
     )
@@ -2641,36 +2652,46 @@ def test_a_cards_page_tells_its_story(
         page.get_by_role("link", name=f"Pull request #{pull['number']}")
     ).to_have_attribute("href", pull["url"])
 
-    # Its runs, newest first: the review, then the build with its kind,
-    # worker, outcome, auth method, tokens and the check, with the output's
-    # tail behind Show, then the reading that read it before it was built.
-    runs = page.get_by_role("list", name="Runs")
-    expect(runs.get_by_role("listitem")).to_have_count(3)
-    expect(runs.get_by_role("listitem").first).to_contain_text("Review")
-    run = runs.get_by_role("listitem").nth(1)
-    expect(run).to_contain_text("Build")
-    expect(run).to_contain_text("devflow-fake-worker")
-    expect(run).to_contain_text("Succeeded")
-    expect(run).to_contain_text("oauth_token")
-    expect(run).to_contain_text("41 in, 6,113 out")
-    expect(run).to_contain_text(f"exit 0 on {ran['head_commit'][:7]}")
-    expect(runs.get_by_role("listitem").nth(2)).to_contain_text("Reading")
-    expect(run.get_by_text("Tests: 12 passed")).to_be_hidden()
-    run.get_by_role("button", name="Show").click()
-    expect(run.get_by_text("Tests: 12 passed")).to_be_visible()
-
-    # The latest report: summary, tasks, decisions, tests, pages and follow ups.
-    report = page.get_by_role("article", name="The latest report")
-    expect(report).to_contain_text("Added the empty state to the habits list")
-    expect(report.get_by_role("list", name="Tasks")).to_contain_text("Count the habits")
-    decisions = report.get_by_role("list", name="Decisions")
-    expect(decisions).to_contain_text("Show it on every list")
-    expect(decisions).to_contain_text("For you")
-    expect(report.get_by_role("list", name="Tests")).to_contain_text("list.test.tsx")
-    expect(report.get_by_role("list", name="Pages")).to_contain_text("/habits")
-    expect(report.get_by_role("list", name="Follow ups")).to_contain_text(
-        "Count the habits in the title"
+    # What the agent did, the fix's report, before how it got here.
+    did = page.get_by_role("article", name="What the agent did")
+    expect(did).to_contain_text(
+        "Read the empty state on every change, with a test that empties the list."
     )
+    expect(did.get_by_role("list", name="Decisions")).to_contain_text("For you")
+
+    # How it got here: the reading, then the build, the review asking for
+    # changes, the fix and the approval, oldest first, ending in now.
+    timeline = page.get_by_role("list", name="How it got here")
+    entries = timeline.locator(":scope > li")
+    expect(entries.locator("h3")).to_have_text(
+        [
+            "Reading",
+            "Build",
+            f"Review of {ran['head_commit'][:7]}",
+            "Fix, round 1 of 3",
+            f"Review of {fixed['head_commit'][:7]}",
+            "Now",
+        ]
+    )
+    build = entries.nth(1)
+    expect(build).to_contain_text("devflow-fake-worker")
+    expect(build).to_contain_text(f"exit 0 on {ran['head_commit'][:7]}")
+    expect(build.get_by_text("Tests: 12 passed")).to_be_hidden()
+    build.get_by_role("button", name="Show output").click()
+    expect(build.get_by_text("Tests: 12 passed")).to_be_visible()
+    expect(entries.nth(2).get_by_role("list", name="Findings")).to_contain_text(
+        "Blocking web/src/list.tsx:42 The empty state is read once"
+    )
+    expect(
+        entries.nth(3).get_by_role("list", name="The developer's replies")
+    ).to_contain_text("Fixed: it is read on every change")
+    expect(entries.nth(4)).to_contain_text("Approved")
+    expect(entries.nth(5)).to_contain_text("Waiting for you")
+
+    # At a glance: the check and the review of the head, and one round used.
+    glance = page.get_by_role("article", name="At a glance")
+    expect(glance).to_contain_text("Approved")
+    expect(glance.get_by_role("img", name="Fix rounds: 1 of 3 used")).to_be_visible()
 
     page.evaluate("document.fonts.ready.then(() => null)")
     for check in (
@@ -2681,7 +2702,14 @@ def test_a_cards_page_tells_its_story(
     ):
         check(page)
     assert _axe_violations(page) == []
-    capture(page, "devflow-card-page")
+    capture(page, "devflow-card-waiting")
+
+    # The banner's one link opens its item in the inbox.
+    page.get_by_role("link", name="Decide in Waiting for you").click()
+    expect(page).to_have_url(
+        re.compile(rf"/devflow\?item=card(/|%2F){project}(/|%2F){CARD}$")
+    )
+    expect(page.get_by_role("article", name=CARD_TITLE)).to_be_visible()
 
 
 def test_the_card_page_shows_which_pages_the_agent_looked_at(
@@ -3151,9 +3179,12 @@ def test_a_stopped_card_tells_me_why_and_i_run_it_again(
 ):
     register_and_log_in(page, invite_code, base_url)
     project = _card_project(page, base_url, devflow_world)
-    # The fake worker fails twice in the card, with nothing pushed between.
+    # The fake worker fails twice in the card, with nothing pushed between,
+    # Claude Code's error output the last lines of each.
+    failed = _failure(True, TURNS)
+    failed["stderr"] = "Starting Claude Code\nError: Reached max turns (200)"
     for _ in range(2):
-        _fake_run(page, base_url, project, _failure(True, TURNS), leave_no_commit=True)
+        _fake_run(page, base_url, project, failed, leave_no_commit=True)
 
     # The app marked it on its issue: the attention label and one comment.
     world = repository(page.request.get("/devflow/api/fake/world").json())
@@ -3192,7 +3223,27 @@ def test_a_stopped_card_tells_me_why_and_i_run_it_again(
     ):
         check(page)
     assert _axe_violations(page) == []
+    capture(page, "devflow-inbox-stopped")
+
+    # The card's page says why, and links back to its item.
+    page.goto(f"/devflow/projects/{project}/cards/{CARD}")
+    expect(page.get_by_role("link", name="Decide in Waiting for you")).to_be_visible()
+    expect(page.get_by_text("Needs you", exact=True)).to_be_visible()
+    expect(page.get_by_text(TWICE).first).to_be_visible()
+    error = page.get_by_role("button", name="Show Claude Code's error output").last
+    error.click()
+    expect(page.get_by_text("Error: Reached max turns (200)").last).to_be_visible()
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+        assert_nothing_active_is_amber,
+    ):
+        check(page)
+    assert _axe_violations(page) == []
     capture(page, "devflow-card-stopped")
+    page.goto("/devflow")
 
     # "Comment to run again" posts his comment on the card's issue, which queues it.
     stopped.get_by_role("button", name="Comment to run again").click()
