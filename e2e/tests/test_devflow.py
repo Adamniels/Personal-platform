@@ -2679,6 +2679,8 @@ def test_a_card_page_tells_its_story(
     )
     build = entries.nth(1)
     expect(build).to_contain_text("devflow-fake-worker")
+    expect(build).to_contain_text("41 in / 6,113 out")
+    expect(build).to_contain_text("logged in with oauth_token")
     expect(build).to_contain_text(f"exit 0 on {ran['head_commit'][:7]}")
     expect(build.get_by_text("Tests: 12 passed")).to_be_hidden()
     build.get_by_role("button", name="Show output").click()
