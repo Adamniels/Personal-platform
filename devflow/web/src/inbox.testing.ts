@@ -2,7 +2,7 @@
 // does, to see its detail. Only tests import it.
 import { fireEvent, screen, within } from "@testing-library/react";
 
-const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const literal = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** The inbox's queue, once it has drawn. */
 export async function queue(): Promise<HTMLElement> {
@@ -13,7 +13,7 @@ export async function queue(): Promise<HTMLElement> {
  * detail, the item's card beside the queue. */
 export async function choose(title: string): Promise<HTMLElement> {
 	const row = await within(await queue()).findByRole("link", {
-		name: new RegExp(`^${escape(title)} `),
+		name: new RegExp(`^${literal(title)} `),
 	});
 	fireEvent.click(row);
 	return screen.findByRole("article", { name: title });
