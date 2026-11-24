@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { ActionsApi } from "./actions";
 import { ApiError } from "./api/client";
 import { App } from "./app";
+import { choose } from "./inbox.testing";
 import type { Status } from "./status";
 import type { CardItem, WaitingApi, WaitingItem, WaitingList } from "./waiting";
 
@@ -177,7 +178,9 @@ describe("a card of Dev flow's that waits", () => {
 		const region = screen.getByRole("region", {
 			name: /Pull requests waiting/,
 		});
-		expect(within(region).getByRole("article", { name: TITLE })).toBeTruthy();
+		expect(
+			within(region).getByRole("link", { name: new RegExp(`^${TITLE} `) }),
+		).toBeTruthy();
 		expect(screen.getByRole("tab", { name: "Waiting for you 1" })).toBeTruthy();
 		expect(shown.getByText("Waiting for you", { exact: true })).toBeTruthy();
 		expect(shown.getByText("Adamniels/Fodr")).toBeTruthy();
@@ -282,9 +285,7 @@ describe("a card of Dev flow's that waits", () => {
 		const approved = await item();
 		expect(approved.getByText("Approved")).toBeTruthy();
 		expect(approved.queryByText(/block/)).toBeNull();
-		const unreviewed = within(
-			screen.getByRole("article", { name: "Count the habits" }),
-		);
+		const unreviewed = within(await choose("Count the habits"));
 		expect(
 			unreviewed.queryByRole("heading", { name: "The review" }),
 		).toBeNull();

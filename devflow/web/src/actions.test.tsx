@@ -18,6 +18,7 @@ import {
 import type { ActionsApi } from "./actions";
 import { ApiError } from "./api/client";
 import { App } from "./app";
+import { choose } from "./inbox.testing";
 import type { Status } from "./status";
 import type { WaitingApi, WaitingItem, WaitingList } from "./waiting";
 
@@ -137,12 +138,9 @@ function open(
 	return { actions: { merge, sendBack }, loads };
 }
 
+/** The item's card, by its title, chosen in the queue. */
 async function card(title: string) {
-	return within(
-		await within(screen.getByRole("tabpanel")).findByRole("article", {
-			name: title,
-		}),
-	);
+	return within(await choose(title));
 }
 
 // jsdom has HTMLDialogElement but neither showModal nor close, which stand in
@@ -268,18 +266,19 @@ describe("merging", () => {
 		);
 	});
 
-	test("only the first waiting item's Merge is the primary button", async () => {
+	test("the chosen item's Merge is the view's one primary button", async () => {
 		open([item({ number: 304 }), item({ number: 305 })]);
 
 		const first = await mergeButton("Pull request 304");
-		const second = await mergeButton("Pull request 305");
 		await waitFor(() => expect(enabled(first)).toBe(true));
-		expect(first.className).not.toBe(second.className);
-		expect(
-			screen
-				.getAllByRole("button", { name: "Send back" })
-				.every((each) => each.className === second.className),
-		).toBe(true);
+		const secondary = screen.getByRole("button", { name: "Send back" });
+		expect(first.className).not.toBe(secondary.className);
+
+		// The other, once chosen, is the one item in view, and its Merge is
+		// the primary.
+		const second = await mergeButton("Pull request 305");
+		expect(screen.getAllByRole("button", { name: "Merge" })).toHaveLength(1);
+		expect(second.className).toBe(first.className);
 	});
 
 	test("a refusal is shown in the item, and the list is read again", async () => {

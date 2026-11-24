@@ -12,6 +12,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import type { ActionsApi } from "./actions";
 import { ApiError } from "./api/client";
 import { App } from "./app";
+import { choose } from "./inbox.testing";
 import type { WaitingApi, WaitingItem, WaitingList } from "./waiting";
 
 const NOW = Date.parse("2026-11-16T12:00:00Z");
@@ -110,9 +111,16 @@ function panel() {
 	return within(screen.getByRole("tabpanel"));
 }
 
-/** The item's card, by its title. */
+/** The item's card, by its title, chosen in the queue. */
 async function card(title: string) {
-	return within(await panel().findByRole("article", { name: title }));
+	return within(await choose(title));
+}
+
+/** A group's rows, each its title and its meta line. */
+function rows(group: HTMLElement) {
+	return within(group)
+		.getAllByRole("link")
+		.map((row) => row.textContent);
 }
 
 afterEach(cleanup);
@@ -143,8 +151,8 @@ describe("the list and its groups", () => {
 				.map((region) => region.getAttribute("aria-labelledby"))
 				.map((id) => document.getElementById(id ?? "")?.textContent),
 		).toEqual(["Pull requests waiting", "Stopped"]);
-		expect(within(waiting).getAllByRole("article")).toHaveLength(2);
-		expect(within(stopped).getAllByRole("article")).toHaveLength(1);
+		expect(within(waiting).getAllByRole("link")).toHaveLength(2);
+		expect(within(stopped).getAllByRole("link")).toHaveLength(1);
 	});
 
 	test("refused cards are a group with what is missing", async () => {
@@ -192,9 +200,8 @@ describe("the list and its groups", () => {
 				.map((region) => region.getAttribute("aria-labelledby"))
 				.map((id) => document.getElementById(id ?? "")?.textContent),
 		).toEqual(["Stopped", "Refused"]);
-		const entry = within(
-			within(refused).getByRole("article", { name: "Add the empty state" }),
-		);
+		expect(within(refused).getAllByRole("link")).toHaveLength(1);
+		const entry = within(await choose("Add the empty state"));
 		expect(entry.getByText("Refused", { selector: "span" })).toBeTruthy();
 		expect(entry.getByText("Adamniels/Personal-platform")).toBeTruthy();
 		expect(entry.getByText("#4")).toBeTruthy();
@@ -242,9 +249,8 @@ describe("the list and its groups", () => {
 		);
 
 		const group = await screen.findByRole("region", { name: "Setup" });
-		const item = within(group).getByRole("article", {
-			name: "fodr's setup failed its check",
-		});
+		expect(within(group).getAllByRole("link")).toHaveLength(1);
+		const item = await choose("fodr's setup failed its check");
 		expect(within(item).getByText("Check failed")).toBeTruthy();
 		expect(within(item).getByText(/exited with 1/)).toBeTruthy();
 		expect(
@@ -278,9 +284,8 @@ describe("the list and its groups", () => {
 		);
 
 		const group = await screen.findByRole("region", { name: "Setup" });
-		const item = within(group).getByRole("article", {
-			name: "fodr's setup waits for you",
-		});
+		expect(within(group).getAllByRole("link")).toHaveLength(1);
+		const item = await choose("fodr's setup waits for you");
 		expect(within(item).getByText("Needs you")).toBeTruthy();
 		expect(
 			within(item).getByText("Approved; it waits for you to merge it."),
@@ -331,12 +336,11 @@ describe("the list and its groups", () => {
 		const waiting = await panel().findByRole("region", {
 			name: "Pull requests waiting",
 		});
-		expect(
-			within(waiting)
-				.getAllByRole("article")
-				.map((article) => article.getAttribute("aria-labelledby"))
-				.map((id) => document.getElementById(id ?? "")?.textContent),
-		).toEqual(["Fodr forty", "Platform three", "Platform twelve"]);
+		expect(rows(waiting)).toEqual([
+			"Fodr forty Fodr · #40",
+			"Platform three Personal-platform · #3",
+			"Platform twelve Personal-platform · #12",
+		]);
 	});
 
 	test("an item's first line holds the project, its number, its title and its status", async () => {
@@ -571,16 +575,14 @@ describe("decisions, the reviewer's view and the reasons", () => {
 		const sentBack = await panel().findByRole("region", {
 			name: "Sent back, the runner has it",
 		});
-		expect(
-			within(sentBack)
-				.getAllByRole("article")
-				.map((article) => article.getAttribute("aria-labelledby"))
-				.map((id) => document.getElementById(id ?? "")?.textContent),
-		).toEqual(["Went back", "Stopped and went back"]);
+		expect(rows(sentBack)).toEqual([
+			"Went back Personal-platform · #2 · sent back",
+			"Stopped and went back Personal-platform · #3 · sent back",
+		]);
 		const waiting = panel().getByRole("region", {
 			name: "Pull requests waiting",
 		});
-		expect(within(waiting).getAllByRole("article")).toHaveLength(1);
+		expect(within(waiting).getAllByRole("link")).toHaveLength(1);
 		expect(within(waiting).getByText("1")).toBeTruthy();
 		expect(panel().queryByRole("region", { name: "Stopped" })).toBeNull();
 		const wentBack = await card("Went back");
@@ -941,9 +943,8 @@ describe("questions before starting", () => {
 				.map((region) => region.getAttribute("aria-labelledby"))
 				.map((id) => document.getElementById(id ?? "")?.textContent),
 		).toEqual(["Questions before starting", "Pull requests waiting"]);
-		const entry = within(
-			within(group).getByRole("article", { name: "Add the habits list" }),
-		);
+		expect(within(group).getAllByRole("link")).toHaveLength(1);
+		const entry = within(await choose("Add the habits list"));
 		expect(entry.getByText("Adamniels/Personal-platform")).toBeTruthy();
 		expect(entry.getByText("#9")).toBeTruthy();
 		expect(entry.getByText("#8 Habits")).toBeTruthy();
@@ -1012,7 +1013,8 @@ describe("the inbox", () => {
 			title: "Add the empty state",
 			web_url: `https://github.com/Adamniels/Personal-platform/issues/${CARD}`,
 			pull_request_number: 40,
-			pull_request_url: "https://github.com/Adamniels/Personal-platform/pull/40",
+			pull_request_url:
+				"https://github.com/Adamniels/Personal-platform/pull/40",
 			head_commit: "5".repeat(40),
 			base: "main",
 			summary: "Added the empty state.",
@@ -1060,13 +1062,6 @@ describe("the inbox", () => {
 		return within(screen.getByRole("navigation", { name: "The queue" }));
 	}
 
-	/** The queue's rows, each its title and its meta line. */
-	function rows() {
-		return queue()
-			.getAllByRole("link")
-			.map((row) => row.textContent);
-	}
-
 	test("the queue lists every group with its count and the first item is open", async () => {
 		openWith(answering(everything()));
 
@@ -1089,13 +1084,15 @@ describe("the inbox", () => {
 		expect(waiting.getByText("2")).toBeTruthy();
 		// Each item a row with its title and a meta line of its project, its
 		// number and the one fact that matters.
-		expect(rows()).toEqual([
-			"Add the empty statePersonal-platform · #40 · 2 decisions",
-			"The vaultPersonal-platform · #304",
-			"Import a photoPersonal-platform · #306 · stopped",
-			"Count the habitsPersonal-platform · card #4 · too thin",
-			"The boardPersonal-platform · #307 · sent back",
-		]);
+		expect(rows(screen.getByRole("navigation", { name: "The queue" }))).toEqual(
+			[
+				"Add the empty state Personal-platform · #40 · 2 decisions",
+				"The vault Personal-platform · #304",
+				"Import a photo Personal-platform · #306 · stopped",
+				"Count the habits Personal-platform · card #4 · too thin",
+				"The board Personal-platform · #307 · sent back",
+			],
+		);
 		const meta = queue().getByText("Personal-platform · #304");
 		expect(meta.className).toMatch(/meta/);
 		// The queue has no button; the first item's detail is beside it.
@@ -1117,7 +1114,9 @@ describe("the inbox", () => {
 		fireEvent.click(vault);
 
 		expect(await card("The vault")).toBeTruthy();
-		expect(panel().queryByRole("article", { name: "Add the empty state" })).toBeNull();
+		expect(
+			panel().queryByRole("article", { name: "Add the empty state" }),
+		).toBeNull();
 		expect(vault.getAttribute("aria-current")).toBe("true");
 		expect(
 			queue()
@@ -1143,10 +1142,7 @@ describe("the inbox", () => {
 	});
 
 	test("an address opens its item, an unknown one the first", async () => {
-		openWith(
-			answering(everything()),
-			`/devflow?item=refused/${PROJECT}/4`,
-		);
+		openWith(answering(everything()), `/devflow?item=refused/${PROJECT}/4`);
 		expect(await card("Count the habits")).toBeTruthy();
 		expect(panel().getAllByRole("article")).toHaveLength(1);
 

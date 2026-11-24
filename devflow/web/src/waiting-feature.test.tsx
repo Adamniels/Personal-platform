@@ -9,6 +9,7 @@ import {
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { ActionsApi } from "./actions";
 import { App } from "./app";
+import { choose } from "./inbox.testing";
 import type { WaitingApi, WaitingList } from "./waiting";
 import type { FeatureItem } from "./waiting-feature";
 
@@ -200,9 +201,8 @@ describe("features ready for your review", () => {
 			name: "Features ready for your review",
 		});
 		expect(within(group).getByText("1")).toBeTruthy();
-		const item = within(
-			within(group).getByRole("article", { name: "Feeding plan, version 2" }),
-		);
+		expect(within(group).getAllByRole("link")).toHaveLength(1);
+		const item = within(await choose("Feeding plan, version 2"));
 		expect(item.getByText("Ready for you")).toBeTruthy();
 		expect(item.getByText("Adamniels/Fodr")).toBeTruthy();
 		expect(item.getByText("Pull request #51")).toBeTruthy();
@@ -251,7 +251,8 @@ describe("features ready for your review", () => {
 		const group = await panel().findByRole("region", {
 			name: "Features ready for your review",
 		});
-		const item = within(within(group).getByRole("article"));
+		expect(within(group).getAllByRole("link")).toHaveLength(1);
+		const item = within(panel().getByRole("article"));
 		expect(item.getByText("Waiting for you")).toBeTruthy();
 		expect(
 			item.getByText("The review of the whole feature asked for changes"),

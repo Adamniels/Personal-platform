@@ -8,40 +8,167 @@
 	gap: var(--space-4);
 }
 
-/* A group: its heading over its cards, a card gap apart. */
-.group {
+/* The inbox: the queue and the chosen item's detail, the main and side
+ * column of section 2 of design/DESIGN.md as a wrapping row, the queue card
+ * first. */
+.inbox {
 	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	gap: var(--space-4);
+}
+
+/* The queue: a card, "Card" in section 4, holding every group. */
+.queue {
+	box-sizing: border-box;
+	display: flex;
+	flex: 1 1 340px;
 	flex-direction: column;
 	gap: var(--space-4);
 	min-width: 0;
+	padding: var(--card-pad);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	background: var(--surface);
 }
 
-/* A section heading, hard rule 12: the heading font at the h2 size, the
- * only size it has below the hero, weight 600 in capitals, with its count in
- * the mono font beside it. Set here as well as by page.css's rule for an h2,
+.detail {
+	flex: 999 1 560px;
+	min-width: 0;
+}
+
+/* A group in the queue: its heading over its rows. */
+.group {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-width: 0;
+}
+
+/* A group's heading: caption size, weight 600, --text-2, its count on the
+ * right in the mono font. Set here as well as by page.css's rule for an h2,
  * so it does not depend on the element. */
 .group .heading {
 	display: flex;
 	align-items: baseline;
+	justify-content: space-between;
 	gap: var(--space-2);
 	margin: 0;
-	font-family: var(--font-heading);
-	font-size: var(--text-h2-size);
-	line-height: var(--text-h2-line);
+	color: var(--text-2);
+	font-family: var(--font-ui);
+	font-size: var(--text-caption-size);
+	line-height: var(--text-caption-line);
 	font-weight: 600;
-	text-transform: uppercase;
+	letter-spacing: normal;
+	text-transform: none;
 	overflow-wrap: anywhere;
 }
 
+/* Questions before starting asks for the owner. */
+.asks .heading {
+	color: var(--accent-text);
+}
+
 .count {
-	color: var(--text-3);
 	font-family: var(--font-mono);
 	font-size: var(--text-mono-size);
 	line-height: var(--text-mono-line);
 	font-variant-numeric: tabular-nums;
 }
 
-/* Sent back: the runner has it, so its cards' text steps back. The card
+.rows {
+	display: flex;
+	flex-direction: column;
+	gap: var(--inset-gap);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+/* A row: the dot, the title over the meta line. Plain, with a transparent
+ * 1px border so the chosen one does not move; only the chosen row has the
+ * fill, as "Inset list row" in section 4 says of a list where one row is
+ * current. */
+.row {
+	box-sizing: border-box;
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-2);
+	min-height: var(--row-h);
+	padding: 8px 12px;
+	border: 1px solid transparent;
+	border-radius: var(--radius-md);
+	color: var(--text);
+	text-decoration: none;
+}
+
+.row:hover {
+	background: var(--surface-2);
+}
+
+.row[aria-current="true"] {
+	border-color: var(--border-strong);
+	background: var(--surface-2);
+}
+
+.row:focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: var(--focus-offset);
+}
+
+/* An 8px dot in the status colour; the group's heading and the meta line
+ * say the state in words. */
+.dot {
+	flex: none;
+	width: 8px;
+	height: 8px;
+	border-radius: var(--radius-full);
+	transform: translateY(-1px);
+}
+
+.needs-you {
+	background: var(--accent);
+}
+
+.failed {
+	background: var(--danger);
+}
+
+.running {
+	background: var(--info);
+}
+
+.what {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+/* The title at weight 500, cut with an ellipsis. */
+.title {
+	overflow: hidden;
+	font-weight: 500;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Sent back is the runner's, so it steps back. */
+.muted .heading,
+.muted .title {
+	color: var(--text-3);
+}
+
+/* The project, the number and the one fact, hard rule 8: the mono font. */
+.meta {
+	color: var(--text-2);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+	overflow-wrap: anywhere;
+}
+
+/* Sent back: the runner has it, so its item's text steps back. The card
  * keeps its surface and its 1px --border, "Card" in section 4 of
  * design/DESIGN.md, and its status keeps its word, so nothing rests on
  * colour. */

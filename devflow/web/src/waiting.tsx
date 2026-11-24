@@ -4,26 +4,32 @@
 // host and is shown as text. See "The pages" and "What waits" in devflow/README.md.
 import { Button, Card, EmptyState, Status } from "@platform/ui";
 import { useQuery } from "@tanstack/react-query";
-import { type MouseEvent, useId, useState } from "react";
+import {
+	Fragment,
+	type MouseEvent,
+	type ReactNode,
+	useId,
+	useState,
+} from "react";
 import { type ActionsApi, ItemActions, type LinkState } from "./actions";
-import { navigate } from "./address";
+import { navigate, plainClick } from "./address";
 import type { GetAnswer } from "./api/client";
-import { DecisionIssue, type DecisionItem } from "./decision-issue";
+import { DecisionIssue } from "./decision-issue";
 import { Inline } from "./format";
 import { QuestionCard } from "./question-card";
 import { RefusedCard } from "./refused-card";
 import { Screenshots, waitingScreenshot } from "./screenshots";
 import {
-	type SetupProjectItem,
-	type SetupRunItem,
+	setupFailedTitle,
+	setupRunTitle,
 	WaitingSetup,
 	WaitingSetupRun,
 } from "./setup";
-import { StoppedProject } from "./stopped";
+import { StoppedProject, stoppedTitle } from "./stopped";
 import { FailingProject, StoppedCard } from "./stopped-card";
 import styles from "./waiting.module.css";
 import { WaitingCard } from "./waiting-card";
-import { type FeatureItem, WaitingFeature } from "./waiting-feature";
+import { WaitingFeature } from "./waiting-feature";
 
 export type WaitingList = GetAnswer<"/waiting">;
 export type WaitingItem = WaitingList["items"][number];
@@ -60,37 +66,31 @@ export function useWaiting(load: WaitingApi["loadWaiting"]) {
 	});
 }
 
+/** How an item's row marks its state: the dot's colour, from the status
+ * tones of "Badge and status label" in design/DESIGN.md. */
+type Tone = "needs-you" | "failed" | "running";
+
+/** One waiting item, of any kind: its key in the address, its row in the
+ * queue, and its detail. */
+type Entry = {
+	/** Names exactly this item, one pattern per kind; see "The pages" in
+	 * devflow/README.md. */
+	key: string;
+	title: string;
+	/** The meta line's parts: the project, the number and the one fact that
+	 * matters. */
+	meta: string[];
+	tone: Tone;
+	/** The item, rendered by the component its kind already has. */
+	detail: (act: Act) => ReactNode;
+};
+
 type Group = {
 	label: string;
-	items: WaitingItem[];
-	/** Dev flow's own items in the group, shown before the runner's. */
-	own?: OwnItem[];
-	/** Dev flow's own cards whose pull requests wait, shown before the
-	 * runner's items. */
-	cards?: CardItem[];
-	/** Dev flow's projects that cannot run their cards, after its stopped
-	 * projects. */
-	failing?: FailingProjectItem[];
-	/** Dev flow's own cards that stopped, before the runner's items. */
-	stopped?: StoppedCardItem[];
-	/** Dev flow's own cards refused as too thin to build. */
-	refused?: RefusedCardItem[];
-	/** Dev flow's own cards that wait for the owner's answers to their
-	 * questions. */
-	asked?: QuestionCardItem[];
-	/** The decisions to look at, the issues Dev flow opened for them. */
-	decided?: DecisionItem[];
-	/** Dev flow's own features ready for the owner's review, or waiting for
-	 * him. */
-	features?: FeatureItem[];
-	/** Dev flow's projects whose newest check of their setup failed. */
-	setup?: SetupProjectItem[];
-	/** Dev flow's projects whose setup run waits for the owner or stopped. */
-	setupRuns?: SetupRunItem[];
-	muted?: boolean;
-	/** Whether the first item's Merge is the view's one primary button,
-	 * design/DESIGN.md's rule; the others are secondary. */
-	primaryFirst?: boolean;
+	/** Questions before starting asks for the owner; Sent back is the
+	 * runner's, so it steps back. */
+	look?: "asks" | "muted";
+	entries: Entry[];
 };
 
 /** What an item's actions need from the tab. */
@@ -100,77 +100,236 @@ type Act = {
 	reload: () => Promise<unknown>;
 };
 
+const plural = (count: number, word: string) =>
+	`${count} ${word}${count === 1 ? "" : "s"}`;
+
 /** The eight groups, in their order: Dev flow's cards that wait for the
  * owner's answers before they start; Dev flow's waiting cards and the
  * waiting items not sent back; Dev flow's features ready for the owner's
  * review, or waiting for him; what stopped, Dev flow's stopped projects
  * first, then the projects that cannot run their cards, its stopped cards and
- * the runner's stopped items not sent back; Dev flow's projects whose newest
- * check of their setup failed; Dev flow's cards refused as too thin; the
- * decisions to look at on cards Dev flow merged; and every item sent back. */
+ * the runner's stopped items not sent back; Dev flow's projects whose setup
+ * run waits or stopped, and those whose newest check of their setup failed;
+ * Dev flow's cards refused as too thin; the decisions to look at on cards Dev
+ * flow merged; and every item sent back. Only groups with an item. */
 function groups(list: WaitingList, name: (item: WaitingItem) => string) {
-	const { items, own_items: own, cards, decisions: decided } = list;
-	const sorted = [...items].sort(
+	const sorted = [...list.items].sort(
 		(a, b) => compare(name(a), name(b)) || a.number - b.number,
 	);
+	const runner = (each: WaitingItem): Entry => ({
+		key: each.id,
+		title: each.title,
+		meta: [
+			each.project_name,
+			`#${each.number}`,
+			...(each.sent_back
+				? ["sent back"]
+				: each.kind === "stopped"
+					? ["stopped"]
+					: each.decisions.length > 0
+						? [plural(each.decisions.length, "decision")]
+						: []),
+		],
+		tone: each.sent_back
+			? "running"
+			: each.kind === "stopped"
+				? "failed"
+				: "needs-you",
+		detail: (act) => (
+			<Item item={each} project={name(each)} primary act={act} />
+		),
+	});
 	const all: Group[] = [
 		{
 			label: "Questions before starting",
-			items: [],
-			asked: list.question_cards,
+			look: "asks",
+			entries: list.question_cards.map((card) => ({
+				key: `questions/${card.project_id}/${card.number}`,
+				title: card.title,
+				meta: [
+					card.project_name,
+					`card #${card.number}`,
+					plural(card.questions.length, "question"),
+				],
+				tone: "needs-you",
+				detail: (act) => (
+					<QuestionCard
+						card={card}
+						link={act.link}
+						api={act.api}
+						reload={act.reload}
+						linkable={linkable}
+					/>
+				),
+			})),
 		},
 		{
 			label: "Pull requests waiting",
-			items: sorted.filter(
-				(item) => item.kind === "waiting" && !item.sent_back,
-			),
-			cards,
-			primaryFirst: true,
+			entries: [
+				...list.cards.map(
+					(card): Entry => ({
+						key: `card/${card.project_id}/${card.number}`,
+						title: card.title,
+						meta: [
+							card.project_name,
+							`#${card.pull_request_number}`,
+							...(card.decisions.length > 0
+								? [plural(card.decisions.length, "decision")]
+								: []),
+						],
+						tone: "needs-you",
+						detail: (act) => (
+							<WaitingCard
+								card={card}
+								primary
+								link={act.link}
+								api={act.api}
+								reload={act.reload}
+							/>
+						),
+					}),
+				),
+				...sorted
+					.filter((each) => each.kind === "waiting" && !each.sent_back)
+					.map(runner),
+			],
 		},
 		{
 			label: "Features ready for your review",
-			items: [],
-			features: list.features,
+			entries: list.features.map((feature) => ({
+				key: `feature/${feature.project_id}/${feature.number}`,
+				title: feature.title,
+				meta: [
+					feature.project_name,
+					`feature #${feature.number}`,
+					...(feature.unanswered > 0
+						? [`${feature.unanswered} unanswered`]
+						: []),
+				],
+				tone: "needs-you",
+				detail: (act) => (
+					<WaitingFeature
+						feature={feature}
+						link={act.link}
+						api={act.api}
+						reload={act.reload}
+					/>
+				),
+			})),
 		},
 		{
 			label: "Stopped",
-			items: sorted.filter(
-				(item) => item.kind === "stopped" && !item.sent_back,
-			),
-			own: own.filter((each) => each.kind === "project_stopped"),
-			failing: list.failing_projects,
-			stopped: list.stopped_cards,
+			entries: [
+				...list.own_items
+					.filter((each) => each.kind === "project_stopped")
+					.map(
+						(stop): Entry => ({
+							key: `stopped/${stop.project_id}`,
+							title: stoppedTitle(stop.branch),
+							meta: [stop.project_name, stop.commit.slice(0, 7), "stopped"],
+							tone: "failed",
+							detail: (act) => (
+								<StoppedProject
+									stop={stop}
+									api={act.api}
+									reload={act.reload}
+									linkable={linkable}
+								/>
+							),
+						}),
+					),
+				...list.failing_projects.map(
+					(project): Entry => ({
+						key: `failing/${project.project_id}`,
+						title: project.message,
+						meta: [project.project_name, "cannot run"],
+						tone: "failed",
+						detail: () => <FailingProject project={project} />,
+					}),
+				),
+				...list.stopped_cards.map(
+					(card): Entry => ({
+						key: `card/${card.project_id}/${card.number}`,
+						title: card.title,
+						meta: [card.project_name, `card #${card.number}`, "stopped"],
+						tone: "failed",
+						detail: (act) => (
+							<StoppedCard
+								card={card}
+								link={act.link}
+								api={act.api}
+								reload={act.reload}
+								linkable={linkable}
+							/>
+						),
+					}),
+				),
+				...sorted
+					.filter((each) => each.kind === "stopped" && !each.sent_back)
+					.map(runner),
+			],
 		},
 		{
 			label: "Setup",
-			items: [],
-			setup: list.setup_projects,
-			setupRuns: list.setup_runs,
+			entries: [
+				...list.setup_runs.map(
+					(project): Entry => ({
+						key: `setup-run/${project.project_id}`,
+						title: setupRunTitle(project),
+						meta: [
+							project.project_name,
+							...(project.pull_request_number === null
+								? []
+								: [`#${project.pull_request_number}`]),
+							project.state === "stopped" ? "stopped" : "waits for you",
+						],
+						tone: project.state === "stopped" ? "failed" : "needs-you",
+						detail: () => <WaitingSetupRun project={project} />,
+					}),
+				),
+				...list.setup_projects.map(
+					(project): Entry => ({
+						key: `setup-check/${project.project_id}`,
+						title: setupFailedTitle(project),
+						meta: [project.project_name, `exit ${project.exit_code}`],
+						tone: "failed",
+						detail: () => <WaitingSetup project={project} />,
+					}),
+				),
+			],
 		},
-		{ label: "Refused", items: [], refused: list.refused_cards },
-		{ label: "Decisions to look at", items: [], decided },
+		{
+			label: "Refused",
+			entries: list.refused_cards.map((card) => ({
+				key: `refused/${card.project_id}/${card.number}`,
+				title: card.title,
+				meta: [card.project_name, `card #${card.number}`, "too thin"],
+				tone: "failed",
+				detail: () => <RefusedCard card={card} linkable={linkable} />,
+			})),
+		},
+		{
+			label: "Decisions to look at",
+			entries: list.decisions.map((decision) => ({
+				key: `decision/${decision.id}`,
+				title: decision.chosen,
+				meta: [
+					decision.project_name,
+					`issue #${decision.issue_number}`,
+					`merged in #${decision.pull_request_number}`,
+				],
+				tone: "needs-you",
+				detail: () => <DecisionIssue decision={decision} />,
+			})),
+		},
 		{
 			label: "Sent back, the runner has it",
-			items: sorted.filter((item) => item.sent_back),
-			muted: true,
+			look: "muted",
+			entries: sorted.filter((each) => each.sent_back).map(runner),
 		},
 	];
-	return all.filter((group) => size(group) > 0);
+	return all.filter((group) => group.entries.length > 0);
 }
-
-/** How many entries a group holds, Dev flow's and the runner's. */
-const size = (group: Group) =>
-	group.items.length +
-	(group.own?.length ?? 0) +
-	(group.cards?.length ?? 0) +
-	(group.failing?.length ?? 0) +
-	(group.stopped?.length ?? 0) +
-	(group.refused?.length ?? 0) +
-	(group.asked?.length ?? 0) +
-	(group.decided?.length ?? 0) +
-	(group.features?.length ?? 0) +
-	(group.setup?.length ?? 0) +
-	(group.setupRuns?.length ?? 0);
 
 const compare = new Intl.Collator("en", { sensitivity: "base" }).compare;
 
@@ -226,6 +385,7 @@ export function Waiting({
 		const project: Freshness | undefined = projects.get(item.project_id);
 		return project ? fullName(project) : item.project_name;
 	};
+	const waiting = groups(list, name);
 
 	return (
 		<div className={styles.list}>
@@ -247,30 +407,13 @@ export function Waiting({
 							await reload();
 						}}
 					/>
-					{list.items.length === 0 &&
-					list.own_items.length === 0 &&
-					list.cards.length === 0 &&
-					list.stopped_cards.length === 0 &&
-					list.refused_cards.length === 0 &&
-					list.question_cards.length === 0 &&
-					list.failing_projects.length === 0 &&
-					list.setup_projects.length === 0 &&
-					list.setup_runs.length === 0 &&
-					list.decisions.length === 0 &&
-					list.features.length === 0 ? (
+					{waiting.length === 0 ? (
 						<EmptyState
 							title="Nothing waits for you"
 							detail="Your agents have nothing for you to decide."
 						/>
 					) : (
-						groups(list, name).map((group) => (
-							<GroupSection
-								key={group.label}
-								group={group}
-								name={name}
-								act={{ link, api: actions, reload }}
-							/>
-						))
+						<Inbox groups={waiting} act={{ link, api: actions, reload }} />
 					)}
 				</>
 			)}
@@ -372,105 +515,107 @@ export function duration(ms: number): string {
 	return count(Math.floor(ms / DAY), "day");
 }
 
-function GroupSection({
+/** The inbox: the queue of every waiting item, grouped, and the chosen one
+ * in full beside it, the first until another is chosen. The detail is keyed
+ * by the item, so what was typed in one is not carried to the next. */
+function Inbox({ groups, act }: { groups: Group[]; act: Act }) {
+	const entries = groups.flatMap((group) => group.entries);
+	const [asked, setAsked] = useState<string | null>(null);
+	const chosen = entries.find((entry) => entry.key === asked) ?? entries[0];
+	if (chosen === undefined) return null;
+	const muted = groups.some(
+		(group) => group.look === "muted" && group.entries.includes(chosen),
+	);
+	return (
+		<div className={styles.inbox}>
+			<Queue groups={groups} chosen={chosen.key} choose={setAsked} />
+			<div
+				className={muted ? `${styles.detail} ${styles.muted}` : styles.detail}
+			>
+				<Fragment key={chosen.key}>{chosen.detail(act)}</Fragment>
+			</div>
+		</div>
+	);
+}
+
+/** The address of an item: the tab's own, with the item's key, its slashes
+ * kept so it reads as the pattern is written. */
+export const itemPath = (key: string) =>
+	`/devflow?item=${encodeURIComponent(key).replaceAll("%2F", "/")}`;
+
+/** The queue: a card holding every group, its heading and its count over
+ * its rows. No button: the view's one primary is in the detail. */
+function Queue({
+	groups,
+	chosen,
+	choose,
+}: {
+	groups: Group[];
+	chosen: string;
+	choose: (key: string) => void;
+}) {
+	return (
+		<nav aria-label="The queue" className={styles.queue}>
+			{groups.map((group) => (
+				<QueueGroup
+					key={group.label}
+					group={group}
+					chosen={chosen}
+					choose={choose}
+				/>
+			))}
+		</nav>
+	);
+}
+
+function QueueGroup({
 	group,
-	name,
-	act,
+	chosen,
+	choose,
 }: {
 	group: Group;
-	name: (item: WaitingItem) => string;
-	act: Act;
+	chosen: string;
+	choose: (key: string) => void;
 }) {
 	const id = useId();
+	const look =
+		group.look === "asks"
+			? styles.asks
+			: group.look === "muted"
+				? styles.muted
+				: undefined;
 	return (
 		<section
 			aria-labelledby={id}
-			className={group.muted ? `${styles.group} ${styles.muted}` : styles.group}
+			className={look ? `${styles.group} ${look}` : styles.group}
 		>
 			<h2 className={styles.heading}>
 				<span id={id}>{group.label}</span>{" "}
-				<span className={styles.count}>{size(group)}</span>
+				<span className={styles.count}>{group.entries.length}</span>
 			</h2>
-			{(group.asked ?? []).map((card) => (
-				<QuestionCard
-					key={`${card.project_id}/${card.number}`}
-					card={card}
-					link={act.link}
-					api={act.api}
-					reload={act.reload}
-					linkable={linkable}
-				/>
-			))}
-			{(group.own ?? []).map((stop) => (
-				<StoppedProject
-					key={stop.project_id}
-					stop={stop}
-					api={act.api}
-					reload={act.reload}
-					linkable={linkable}
-				/>
-			))}
-			{(group.failing ?? []).map((project) => (
-				<FailingProject key={project.project_id} project={project} />
-			))}
-			{(group.setupRuns ?? []).map((project) => (
-				<WaitingSetupRun key={project.project_id} project={project} />
-			))}
-			{(group.setup ?? []).map((project) => (
-				<WaitingSetup key={project.project_id} project={project} />
-			))}
-			{(group.stopped ?? []).map((card) => (
-				<StoppedCard
-					key={`${card.project_id}/${card.number}`}
-					card={card}
-					link={act.link}
-					api={act.api}
-					reload={act.reload}
-					linkable={linkable}
-				/>
-			))}
-			{(group.refused ?? []).map((card) => (
-				<RefusedCard
-					key={`${card.project_id}/${card.number}`}
-					card={card}
-					linkable={linkable}
-				/>
-			))}
-			{(group.cards ?? []).map((card, index) => (
-				<WaitingCard
-					key={`${card.project_id}/${card.number}`}
-					card={card}
-					primary={group.primaryFirst === true && index === 0}
-					link={act.link}
-					api={act.api}
-					reload={act.reload}
-				/>
-			))}
-			{(group.features ?? []).map((feature) => (
-				<WaitingFeature
-					key={`${feature.project_id}/${feature.number}`}
-					feature={feature}
-					link={act.link}
-					api={act.api}
-					reload={act.reload}
-				/>
-			))}
-			{(group.decided ?? []).map((decision) => (
-				<DecisionIssue key={decision.id} decision={decision} />
-			))}
-			{group.items.map((item, index) => (
-				<Item
-					key={item.id}
-					item={item}
-					project={name(item)}
-					primary={
-						group.primaryFirst === true &&
-						index === 0 &&
-						(group.cards?.length ?? 0) === 0
-					}
-					act={act}
-				/>
-			))}
+			<ul className={styles.rows}>
+				{group.entries.map((entry) => (
+					<li key={entry.key}>
+						<a
+							className={styles.row}
+							href={itemPath(entry.key)}
+							aria-current={entry.key === chosen ? "true" : undefined}
+							onClick={(event) => {
+								if (plainClick(event)) {
+									event.preventDefault();
+									choose(entry.key);
+								}
+							}}
+						>
+							<span className={`${styles.dot} ${styles[entry.tone]}`} />
+							<span className={styles.what}>
+								<span className={styles.title}>{entry.title}</span>{" "}
+								<span className={styles.meta}>{entry.meta.join(" · ")}</span>
+							</span>
+						</a>
+					</li>
+				))}
+			</ul>
 		</section>
 	);
 }
