@@ -1399,7 +1399,7 @@ def test_i_trust_another_account(
     expect(trusted.get_by_role("listitem").first).to_contain_text("you, always on")
     expect(settings.get_by_role("button", name="Remove octo-owner")).to_have_count(0)
     settings.get_by_label("Add a trusted account").fill("octo-friend")
-    settings.get_by_role("button", name="Add").click()
+    settings.get_by_role("button", name="Add", exact=True).click()
     settings.get_by_role("button", name="Save").click()
     expect(settings.get_by_text("Saved.")).to_be_visible()
     expect(trusted.get_by_role("listitem")).to_have_count(2)
