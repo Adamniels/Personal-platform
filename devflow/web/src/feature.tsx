@@ -18,6 +18,7 @@ import {
 	EmptyState,
 	Card as Panel,
 	Status,
+	type StatusTone,
 	Table,
 	type TableColumn,
 	useToast,
@@ -26,12 +27,13 @@ import { useCallback, useEffect, useId, useState } from "react";
 import { describe, EXPIRED, type LinkState, UNLINKED } from "./actions";
 import { navigate, plainClick } from "./address";
 import type { components } from "./api/schema";
-import { ReviewRow, RoundRow, RunRow } from "./card";
+import { ReviewRow, RoundRow, RunRow, verdictWord } from "./card";
 import styles from "./card.module.css";
 import { stateWord } from "./cards";
 import { CommentBox } from "./comment-box";
+import { short, type Tile, Tiles } from "./detail";
 import own from "./feature.module.css";
-import { type FeatureMergeApi, MergeFeature } from "./feature-merge";
+import { confirms, type FeatureMergeApi, MergeFeature } from "./feature-merge";
 import { Inline } from "./format";
 import { askNavAgain } from "./nav-attention";
 import { Command } from "./project";
@@ -208,34 +210,67 @@ export function FeaturePage({
 			card.screenshots !== null &&
 			(card.screenshots.groups.length > 0 || card.screenshots.note !== null),
 	);
-	const done = story.cards.filter((card) => card.state === "done").length;
+	const caption = `${story.repository} · Feature #${story.number} · ${count(
+		story.cards.length,
+		"card",
+	)}`.toUpperCase();
+	const unanswered = decisions.filter(
+		({ decision }) => decision.answer === null,
+	).length;
+	const sendBackWhole = canSendBack(
+		story.state,
+		story.pull_request?.number ?? null,
+	) ? (
+		<SendBack
+			projectId={project}
+			number={number}
+			link={link}
+			send={sendBack}
+			reload={load}
+			lineShownAt={story.merge === null ? undefined : linkLineId}
+		/>
+	) : null;
 	return (
 		<>
 			<header className={styles.header}>
 				{backLink}
-				<h2 className={styles.name}>{story.title}</h2>
+				<div className={styles.captionRow}>
+					<Status tone={tone}>{word}</Status>
+					<p className={styles.caption}>{caption}</p>
+				</div>
+				<h2 className={`${styles.name} ${styles.title}`}>{story.title}</h2>
+				{story.reason === null ? null : (
+					<p className={own.lede}>{story.reason}</p>
+				)}
+				<p className={styles.links}>
+					<Link url={story.web_url} label={`Issue #${story.number}`} />
+					{story.pull_request === null ? null : (
+						<Link
+							url={story.pull_request.url}
+							label={`Pull request #${story.pull_request.number}`}
+						/>
+					)}
+				</p>
 			</header>
-			<Panel title="The feature" className={styles.panel}>
-				<div className={styles.body}>
-					<p className={styles.state}>
-						<Status tone={tone}>{word}</Status>
-						{story.reason === null ? null : (
-							<span className={styles.reason}>{story.reason}</span>
-						)}
-					</p>
-					<p className={styles.links}>
-						<Link url={story.web_url} label={`Issue #${story.number}`} />
-						{story.pull_request === null ? null : (
-							<Link
-								url={story.pull_request.url}
-								label={`Pull request #${story.pull_request.number}`}
-							/>
-						)}
-						<span className={own.count}>
-							{done} of {story.cards.length} cards done
+			<Panel
+				title={`${story.state === "merged" ? "Merged" : "Merging"} into ${
+					story.merge?.into ?? story.default_branch ?? "the default branch"
+				}`}
+				aside={
+					headOf(story) === null ? undefined : (
+						<span className={styles.aside}>
+							head {short(headOf(story) ?? "")}
 						</span>
-					</p>
-					{story.merge === null ? null : (
+					)
+				}
+				attention={MINE.includes(story.state)}
+				className={styles.panel}
+			>
+				<div className={styles.body}>
+					<Tiles tiles={mergeTiles(story)} />
+					{story.merge === null ? (
+						sendBackWhole
+					) : (
 						<MergeFeature
 							project={project}
 							number={number}
@@ -245,18 +280,16 @@ export function FeaturePage({
 							reload={load}
 							primary
 							lineId={linkLineId}
+							after={
+								<>
+									{sendBackWhole}
+									{unanswered === 0 ? null : (
+										<span className={own.confirms}>{confirms(unanswered)}</span>
+									)}
+								</>
+							}
 						/>
 					)}
-					{canSendBack(story.state, story.pull_request?.number ?? null) ? (
-						<SendBack
-							projectId={project}
-							number={number}
-							link={link}
-							send={sendBack}
-							reload={load}
-							lineShownAt={story.merge === null ? undefined : linkLineId}
-						/>
-					) : null}
 				</div>
 			</Panel>
 			{story.reviews.length === 0 ? null : (
@@ -408,6 +441,90 @@ export function FeaturePage({
 			)}
 		</>
 	);
+}
+
+/** The states in which the feature is the owner's turn, its merge card in
+ * attention. */
+const MINE = ["ready", "waiting_for_owner"];
+
+/** "n things", or "1 thing". */
+function count(n: number, one: string, many = `${one}s`): string {
+	return `${n} ${n === 1 ? one : many}`;
+}
+
+/** The head the merge card names: the one the merge would name while it is
+ * offered, otherwise the commit its branch is at; null without either. */
+function headOf(story: FeatureStory): string | null {
+	return story.merge?.head_commit ?? story.branch?.commit ?? null;
+}
+
+/** The merge card's tiles: CI on the head, the review of the whole feature,
+ * and the decisions its cards marked for the owner. Merging is offered only
+ * once CI passed on the head, so an offer, or a merge made, is CI passing. */
+function mergeTiles(story: FeatureStory): Tile[] {
+	const head = headOf(story);
+	const ci: Tile =
+		story.merge !== null
+			? {
+					label: "CI",
+					tone: "done",
+					status: "Passed",
+					line: `on ${short(story.merge.head_commit)}`,
+				}
+			: story.state === "merged"
+				? {
+						label: "CI",
+						tone: "done",
+						status: "Passed",
+						line: head === null ? "before the merge" : `on ${short(head)}`,
+					}
+				: {
+						label: "CI",
+						tone: "idle",
+						status: "Not passed",
+						line: "merging waits for it",
+					};
+	const newest = story.reviews[0];
+	const review: Tile =
+		newest === undefined
+			? {
+					label: "The review of the whole feature",
+					tone: "idle",
+					status: "Not reviewed",
+					line: "not yet",
+				}
+			: {
+					label: "The review of the whole feature",
+					...toned(verdictWord(newest.verdict)),
+					line: `${newest.current ? "covers the head" : "an older commit"} · ${
+						newest.findings.filter((finding) => finding.blocking).length
+					} open`,
+				};
+	const all = story.cards.flatMap((card) => card.decisions);
+	const answered = all.filter((decision) => decision.answer !== null).length;
+	const decisions: Tile =
+		all.length === 0
+			? {
+					label: "Decisions for you",
+					tone: "done",
+					status: "None",
+					line: "none marked for you",
+				}
+			: {
+					label: "Decisions for you",
+					tone: answered < all.length ? "needs-you" : "done",
+					status: `${answered} of ${all.length} answered`,
+					line: "below",
+				};
+	return [ci, review, decisions];
+}
+
+/** A verdict's word and tone as a tile's status and tone. */
+function toned({ word, tone }: { word: string; tone: StatusTone }): {
+	status: string;
+	tone: StatusTone;
+} {
+	return { status: word, tone };
 }
 
 /** The story with the decision's answer as kept. */

@@ -25,3 +25,26 @@
 	flex-wrap: wrap;
 	gap: var(--space-2);
 }
+
+/* The feature's reason under its title, in body large at the reading
+ * width, as the page header's summary line is (design/DESIGN.md, section 2). */
+.lede {
+	max-width: var(--reading-max);
+	margin: 0;
+	color: var(--text-2);
+	font-size: var(--text-body-lg-size);
+	line-height: var(--text-body-lg-line);
+	overflow-wrap: anywhere;
+}
+
+/* What merging confirms, a mono line on the right of the merge's buttons,
+ * wrapping under them where it leaves no room. */
+.confirms {
+	margin-left: auto;
+	color: var(--text-2);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+	overflow-wrap: anywhere;
+}

@@ -4395,6 +4395,12 @@ def _landed_feature(
     return project
 
 
+def _feature_header(page: Page) -> Locator:
+    """A feature's page's header: its state with its caption, its title, its
+    reason and its links. A card's label is no header, so it is the one."""
+    return page.locator("header").filter(has=page.locator("h2"))
+
+
 def _look(page: Page, name: str) -> None:
     """The look checks every page is held to, the accessibility check, and its
     screenshot."""
@@ -4427,9 +4433,8 @@ def test_a_features_page_shows_its_cards_and_decisions(
     expect(page).to_have_url(f"{base_url}/devflow/projects/{project}/features/60")
     expect(page.get_by_role("heading", name="The feature's branch")).to_be_visible()
     expect(page.get_by_role("tab", name="Projects", selected=True)).to_be_visible()
-    feature = page.get_by_role("article", name="The feature")
+    feature = _feature_header(page)
     expect(feature).to_contain_text("Building")
-    expect(feature).to_contain_text("1 of 3 cards done")
 
     # The decision the first card's report marked for me, with the
     # reviewer's view, and the one not marked left out.
@@ -4548,7 +4553,7 @@ def test_i_send_a_card_back_from_the_features_page(
     # the feature builds again.
     rows = page.get_by_role("table", name="Cards of the feature").get_by_role("row")
     expect(rows.nth(1)).to_contain_text("Queued")
-    expect(page.get_by_role("article", name="The feature")).to_contain_text("Building")
+    expect(_feature_header(page)).to_contain_text("Building")
     sent = cards.get_by_role("list", name="Cards you sent back")
     expect(sent).to_contain_text("#61 Read the sub-issues")
     expect(sent).to_contain_text("Sent back from pull request #")
@@ -4570,7 +4575,7 @@ def test_i_send_a_card_back_from_the_features_page(
     page.reload()
     rows = page.get_by_role("table", name="Cards of the feature").get_by_role("row")
     expect(rows.nth(1)).to_contain_text("Building")
-    expect(page.get_by_role("article", name="The feature")).to_contain_text("Building")
+    expect(_feature_header(page)).to_contain_text("Building")
 
 
 def test_a_finished_feature_gets_its_pull_request(
@@ -4690,9 +4695,8 @@ def test_a_finished_feature_gets_its_pull_request(
     # The feature's page links to its pull request and says it is reviewed as a
     # whole next.
     page.goto(f"/devflow/projects/{project}/features/60")
-    feature = page.get_by_role("article", name="The feature")
+    feature = _feature_header(page)
     expect(feature).to_contain_text("Reviewing")
-    expect(feature).to_contain_text("1 of 1 cards done")
     link = feature.get_by_role("link", name=f"Pull request #{pull['number']}")
     expect(link).to_have_attribute("href", pull["url"])
     _look(page, "devflow-feature-pull-request")
@@ -4769,7 +4773,7 @@ def test_a_conflict_is_resolved_by_an_agent(
     _fake_review(page, base_url, project, _verdict("approve"))
     assert [write for write in _writes(page) if write["kind"] == "branch_merge"] == []
     page.goto(f"/devflow/projects/{project}/features/60")
-    feature = page.get_by_role("article", name="The feature")
+    feature = _feature_header(page)
     expect(feature).to_contain_text("Resolving a conflict")
     expect(feature).to_contain_text(
         "main conflicts with the feature's branch; an agent resolves it"
@@ -4828,7 +4832,7 @@ def test_a_conflict_is_resolved_by_an_agent(
     # Its page shows the run that resolved it, newest first, after the reading
     # of its cards.
     page.goto(f"/devflow/projects/{project}/features/60")
-    feature = page.get_by_role("article", name="The feature")
+    feature = _feature_header(page)
     expect(feature).to_contain_text("Reviewing")
     runs = page.get_by_role("article", name="Runs").get_by_role(
         "list", name="Runs of the feature"
@@ -5046,7 +5050,7 @@ def test_a_reviewed_feature_is_ready_for_me(
     # Its page shows the review, for the pull request's head.
     item.get_by_role("link", name="Open the feature").click()
     expect(page).to_have_url(re.compile(rf"/devflow/projects/{project}/features/60$"))
-    feature = page.get_by_role("article", name="The feature")
+    feature = _feature_header(page)
     expect(feature).to_contain_text("Ready for you")
     reviews = page.get_by_role("list", name="Reviews of the feature")
     latest = reviews.get_by_role("listitem").first
@@ -5081,7 +5085,7 @@ def test_a_feature_is_fixed_after_its_review(
     reviewed_head = reviewed["head_commit"]
 
     page.goto(f"/devflow/projects/{project}/features/60")
-    feature = page.get_by_role("article", name="The feature")
+    feature = _feature_header(page)
     expect(feature).to_contain_text("Fixing")
     expect(feature).to_contain_text(
         "Round 1 of 3: the review of the whole feature asked for changes; a fix runs next"
@@ -5135,9 +5139,7 @@ def test_a_feature_is_fixed_after_its_review(
     # Its page shows the round: the review that started it, the reply, the
     # commit it left and the review of it.
     page.reload()
-    expect(page.get_by_role("article", name="The feature")).to_contain_text(
-        "Ready for you"
-    )
+    expect(_feature_header(page)).to_contain_text("Ready for you")
     expect(page.get_by_text("Fix rounds, 1 of 3 used")).to_be_visible()
     round_one = page.get_by_role("list", name="Fix rounds of the feature").get_by_role(
         "listitem", name="Round 1 of 3"
@@ -5157,15 +5159,16 @@ def test_i_send_the_whole_feature_back(
 
     # From the feature's page, with a comment.
     page.goto(f"/devflow/projects/{project}/features/60")
-    feature = page.get_by_role("article", name="The feature")
+    feature = _feature_header(page)
     expect(feature).to_contain_text("Waiting for you")
-    feature.get_by_role("button", name="Send the whole feature back").click()
+    merging = page.get_by_role("article", name="Merging into main")
+    merging.get_by_role("button", name="Send the whole feature back").click()
     said = "Read the branch's head in one place for the card and the end."
-    feature.get_by_role(
+    merging.get_by_role(
         "textbox", name="What should the developer change in the whole feature?"
     ).fill(said)
     _look(page, "devflow-feature-send-back")
-    feature.get_by_role("button", name="Send", exact=True).click()
+    merging.get_by_role("button", name="Send", exact=True).click()
     expect(page.get_by_text("Sent back feature #60")).to_be_visible()
 
     # Posted as me on the feature's pull request, never as the app.
@@ -5411,7 +5414,7 @@ def test_i_merge_a_feature_into_main(
 
     # Its page says it is merged, and offers the merge no more.
     page.goto(f"/devflow/projects/{project}/features/60")
-    feature = page.get_by_role("article", name="The feature")
+    feature = _feature_header(page)
     expect(feature).to_contain_text("Merged")
     expect(page.get_by_role("button", name="Merge into main")).to_have_count(0)
     _look(page, "devflow-feature-merged")
@@ -5558,10 +5561,12 @@ def test_merging_warns_when_the_review_did_not_approve(
     # It waits for me, since the review asked for changes with every round
     # used, and CI passed, so Merge into main is offered on its page.
     page.goto(f"/devflow/projects/{project}/features/60")
-    feature = page.get_by_role("article", name="The feature")
+    feature = _feature_header(page)
     expect(feature).to_contain_text("Waiting for you")
     expect(feature).to_contain_text("Review rounds used up")
-    feature.get_by_role("button", name="Merge into main").click()
+    page.get_by_role("article", name="Merging into main").get_by_role(
+        "button", name="Merge into main"
+    ).click()
 
     # The confirmation says the review asked for changes and lists the open
     # findings, and counts the decision I have not answered.

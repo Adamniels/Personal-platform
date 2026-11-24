@@ -141,6 +141,18 @@ HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
 
 afterEach(cleanup);
 
+/** The page's header, once the feature is read: its way back, its state and
+ * caption, its title, its reason and its links. */
+async function header(): Promise<HTMLElement> {
+	const title = await screen.findByRole("heading", {
+		level: 2,
+		name: "Feeding plan, version 2",
+	});
+	const found = title.closest("header");
+	if (found === null) throw new Error("the title is in the header");
+	return found;
+}
+
 describe("a feature's page", () => {
 	test("is under the Projects tab, at its own address", () => {
 		expect(featureAt(`/devflow/projects/${PROJECT}/features/38`)).toEqual({
@@ -169,9 +181,7 @@ describe("a feature's page", () => {
 		expect(
 			screen.getByRole("tab", { name: "Projects", selected: true }),
 		).toBeTruthy();
-		const header = screen.getByRole("article", { name: "The feature" });
-		expect(within(header).getByText("Building")).toBeTruthy();
-		expect(screen.getByText("1 of 2 cards done")).toBeTruthy();
+		expect(within(await header()).getByText("Building")).toBeTruthy();
 		expect(screen.queryByRole("link", { name: /Pull request/ })).toBeNull();
 
 		// The decision, its texts formatted as text, needing me.
@@ -363,8 +373,9 @@ describe("a feature's page", () => {
 				),
 		});
 
-		const feature = await screen.findByRole("article", { name: "The feature" });
-		expect(within(feature).getByText("Resolving a conflict")).toBeTruthy();
+		expect(
+			within(await header()).getByText("Resolving a conflict"),
+		).toBeTruthy();
 		const runs = within(
 			screen.getByRole("article", { name: "Runs" }),
 		).getByRole("list", { name: "Runs of the feature" });
@@ -465,7 +476,7 @@ describe("a feature's page", () => {
 
 	test("a feature with no run of its own shows no runs", async () => {
 		open();
-		await screen.findByRole("article", { name: "The feature" });
+		await header();
 		expect(screen.queryByRole("article", { name: "Runs" })).toBeNull();
 	});
 
@@ -791,7 +802,7 @@ function ready(): FeatureStory {
 describe("merging the feature", () => {
 	test("is not offered when the feature is not offered for merging", async () => {
 		open();
-		await screen.findByRole("article", { name: "The feature" });
+		await header();
 		expect(screen.queryByRole("button", { name: /^Merge into/ })).toBeNull();
 	});
 
@@ -809,7 +820,7 @@ describe("merging the feature", () => {
 		});
 
 		const feature = within(
-			await screen.findByRole("article", { name: "The feature" }),
+			await screen.findByRole("article", { name: "Merging into main" }),
 		);
 		fireEvent.click(feature.getByRole("button", { name: "Merge into main" }));
 
@@ -1017,10 +1028,7 @@ describe("merging the feature", () => {
 	test("a feature closed without merging says so", async () => {
 		open({ loadFeature: () => Promise.resolve(story({ state: "closed" })) });
 
-		const feature = within(
-			await screen.findByRole("article", { name: "The feature" }),
-		);
-		expect(feature.getByText("Closed")).toBeTruthy();
+		expect(within(await header()).getByText("Closed")).toBeTruthy();
 		expect(
 			screen.getByText(
 				/Its pull request was closed without merging, so the feature is not in main\./,
