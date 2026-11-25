@@ -4,15 +4,16 @@ using System.Text.RegularExpressions;
 namespace DevFlow.Worker.Agents;
 
 /// <summary>
-/// When Claude's usage limit resets, read from the text of Claude Code's answer to a run that hit
-/// it. Claude Code writes the reset for people, not as a timestamp: its <c>--output-format json</c>
-/// answer holds only the message, and the exact <c>resetsAt</c> goes out in a streamed
-/// <c>rate_limit_event</c> alone, which that format never prints. Read from Claude Code 2.1.322's
-/// own formatter on 2026-11-19, the message ends <c>· resets 3pm (UTC)</c>, the hour and, when not
-/// on the hour, the minutes, in the zone it names, within the next 24 hours; or <c>· resets Nov 20,
-/// 3pm (UTC)</c>, with the date, when further, and the year too when it is another year. Anything
-/// else, a zone .NET does not know among it, is no time, and Dev flow's doubling holds. See "Stops"
-/// in devflow/README.md and the recorded answers in DevFlow.Worker.Tests/Claude/.
+/// When Claude's usage limit resets, for a run that hit it, read two ways. First from the stream's
+/// <c>rate_limit_event</c>, whose <c>rate_limit_info</c> says the request was <c>rejected</c> and
+/// gives <c>resetsAt</c>, a Unix time in seconds; an event that let the request through, which
+/// says only when the window resets, is no time. Otherwise from the text of Claude Code's answer:
+/// Claude Code writes the reset there for people, not as a timestamp. Read from Claude Code
+/// 2.1.322's own formatter on 2026-11-19, the message ends <c>· resets 3pm (UTC)</c>, the hour and,
+/// when not on the hour, the minutes, in the zone it names, within the next 24 hours; or <c>· resets
+/// Nov 20, 3pm (UTC)</c>, with the date, when further, and the year too when it is another year.
+/// Anything else, a zone .NET does not know among it, is no time, and Dev flow's doubling holds. See
+/// "Stops" in devflow/README.md and the recorded answers in DevFlow.Worker.Tests/Claude/.
 /// </summary>
 internal static partial class UsageLimit
 {
@@ -20,6 +21,33 @@ internal static partial class UsageLimit
         @"\bresets (?:(?<month>Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (?<day>\d{1,2}), (?:(?<year>\d{4}), )?)?(?<hour>\d{1,2})(?::(?<minute>\d{2}))?(?<half>am|pm) \((?<zone>[A-Za-z][A-Za-z0-9_+\-/]*)\)",
         RegexOptions.CultureInvariant)]
     private static partial Regex Reset();
+
+    /// <summary>When the limit resets, as <paramref name="event"/>, a <c>rate_limit_event</c> of
+    /// the stream, says: its <c>rate_limit_info.resetsAt</c> when its <c>status</c> is
+    /// <c>rejected</c>; null for any other event, or a time that is not a whole number of seconds
+    /// an instant can hold.</summary>
+    public static DateTimeOffset? ResetsAt(System.Text.Json.Nodes.JsonObject @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        if (@event["rate_limit_info"] is not System.Text.Json.Nodes.JsonObject info
+            || info["status"] is not System.Text.Json.Nodes.JsonValue status
+            || !status.TryGetValue<string>(out var said)
+            || said != "rejected"
+            || info["resetsAt"] is not System.Text.Json.Nodes.JsonValue resetsAt
+            || !resetsAt.TryGetValue<long>(out var seconds))
+        {
+            return null;
+        }
+
+        try
+        {
+            return DateTimeOffset.FromUnixTimeSeconds(seconds);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
+        }
+    }
 
     /// <summary>When the limit resets, as an instant, or null when <paramref name="message"/> says
     /// no time this reads; <paramref name="now"/> places a time without a date.</summary>

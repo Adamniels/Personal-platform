@@ -26,8 +26,11 @@ internal sealed record ClaudeCodeOptions(string Executable, string Home, string 
 /// passed; nor is <c>--bare</c>, which refuses the token.</item>
 /// <item>The login is checked first, with <c>claude auth status --json</c>, which must answer
 /// <c>loggedIn</c> true and <c>authMethod</c> <c>oauth_token</c>; the method is recorded.</item>
-/// <item>A run succeeds only when every condition of <see cref="Judge"/> holds; <c>subtype</c> is
-/// never read, since it says <c>success</c> on some failures.</item>
+/// <item>It streams, <c>--output-format stream-json --verbose</c>, one JSON event per line as it
+/// works, and its answer is the last <c>result</c> event, which carries what
+/// <c>--output-format json</c> printed.</item>
+/// <item>A run succeeds only when every condition of <see cref="JudgeAnswer"/> holds; <c>subtype</c>
+/// is never read, since it says <c>success</c> on some failures.</item>
 /// <item>The token's value is replaced in everything read back, so neither the report, stderr nor
 /// a reason can carry it out.</item>
 /// </list>
@@ -114,54 +117,88 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
         .. run.Access == AgentAccess.ReadOnly
             ? (string[])["--permission-mode", "default", "--permission-prompts", "none", "--allowedTools", "Read,Grep,Glob"]
             : ["--permission-mode", "bypassPermissions"],
-        "--output-format", "json",
+        "--output-format", "stream-json", "--verbose",
         "--json-schema", run.ReportSchema,
         "--max-turns", run.Limits.MaxTurns.ToString(CultureInfo.InvariantCulture),
         "--max-budget-usd", run.Limits.MaxBudgetUsd.ToString(CultureInfo.InvariantCulture),
     ];
 
     /// <summary>
-    /// The rule, in order, the first that applies deciding. A success needs all of: exit 0;
-    /// stdout valid JSON; <c>is_error</c> false; <c>terminal_reason</c> <c>completed</c>;
-    /// <c>structured_output</c> present and an object; <c>permission_denials</c> empty. Outside the
-    /// card: no answer, an answer that is not JSON, an <c>api_error</c> of any kind (not logged in,
-    /// a refused key, a usage limit, with when it resets when its <c>result</c> says, read by
-    /// <see cref="UsageLimit"/> at <paramref name="now"/>), and anything else Claude Code reports as
-    /// an error. In the card:
-    /// the time limit, <c>max_turns</c>, <c>budget_exhausted</c>, refused actions and no valid
-    /// report. For a read only run, a reviewer's, refused actions do not fail it, since it cannot
-    /// write by construction; either way they are kept in the result as Claude Code listed them.
+    /// The run's stream judged: past the time limit, a failure in the card; a stream with no
+    /// <c>result</c> event, nothing on standard output among them, a failure outside it; otherwise
+    /// its last <c>result</c> event, which carries what <c>--output-format json</c> printed, by
+    /// <see cref="JudgeAnswer"/>, with the reset of the last <c>rate_limit_event</c> that stopped
+    /// the run, when one did. A line that is not a JSON object is not an event, and is passed over.
     /// </summary>
-    internal static AgentResult Judge(ProcessOutcome answer, AgentLimits limits, string? method, AgentAccess access = AgentAccess.Write, DateTimeOffset? now = null)
+    internal static AgentResult Judge(ProcessOutcome outcome, AgentLimits limits, string? method, AgentAccess access = AgentAccess.Write, DateTimeOffset? now = null)
     {
+        if (outcome.TimedOut)
+        {
+            return AgentResult.TimedOut(limits, [], outcome.Stderr, method);
+        }
+
+        JsonObject? result = null;
+        DateTimeOffset? resetsAt = null;
+        foreach (var line in outcome.Stdout.Split('\n'))
+        {
+            if (Event(line) is not { } @event)
+            {
+                continue;
+            }
+
+            switch (Text(@event, "type"))
+            {
+                case "result":
+                    result = @event;
+                    break;
+                case "rate_limit_event" when UsageLimit.ResetsAt(@event) is { } resets:
+                    resetsAt = resets;
+                    break;
+            }
+        }
+
+        return result is null
+            ? AgentResult.Failed(FailureSide.OutsideCard, $"Claude Code ended without a result (exit {outcome.ExitCode})", [], outcome.Stderr, method)
+            : JudgeAnswer(result, outcome.ExitCode, outcome.Stderr, limits, method, access, now ?? DateTimeOffset.UtcNow, resetsAt);
+    }
+
+    /// <summary><paramref name="line"/> as one of the stream's events, a JSON object, or null when
+    /// it is not one.</summary>
+    internal static JsonObject? Event(string line)
+    {
+        if (line.AsSpan().TrimStart().StartsWith("{", StringComparison.Ordinal))
+        {
+            try
+            {
+                return JsonNode.Parse(line) as JsonObject;
+            }
+            catch (JsonException)
+            {
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The rule, in order, the first that applies deciding, on Claude Code's answer, the
+    /// <c>result</c> event, and the process's <paramref name="exitCode"/>. A success needs all of:
+    /// exit 0; <c>is_error</c> false; <c>terminal_reason</c> <c>completed</c>;
+    /// <c>structured_output</c> present and an object; <c>permission_denials</c> empty. Outside the
+    /// card: an <c>api_error</c> of any kind (not logged in, a refused key, a usage limit, with when
+    /// it resets: <paramref name="resetsAt"/>, from the stream's <c>rate_limit_event</c>, when it
+    /// gave one, or else what its <c>result</c> says, read by <see cref="UsageLimit"/> at
+    /// <paramref name="now"/>), and anything else Claude Code reports as an error. In the card:
+    /// <c>max_turns</c>, <c>budget_exhausted</c>, refused actions and no valid report. For a read
+    /// only run, a reviewer's, refused actions do not fail it, since it cannot write by
+    /// construction; either way they are kept in the result as Claude Code listed them.
+    /// </summary>
+    internal static AgentResult JudgeAnswer(JsonObject output, int exitCode, string stderr, AgentLimits limits, string? method, AgentAccess access, DateTimeOffset now, DateTimeOffset? resetsAt = null)
+    {
+        ArgumentNullException.ThrowIfNull(output);
         JsonArray? denied = null;
         AgentResult Failed(FailureSide side, string reason, JsonObject? usage = null) =>
-            AgentResult.Failed(side, reason, usage ?? [], answer.Stderr, method, denied);
-
-        if (answer.TimedOut)
-        {
-            return AgentResult.TimedOut(limits, [], answer.Stderr, method);
-        }
-
-        if (string.IsNullOrWhiteSpace(answer.Stdout))
-        {
-            return Failed(FailureSide.OutsideCard, $"Claude Code gave no answer (exit {answer.ExitCode})");
-        }
-
-        JsonObject? output;
-        try
-        {
-            output = JsonNode.Parse(answer.Stdout) as JsonObject;
-        }
-        catch (JsonException)
-        {
-            output = null;
-        }
-
-        if (output is null)
-        {
-            return Failed(FailureSide.OutsideCard, $"Claude Code's answer is not JSON (exit {answer.ExitCode})");
-        }
+            AgentResult.Failed(side, reason, usage ?? [], stderr, method, denied);
 
         var usage = Usage(output);
         var terminal = Text(output, "terminal_reason");
@@ -171,13 +208,13 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
         {
             case "api_error":
                 var status = output["api_error_status"] is JsonValue code && code.TryGetValue<int>(out var number) ? $" {number}" : "";
-                if (UsageLimit.ResetsAt(Text(output, "result"), now ?? DateTimeOffset.UtcNow) is { } resets)
+                if ((resetsAt ?? UsageLimit.ResetsAt(Text(output, "result"), now)) is { } resets)
                 {
                     return new AgentResult(
                         null,
                         new AgentFailure(FailureSide.OutsideCard, $"Claude's API answered an error{status}: the usage limit resets at {resets.UtcDateTime:yyyy-MM-dd HH:mm} UTC", ResetsAt: resets),
                         usage,
-                        answer.Stderr,
+                        stderr,
                         method,
                         denied);
                 }
@@ -194,9 +231,9 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
             return Failed(FailureSide.Card, $"Claude Code was refused {denials.Count} action{(denials.Count == 1 ? "" : "s")}", usage);
         }
 
-        if (answer.ExitCode != 0)
+        if (exitCode != 0)
         {
-            return Failed(FailureSide.OutsideCard, $"Claude Code exited with {answer.ExitCode}", usage);
+            return Failed(FailureSide.OutsideCard, $"Claude Code exited with {exitCode}", usage);
         }
 
         if (output["is_error"] is not JsonValue isError || !isError.TryGetValue<bool>(out var error) || error)
@@ -219,7 +256,7 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
             return Failed(FailureSide.Card, "it gave no report, or a report that is not an object", usage);
         }
 
-        return AgentResult.Success((JsonObject)report.DeepClone(), usage, answer.Stderr, method, denied);
+        return AgentResult.Success((JsonObject)report.DeepClone(), usage, stderr, method, denied);
     }
 
     /// <summary>The usage as Claude Code gave it, those of its five fields it gave.</summary>
