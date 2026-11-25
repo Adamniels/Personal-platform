@@ -727,10 +727,25 @@ third implementation of the same interface.
 experiment of 2026-11-16 on the Mac mini with Claude Code 2.1.325, which found that its `subtype`
 reads `success` on a run that failed, that a run refused a write still exits `0` as `completed`,
 and that a run as root with `bypassPermissions` answers nothing at all. So every condition is
-checked, exit `0`, valid JSON, `is_error` false, `terminal_reason` `completed`, a report present
-and an object, and no refused action, and anything else is a failure; the table of which failure
-lies where is "The worker" in `devflow/README.md`. The report's schema is checked by Dev flow
-rather than the worker, which needs no JSON Schema library for it.
+checked, exit `0`, a `result` event, `is_error` false, `terminal_reason` `completed`, a report
+present and an object, and no refused action, and anything else is a failure; the table of which
+failure lies where is "The worker" in `devflow/README.md`. The report's schema is checked by Dev
+flow rather than the worker, which needs no JSON Schema library for it.
+
+**The worker reads Claude Code as it runs**, as the feature "Dev flow: running now, usage and
+history", #441, decides, so a run is no black box until its result: what the agent writes, each
+tool it calls and each answer it gets become log lines while it works, and its usage so far is
+counted. Claude Code runs with `--output-format stream-json --verbose`, which prints one event per
+line, rather than `--output-format json`, which prints one answer at the end. The run's answer is
+the stream's last `result` event, which carries exactly what the JSON answer did, so the rule
+above is unchanged and judges the same answer the same way; only a stream with no `result` at all
+is new, and it fails outside the card, since like no answer it says nothing about the card. The
+stream gives the usage limit's reset exactly, as a `rate_limit_event`, where the answer gave it only
+as text for people; the text stays the second way, for a run whose stream has no event that stopped
+it. Each line is scrubbed of the token and the job's values before it goes anywhere, as the result
+is, since a tool's answer is the likeliest place for a value the project's code printed. The
+lines are only kept in memory by this slice; the next slices of the feature send them to Dev flow
+as the run's heartbeat and show them.
 
 **A build job is one workbench and two users**, as the feature's decisions have it: root, the
 worker, holds the push key and does everything that talks to the code host, from a bare repository

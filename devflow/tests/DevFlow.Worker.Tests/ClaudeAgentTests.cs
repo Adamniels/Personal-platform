@@ -190,6 +190,27 @@ public sealed class ClaudeAgentTests
     }
 
     [Fact]
+    public async Task TheRunsLinesReachItsLog()
+    {
+        var log = new MemoryRunLog(new WatchedClock());
+        var stream = Recorded.Stream("success", result => result["result"] = $"done, {Token}");
+        var lines = stream.TrimEnd('\n').Split('\n').ToList();
+        lines.Insert(2, $"a stray line with {Token}");
+
+        var (result, starter, worker) = await Run(new ProcessOutcome(0, string.Join('\n', lines) + "\n", "on stderr", false), runLog: log);
+
+        Assert.True(result.Succeeded, result.Failure?.Reason);
+        // The run's stream, as it was read: standard error makes no line, and the login check none.
+        Assert.Null(starter.Started[0].Spec.Lines);
+        Assert.Equal(
+            [RunLineKind.Text, RunLineKind.System, RunLineKind.Tool, RunLineKind.ToolResult, RunLineKind.Tool, RunLineKind.ToolResult, RunLineKind.Tool, RunLineKind.ToolResult, RunLineKind.Tool, RunLineKind.ToolResult],
+            log.Lines.Select(line => line.Kind));
+        Assert.Equal("a stray line with [redacted]", log.Lines[1].Text);
+        Assert.Equal(new RunUsage(41, 18204, 512870, 6113), log.Usage);
+        NoToken(result, worker, log);
+    }
+
+    [Fact]
     public async Task LinesThatAreNotJsonDoNotChangeTheAnswer()
     {
         var lines = Recorded.Stream("success").TrimEnd('\n').Split('\n').ToList();
@@ -380,8 +401,9 @@ public sealed class ClaudeAgentTests
 
     /// <summary>The token's value in nothing the run answers or logs: the report, the reason, the
     /// usage, the stderr kept and the method, as the result is sent back, and the worker's log.</summary>
-    private static void NoToken(AgentResult result, StringBuilder log)
+    private static void NoToken(AgentResult result, StringBuilder log, MemoryRunLog? runLog = null)
     {
+        Assert.All(runLog?.Lines ?? [], line => Assert.DoesNotContain(Token, line.Text, StringComparison.Ordinal));
         var sent = JsonSerializer.Serialize(new
         {
             report = result.Report,
@@ -407,13 +429,13 @@ public sealed class ClaudeAgentTests
     /// <summary>Runs the agent on a brief in <c>/work/fodr</c>, with <paramref name="login"/>
     /// answering the login check, logged in with the token unless a test says otherwise, and
     /// <paramref name="run"/> the run.</summary>
-    private static async Task<(AgentResult Result, FakeStarter Starter, StringBuilder Log)> Run(ProcessOutcome? run = null, ProcessOutcome? login = null, AgentAccess access = AgentAccess.Write, string model = "opus", AgentLimits? limits = null, TimeProvider? time = null)
+    private static async Task<(AgentResult Result, FakeStarter Starter, StringBuilder Log)> Run(ProcessOutcome? run = null, ProcessOutcome? login = null, AgentAccess access = AgentAccess.Write, string model = "opus", AgentLimits? limits = null, TimeProvider? time = null, IRunLog? runLog = null)
     {
         var starter = new FakeStarter(login ?? new ProcessOutcome(0, Recorded.Text("auth-oauth-token.json"), "", false), run ?? Recorded.Run("success", 0));
         var output = Writer(out var log);
         var agent = new ClaudeCodeAgent(starter, ClaudeCodeOptions.Default, new WorkerLog(output, new WatchedClock()), time);
         var result = await agent.Run(
-            new AgentRun("/work/fodr", "Add an empty state to the habits list.", Schema, model, limits ?? Limits, new AgentCredential(Token), access),
+            new AgentRun("/work/fodr", "Add an empty state to the habits list.", Schema, model, limits ?? Limits, new AgentCredential(Token), access, Log: runLog),
             Ct);
         return (result, starter, log);
     }

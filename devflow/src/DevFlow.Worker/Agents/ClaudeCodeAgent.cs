@@ -71,8 +71,22 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
         }
 
         log.Write($"Claude Code is logged in by {method}; starting the run.");
+        // Each line of the stream becomes its log line as it is written; standard error is kept
+        // for the result, as before, and makes none.
+        var lines = run.Log is null ? null : new StreamLines(run.Log, token, new DevFlow.Protocol.ValueScrub(run.Values ?? []));
         var answer = Scrubbed(await starter.Run(
-            new ProcessSpec(options.Executable, Arguments(run), run.WorkingDirectory, Environment(token, run.Values)),
+            new ProcessSpec(
+                options.Executable,
+                Arguments(run),
+                run.WorkingDirectory,
+                Environment(token, run.Values),
+                Lines: lines is null ? null : (stream, line) =>
+                {
+                    if (stream == ProcessStream.Stdout)
+                    {
+                        lines.Read(line);
+                    }
+                }),
             run.Limits.Time,
             cancellationToken), token);
         var result = Judge(answer, run.Limits, method, run.Access, _time.GetUtcNow());

@@ -95,7 +95,8 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
     protected async Task<AgentResult> RunAgent(Job job, string workingDirectory, AgentAccess access, CancellationToken stopping)
     {
         var limits = new AgentLimits(job.Limits.Turns, job.Limits.BudgetUsd, TimeSpan.FromMinutes(job.Limits.Minutes));
-        var run = new AgentRun(workingDirectory, job.Brief, job.ReportSchema.GetRawText(), job.Model, limits, new AgentCredential(job.ClaudeToken), access, job.Values);
+        // The run's log is kept in memory for now; sending it as the run goes is #444's.
+        var run = new AgentRun(workingDirectory, job.Brief, job.ReportSchema.GetRawText(), job.Model, limits, new AgentCredential(job.ClaudeToken), access, job.Values, new MemoryRunLog(Time));
         using var limit = new CancellationTokenSource(limits.Time, Time);
         using var either = CancellationTokenSource.CreateLinkedTokenSource(stopping, limit.Token);
         Log.Write($"Starting the agent, for at most {limits.Time.TotalMinutes:0} minutes.");

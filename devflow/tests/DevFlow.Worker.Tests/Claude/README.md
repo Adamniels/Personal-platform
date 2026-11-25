@@ -18,8 +18,9 @@ formatter on 2026-11-19 rather than from a run at the limit: `resets 3pm (UTC)`,
 minutes when not on the hour, in the zone named, for a reset within 24 hours; and
 `resets Jan 20, 3:30pm (Europe/Stockholm)`, with the date, for one further off, the year added when
 it is another year. The exact time, `resetsAt`, goes out only in a streamed `rate_limit_event`,
-which `--output-format json` never prints, so the text is what the worker reads. The words before
-`·` are not read. The base image pins 2.1.325, so a real run at the limit with it is the way to
+which `--output-format json` never prints; the worker reads it there first, and the text when the
+stream has no event that stopped the run, see "The stream" below. The words before `·` are not
+read. The base image pins 2.1.325, so a real run at the limit with it is the way to
 check them again; `usage-limit.json` stays the case whose answer gives no time this reads.
 
 ## The stream

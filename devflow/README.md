@@ -2483,7 +2483,8 @@ standard error, and how it was logged in. Two implementations:
   the card; the method is recorded either way. Then, in the working copy:
 
   ```zsh
-  claude -p <brief> --model <the job's model> --permission-mode bypassPermissions --output-format json \
+  claude -p <brief> --model <the job's model> --permission-mode bypassPermissions \
+    --output-format stream-json --verbose \
     --json-schema <schema> --max-turns <the job's turns> --max-budget-usd 25
   ```
 
@@ -2503,8 +2504,37 @@ standard error, and how it was logged in. Two implementations:
   beneath these, which win over a value of the same name. The arguments are a list, never through
   a shell.
 
-**When a run succeeds**: only when every one of these holds: exit `0`; standard output is valid
-JSON; `is_error` is false; `terminal_reason` is `completed`; `structured_output` is present and an
+**Reading it as it runs.** Claude Code streams: `stream-json` prints one JSON event per line as it
+works, and refuses to in print mode without `--verbose`. `SystemProcessStarter` reads both output
+streams as they are written and hands each line to the spec's line sink, `ProcessSpec.Lines`,
+keeping the whole of both for the outcome; the agent passes standard output's lines to
+`StreamLines`, and standard error is kept for the result as before and makes no line. The answer
+is the stream's last `result` event, which carries the fields `--output-format json` printed, and
+is judged by the rule below; a stream with no `result` event fails outside the card, "Claude Code
+ended without a result (exit <code>)". A line that is not a JSON object is no event, and is passed
+over. The recorded streams the tests judge are `tests/DevFlow.Worker.Tests/Claude/stream/`, and
+their README says what of their shape was seen in a real run.
+
+**The run's log.** `StreamLines` turns each event into its log line, of three of a line's five
+kinds: an assistant event's `text` block is a `text` line; its `tool_use` block a `tool` line, the
+tool's name and a summary of its input of at most 200 characters, `Bash`'s command, the path of
+`Read`, `Edit` and `Write`, and any other tool's input as JSON, cut with `…`; and a user event's
+`tool_result` a `tool_result` line, cut to 2,000 characters with "… (cut)" at the end. `system`
+`init`, `result`, `rate_limit_event` and any other event make none; a line that is not an event is
+a `system` line, cut the same way. `check` and `system` are otherwise the worker's own. Every line
+has the token replaced by `[redacted]` and the job's values by `ValueScrub` before it is cut, so a
+cut never leaves part of one. It also keeps the usage so far, the sum of each assistant message's
+`usage`, `input_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens` and
+`output_tokens`: Claude Code sends a message of several blocks as one event per block, each with
+the message's `id` and its whole `usage`, so a message counts once. The result's usage stays the
+`result` event's. Lines and the usage so far go to the run's `IRunLog`, on `AgentRun`, with
+`Add(kind, text)` and `Used(usage)`; the worker gives each run a `MemoryRunLog`, which stamps a line
+with the worker's clock as it is added, that is when its event was read, and keeps it in memory.
+Sending it to Dev flow is "The worker sends its log as it runs", #444. `FakeAgent` writes a line
+of text, a `tool` line for each change and a last line to it.
+
+**When a run succeeds**: only when every one of these holds: exit `0`; the stream has a `result`
+event; `is_error` is false; `terminal_reason` is `completed`; `structured_output` is present and an
 object; `permission_denials` is empty. `subtype` is never read, since it says `success` on some
 failures. The report's schema is checked by Dev flow, which hands it out with the brief; the
 worker checks only that it is an object. Anything else is a failure, judged in this order:
@@ -2512,9 +2542,8 @@ worker checks only that it is an object. Anything else is a failure, judged in t
 | What Claude Code answered | Where it lies |
 |---|---|
 | Past the time limit, ended by the worker | In the card, sent with `timed_out` |
-| Nothing on standard output, as root with `bypassPermissions` | Outside |
-| Something that is not JSON | Outside |
-| `terminal_reason` `api_error`: not logged in, a refused key (`api_error_status` 401), a usage limit | Outside, with `resets_at` when its `result` says when the limit resets, see "Stops" |
+| No `result` event: nothing on standard output, as root with `bypassPermissions`, or a crash before it | Outside |
+| `terminal_reason` `api_error`: not logged in, a refused key (`api_error_status` 401), a usage limit | Outside, with `resets_at` when a `rate_limit_event` or its `result` says when the limit resets, see "Stops" |
 | `terminal_reason` `max_turns` | In the card |
 | `terminal_reason` `budget_exhausted` | In the card |
 | `permission_denials` not empty, a refused action, for a build; a review's are kept and fail nothing | In the card |
@@ -2700,9 +2729,11 @@ machine has one user, so both users are the test's own there; that the agent can
 files or environment is checked on the built image, by `base-image.test.sh`. `WorkerLoopTests` runs the worker against Dev flow in process,
 on a database of its own, through `DevFlow.Tests`' harness, which that project references, and
 against a Dev flow played from a script, on a clock the test moves. `ClaudeAgentTests` runs
-`ClaudeCodeAgent` on a fake process starter answering with Claude Code's answers recorded in
-`Claude/`, whose README says where they come from; `ProcessStarterTests` checks that a real process
-gets only the environment given. `ProtocolTests` checks that Dev flow's routes take the shared
+`ClaudeCodeAgent` on a fake process starter answering with the streams of Claude Code's runs in
+`Claude/stream/`, each judged as its recorded answer in `Claude/` was, whose README says where they
+come from; `StreamLinesTests` checks the log line each event makes, its scrubbing and cut, and the
+usage so far; `ProcessStarterTests` checks that a real process gets only the environment given, and
+that each line it writes reaches the line sink while it runs. `ProtocolTests` checks that Dev flow's routes take the shared
 types and that both sides write them as `contracts/devflow/openapi.json` says, `ProjectFileTests`
 reads `project.json` and keeps `ProjectFile` and its schema in step, and `PublishTests` publishes
 for both runtimes, in locked mode, in a folder of its own.
@@ -4583,9 +4614,12 @@ after the first, doubling with each one in a row up to 60, `ProjectWaits`, until
 project succeeds, which ends the count. When the failure carries `resets_at`, the project waits
 until then instead, when it is in the future and at most 8 days off; otherwise the doubling holds.
 
-**The usage limit's reset.** Claude Code's `--output-format json` answer to a run at its usage
-limit holds only a message for people; the exact time goes out in a streamed `rate_limit_event`
-alone. The message ends ` · resets 3pm (UTC)`, the hour, with the minutes when not on the hour, in
+**The usage limit's reset.** It is read from the stream first: the last `rate_limit_event` whose
+`rate_limit_info` has `status` `rejected` and `resetsAt` set, a Unix time in seconds, gives it
+exactly, whatever the `result` text says. An event that let the request through, `allowed` or
+`allowed_warning`, says only when the window resets, not that the run was stopped by it, so it
+gives none. Without such an event, it is read from the `result` event's text, a message for
+people, as `UsageLimit.ResetsAt` reads it; `UsageLimit` keeps both ways. The message ends ` · resets 3pm (UTC)`, the hour, with the minutes when not on the hour, in
 the zone named, for a reset within 24 hours, or ` · resets Jan 20, 3:30pm (Europe/Stockholm)`, with
 the date and, in another year, the year, for one further off: read from Claude Code 2.1.322's own
 formatter, and recorded as `usage-limit-resets-today.json` and `usage-limit-resets-date.json` in

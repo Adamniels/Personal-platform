@@ -24,7 +24,9 @@ internal interface IAgent
 /// does, or only read, as a review's reviewer does.</param>
 /// <param name="Values">The project's values its job carried, for the run's environment and
 /// nowhere else; null or empty when it carried none.</param>
-internal sealed record AgentRun(string WorkingDirectory, string Brief, string ReportSchema, string Model, AgentLimits Limits, AgentCredential Credential, AgentAccess Access = AgentAccess.Write, IReadOnlyList<DevFlow.Protocol.JobValue>? Values = null);
+/// <param name="Log">Where its log lines and its usage so far go as it works; null keeps
+/// none.</param>
+internal sealed record AgentRun(string WorkingDirectory, string Brief, string ReportSchema, string Model, AgentLimits Limits, AgentCredential Credential, AgentAccess Access = AgentAccess.Write, IReadOnlyList<DevFlow.Protocol.JobValue>? Values = null, IRunLog? Log = null);
 
 /// <summary>What an agent may do in its run.</summary>
 internal enum AgentAccess

@@ -36,6 +36,25 @@ public sealed class FakeAgentTests : IDisposable
         Assert.False(File.Exists(Path.Combine(_work.FullName, "old.txt")));
     }
 
+    [Fact]
+    public async Task ItWritesAFewLinesToTheRunsLog()
+    {
+        File.WriteAllText(Path.Combine(_work.FullName, "old.txt"), "old");
+        var log = new MemoryRunLog(new WatchedClock());
+        var agent = new FakeAgent(new JsonObject(), new Dictionary<string, string?> { ["src/list.tsx"] = "x", ["old.txt"] = null });
+
+        await agent.Run(new AgentRun(_work.FullName, "brief", "{}", "opus", Limits, new AgentCredential("unused"), Log: log), Ct);
+
+        Assert.Equal(
+            [
+                (RunLineKind.Text, "The fake agent makes 2 changes."),
+                (RunLineKind.Tool, "Write: src/list.tsx"),
+                (RunLineKind.Tool, "Bash: rm old.txt"),
+                (RunLineKind.Text, "Done."),
+            ],
+            log.Lines.Select(line => (line.Kind, line.Text)));
+    }
+
     [Theory]
     [InlineData("../outside.txt")]
     [InlineData("/etc/outside.txt")]

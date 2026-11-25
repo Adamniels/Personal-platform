@@ -187,7 +187,9 @@ internal static class Paths
 }
 
 /// <summary>Answers each start with the next outcome, and records what it was asked to start,
-/// so a test sees the arguments and the environment of every process without running one.</summary>
+/// so a test sees the arguments and the environment of every process without running one. A spec's
+/// line sink is handed the outcome's lines, standard output's first, as a real program's would
+/// be.</summary>
 internal sealed class FakeStarter(params ProcessOutcome[] outcomes) : IProcessStarter
 {
     private readonly Queue<ProcessOutcome> _outcomes = new(outcomes);
@@ -197,7 +199,19 @@ internal sealed class FakeStarter(params ProcessOutcome[] outcomes) : IProcessSt
     public Task<ProcessOutcome> Run(ProcessSpec spec, TimeSpan timeLimit, CancellationToken cancellationToken)
     {
         Started.Add((spec, timeLimit));
-        return Task.FromResult(_outcomes.Dequeue());
+        var outcome = _outcomes.Dequeue();
+        if (spec.Lines is { } sink)
+        {
+            foreach (var (stream, text) in new[] { (ProcessStream.Stdout, outcome.Stdout), (ProcessStream.Stderr, outcome.Stderr) })
+            {
+                foreach (var line in text.Split('\n')[..^(text.EndsWith('\n') ? 1 : 0)])
+                {
+                    sink(stream, line.TrimEnd('\r'));
+                }
+            }
+        }
+
+        return Task.FromResult(outcome);
     }
 }
 /// <summary>Claude Code's recorded answers in <c>Claude/</c>, and the streams of its runs in
