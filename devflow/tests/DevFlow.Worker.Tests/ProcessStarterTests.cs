@@ -48,6 +48,64 @@ public sealed class ProcessStarterTests
     }
 
     [Fact]
+    public async Task LinesReachTheSinkAsTheyAreWritten()
+    {
+        // The program writes each line only once the sink has answered the one before, by a file it
+        // waits for: were the lines handed over only when it ended, it would wait until its time
+        // limit, and the outcome would say it timed out.
+        var folder = Directory.CreateTempSubdirectory("devflow-lines-");
+        try
+        {
+            var lines = new List<(ProcessStream Stream, string Text)>();
+            var script = """
+                echo one
+                while [ ! -f go1 ]; do sleep 0.05; done
+                echo two >&2
+                while [ ! -f go2 ]; do sleep 0.05; done
+                printf 'three'
+                """;
+            void Sink(ProcessStream stream, string text)
+            {
+                lock (lines)
+                {
+                    lines.Add((stream, text));
+                    File.WriteAllText(Path.Combine(folder.FullName, $"go{lines.Count}"), "");
+                }
+            }
+
+            var outcome = await new SystemProcessStarter(runAs: null, TimeProvider.System)
+                .Run(new ProcessSpec("/bin/sh", ["-c", script], folder.FullName, new Dictionary<string, string> { ["PATH"] = "/usr/bin:/bin" }, Lines: Sink), TimeSpan.FromSeconds(30), Ct);
+
+            Assert.False(outcome.TimedOut);
+            Assert.Equal(0, outcome.ExitCode);
+            Assert.Equal([(ProcessStream.Stdout, "one"), (ProcessStream.Stderr, "two"), (ProcessStream.Stdout, "three")], lines);
+            // The outcome still holds all of both, exactly as written.
+            Assert.Equal("one\nthree", outcome.Stdout);
+            Assert.Equal("two\n", outcome.Stderr);
+        }
+        finally
+        {
+            folder.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ALineSplitAcrossReadsIsOneLine()
+    {
+        // A line longer than any one read, with a carriage return before its end, is handed over
+        // whole and without the return, and the outcome keeps both.
+        var lines = new List<string>();
+        var outcome = await new SystemProcessStarter(runAs: null, TimeProvider.System)
+            .Run(
+                new ProcessSpec("/bin/sh", ["-c", "head -c 20000 /dev/zero | tr '\\0' x; printf '\\r\\nend\\n'"], Path.GetTempPath(), new Dictionary<string, string> { ["PATH"] = "/usr/bin:/bin" }, Lines: (_, text) => lines.Add(text)),
+                TimeSpan.FromSeconds(30),
+                Ct);
+
+        Assert.Equal([new string('x', 20000), "end"], lines);
+        Assert.Equal(new string('x', 20000) + "\r\nend\n", outcome.Stdout);
+    }
+
+    [Fact]
     public async Task AProcessPastItsTimeLimitIsEnded()
     {
         var started = DateTimeOffset.UtcNow;
