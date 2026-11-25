@@ -1579,10 +1579,12 @@ its attention issues.
 ### A feature's page
 
 A feature has a page of its own, as a card has, laid out as the mockup's feature page of the spec's
-round 7: its state, what the agents want the owner to know, its branch to try, every card's
-screenshots and its cards with their state, fix rounds and tokens. "Trying a feature is its branch
-and its screenshots for now": the page gives the command that checks the branch out and the
-pictures the worker took, and runs nothing. Tokens are shown, not cost, as the spec's round 7 says.
+round 7, and since the redesign as `docs/redesign/feature-page.png`: merging and what the agents
+want the owner to know first, then its cards with their state, every card's screenshots, and its
+branch to try beside them. "Trying a feature is its branch and its screenshots for now": the page
+gives the command that checks the branch out and the pictures the worker took, and runs nothing. A
+card's fix rounds and tokens are on its own page; tokens are shown, not cost, as the spec's round 7
+says.
 
 **Read from what Dev flow stored, as every page is.** The story is the feature's row, its cards in
 order, their runs, reviews and answers, read in one transaction as the user, never from the code

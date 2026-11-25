@@ -1300,6 +1300,7 @@ export interface components {
         FeatureStoryView: {
             branch: null | components["schemas"]["FeatureBranch"];
             cards: components["schemas"]["FeatureCard"][];
+            default_branch: null | string;
             /** Format: int32 */
             fix_rounds: number;
             /** Format: int64 */
@@ -1313,6 +1314,7 @@ export interface components {
             output_tokens: number;
             pull_request: null | components["schemas"]["CardPullRequest"];
             reason: null | string;
+            repository: string;
             reviews: components["schemas"]["CardReview"][];
             rounds: components["schemas"]["CardRound"][];
             runs: components["schemas"]["CardRun"][];

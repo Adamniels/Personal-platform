@@ -1548,6 +1548,12 @@
             },
             "type": "array"
           },
+          "default_branch": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "fix_rounds": {
             "format": "int32",
             "type": "integer"
@@ -1594,6 +1600,9 @@
               "string"
             ]
           },
+          "repository": {
+            "type": "string"
+          },
           "reviews": {
             "items": {
               "$ref": "#/components/schemas/CardReview"
@@ -1624,6 +1633,7 @@
         },
         "required": [
           "number",
+          "repository",
           "title",
           "web_url",
           "state",
@@ -1638,7 +1648,8 @@
           "fix_rounds",
           "rounds",
           "merge",
-          "most_rounds"
+          "most_rounds",
+          "default_branch"
         ],
         "type": "object"
       },

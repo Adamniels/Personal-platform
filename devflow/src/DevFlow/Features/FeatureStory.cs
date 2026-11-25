@@ -85,6 +85,8 @@ public sealed record FeatureCard(
 /// <summary>What <c>GET /devflow/api/projects/{id}/features/{number}</c> answers: a feature's whole
 /// story so far.</summary>
 /// <param name="Number">Its parent issue's number.</param>
+/// <param name="Repository">The project's repository as <c>owner/name</c>, which the page's header
+/// names.</param>
 /// <param name="Title">The parent's title as last read.</param>
 /// <param name="WebUrl">Where the parent is on the code host.</param>
 /// <param name="State">The feature's state.</param>
@@ -108,8 +110,11 @@ public sealed record FeatureCard(
 /// <see cref="FeatureMergeOffers"/>, with the head the merge names; null when it is not.</param>
 /// <param name="MostRounds">The fix rounds the project gives a whole feature, as its settings are
 /// now, which the page counts its rounds against.</param>
+/// <param name="DefaultBranch">The project's default branch, as its watch names it, which the page
+/// says the feature merges into; null before the default branch is watched.</param>
 public sealed record FeatureStoryView(
     int Number,
+    string Repository,
     string Title,
     string WebUrl,
     string State,
@@ -124,7 +129,8 @@ public sealed record FeatureStoryView(
     int FixRounds,
     IReadOnlyList<CardRound> Rounds,
     FeatureMergeOffer? Merge,
-    int MostRounds);
+    int MostRounds,
+    string? DefaultBranch);
 
 /// <summary>
 /// A feature's story, read from what Dev flow stored and never from the code host, through the
@@ -153,8 +159,11 @@ public static class FeatureStory
                    CASE WHEN f.branch_base_commit IS NULL THEN NULL ELSE f.branch END AS Branch,
                    coalesce(b.last_commit, f.branch_base_commit) AS BranchCommit,
                    f.pull_request_number AS PullRequestNumber, f.pull_request_url AS PullRequestUrl, f.fix_round AS FixRounds,
-                   {FeatureMergeOffers.IntoSql} AS MergeInto, {FeatureMergeOffers.HeadSql} AS Head
+                   {FeatureMergeOffers.IntoSql} AS MergeInto, {FeatureMergeOffers.HeadSql} AS Head,
+                   p.owner || '/' || p.name AS Repository,
+                   (SELECT d.branch FROM branch_watches d WHERE d.project_id = f.project_id AND d.feature_id IS NULL) AS DefaultBranch
             FROM features f
+            JOIN projects p ON p.id = f.project_id
             LEFT JOIN branch_watches b ON b.project_id = f.project_id AND b.feature_id = f.id
             WHERE f.project_id = @projectId AND f.number = @number
             """,
@@ -228,6 +237,7 @@ public static class FeatureStory
             : null;
         return new FeatureStoryView(
             feature.Number,
+            feature.Repository,
             feature.Title,
             feature.WebUrl,
             feature.State,
@@ -256,7 +266,8 @@ public static class FeatureStory
                 [.. featureReviews.Select(review => new KeptReview(review.RunId, review.Commit, review.Verdict, review.ReviewedAt, review.PostedAt))],
                 cancellationToken),
             FeatureMergeOffers.Of(feature.MergeInto, feature.Head),
-            (await Projects.RunSettings.Read(transaction, projectId, cancellationToken))?.FixRoundsFeature ?? Projects.RunSettings.Defaults.FixRoundsFeature);
+            (await Projects.RunSettings.Read(transaction, projectId, cancellationToken))?.FixRoundsFeature ?? Projects.RunSettings.Defaults.FixRoundsFeature,
+            feature.DefaultBranch);
     }
 
     /// <summary>Each merge of the default branch Dev flow made cleanly on the feature's branch, by its
@@ -310,7 +321,7 @@ public static class FeatureStory
 
     private sealed record FeatureRow(
         Guid Id, int Number, string Title, string WebUrl, string State, string? Reason, string? Branch, string? BranchCommit, int? PullRequestNumber, string? PullRequestUrl, int FixRounds,
-        string? MergeInto, string? Head);
+        string? MergeInto, string? Head, string Repository, string? DefaultBranch);
 
     private sealed record AnswerRow(Guid RunId, int Position, string Answer, DateTime AnsweredAt);
 

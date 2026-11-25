@@ -33,6 +33,9 @@ public sealed class FeaturePageTests
         Assert.Equal(reads, jobs.Routes.Host.Calls.Count);
         var feature = await FeatureJobs.Feature(jobs, Parent);
         Assert.Equal(Parent, (int)story!["number"]!);
+        // The repository the header names, and the default branch the feature merges into.
+        Assert.Equal("Adamniels/Personal-platform", (string)story["repository"]!);
+        Assert.Equal("main", (string?)story["default_branch"]);
         Assert.Equal("Dev flow: features", (string)story["title"]!);
         Assert.Equal($"https://github.com/Adamniels/Personal-platform/issues/{Parent}", (string)story["web_url"]!);
         Assert.Equal(feature.State, (string)story["state"]!);

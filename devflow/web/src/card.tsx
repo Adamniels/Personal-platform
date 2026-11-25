@@ -62,7 +62,8 @@ const RESULTS: Record<string, { word: string; tone: StatusTone }> = {
 	lost: { word: "Lost", tone: "failed" },
 };
 
-const KINDS: Record<string, string> = {
+/** A run's kind as the pages name it. */
+export const KINDS: Record<string, string> = {
 	build: "Build",
 	review: "Review",
 	fix: "Fix",
@@ -605,7 +606,10 @@ function runLine(run: Run): string {
 }
 
 /** A run's result as a word and a tone, Running while it runs. */
-function resultOf(result: string | null): { word: string; tone: StatusTone } {
+export function resultOf(result: string | null): {
+	word: string;
+	tone: StatusTone;
+} {
 	return result === null
 		? { word: "Running", tone: "running" }
 		: (RESULTS[result] ?? { word: result, tone: "idle" });
@@ -1011,7 +1015,7 @@ function Link({ url, label }: { url: string; label: string }) {
 
 /** Where a failed run's cause lay, said after its reason: a card's run's in
  * the card or outside it, and a feature's in its job or outside it. */
-const LAY = {
+export const LAY = {
 	card: {
 		in: " It lay in the card, which has to change.",
 		outside: " It lay outside the card, so it goes back in the queue.",

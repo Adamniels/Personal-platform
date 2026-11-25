@@ -4395,6 +4395,20 @@ def _landed_feature(
     return project
 
 
+def _feature_header(page: Page) -> Locator:
+    """A feature's page's header: its state with its caption, its title, its
+    reason and its links. A card's label is no header, so it is the one."""
+    return page.locator("header").filter(has=page.locator("h2"))
+
+
+def _every_review_and_round(page: Page) -> Locator:
+    """Every review and round of a feature, opened in place in its side
+    column, newest first."""
+    panel = page.get_by_role("article", name="Reviews and rounds")
+    panel.get_by_role("button", name="Read every review and round").click()
+    return panel.get_by_role("list", name="Every review and round")
+
+
 def _look(page: Page, name: str) -> None:
     """The look checks every page is held to, the accessibility check, and its
     screenshot."""
@@ -4427,9 +4441,8 @@ def test_a_features_page_shows_its_cards_and_decisions(
     expect(page).to_have_url(f"{base_url}/devflow/projects/{project}/features/60")
     expect(page.get_by_role("heading", name="The feature's branch")).to_be_visible()
     expect(page.get_by_role("tab", name="Projects", selected=True)).to_be_visible()
-    feature = page.get_by_role("article", name="The feature")
+    feature = _feature_header(page)
     expect(feature).to_contain_text("Building")
-    expect(feature).to_contain_text("1 of 3 cards done")
 
     # The decision the first card's report marked for me, with the
     # reviewer's view, and the one not marked left out.
@@ -4438,7 +4451,8 @@ def test_a_features_page_shows_its_cards_and_decisions(
         "listitem"
     )
     expect(decisions).to_have_count(1)
-    expect(decisions.first).to_contain_text("#61: Show it on every list")
+    expect(decisions.first).to_contain_text("#61 · Read the sub-issues")
+    expect(decisions.first).to_contain_text("Show it on every list")
     expect(decisions.first).to_contain_text("Instead of Only on habits")
     expect(decisions.first).to_contain_text("Because The lists look the same")
     expect(decisions.first).to_contain_text(
@@ -4469,18 +4483,22 @@ def test_a_features_page_shows_its_cards_and_decisions(
         )
 
     # The cards in order, each with its state and a link to its page.
-    rows = page.get_by_role("table", name="Cards of the feature").get_by_role("row")
-    expect(rows).to_have_count(4)
-    expect(rows.nth(1)).to_contain_text("#61 Read the sub-issues")
-    expect(rows.nth(1)).to_contain_text("Done")
-    expect(rows.nth(2)).to_contain_text("#62 Show each feature")
-    expect(rows.nth(2)).to_contain_text("Building")
-    expect(rows.nth(3)).to_contain_text("#63 The feature's page")
-    expect(rows.nth(3)).to_contain_text("Queued")
+    cards = page.get_by_role("article", name="Cards")
+    expect(cards).to_contain_text("1 of 3 landed")
+    rows = cards.get_by_role("list", name="Cards of the feature").get_by_role(
+        "listitem"
+    )
+    expect(rows).to_have_count(3)
+    expect(rows.nth(0)).to_contain_text("#61Read the sub-issues")
+    expect(rows.nth(0)).to_contain_text("Landed")
+    expect(rows.nth(1)).to_contain_text("#62Show each feature")
+    expect(rows.nth(1)).to_contain_text("Building")
+    expect(rows.nth(2)).to_contain_text("#63The feature's page")
+    expect(rows.nth(2)).to_contain_text("Queued")
     _look(page, "devflow-feature-page")
 
     # A card's page links back to its feature.
-    rows.nth(1).get_by_role("link", name="#61 Read the sub-issues").click()
+    rows.nth(0).get_by_role("link", name="Read the sub-issues", exact=True).click()
     expect(page).to_have_url(f"{base_url}/devflow/projects/{project}/cards/61")
     page.get_by_role("link", name="Feature #60: The feature's branch").click()
     expect(page).to_have_url(f"{base_url}/devflow/projects/{project}/features/60")
@@ -4526,8 +4544,10 @@ def test_i_send_a_card_back_from_the_features_page(
     # From the feature's page, on the card that landed, with a comment.
     page.goto(f"/devflow/projects/{project}/features/60")
     cards = page.get_by_role("article", name="Cards")
-    expect(cards.get_by_role("button", name="Send back #62")).to_have_count(0)
-    cards.get_by_role("button", name="Send back #61").click()
+    expect(cards.get_by_role("button", name="Send back #62", exact=True)).to_have_count(
+        0
+    )
+    cards.get_by_role("button", name="Send back #61", exact=True).click()
     said = "Read the sub-issues a hundred at a time, not all at once."
     cards.get_by_role("textbox", name="What should the developer change in #61?").fill(
         said
@@ -4546,13 +4566,13 @@ def test_i_send_a_card_back_from_the_features_page(
 
     # The read that followed took it: the card is queued with my words, and
     # the feature builds again.
-    rows = page.get_by_role("table", name="Cards of the feature").get_by_role("row")
-    expect(rows.nth(1)).to_contain_text("Queued")
-    expect(page.get_by_role("article", name="The feature")).to_contain_text("Building")
-    sent = cards.get_by_role("list", name="Cards you sent back")
-    expect(sent).to_contain_text("#61 Read the sub-issues")
-    expect(sent).to_contain_text("Sent back from pull request #")
-    expect(sent).to_contain_text(said)
+    rows = cards.get_by_role("list", name="Cards of the feature").get_by_role(
+        "listitem"
+    )
+    expect(rows.nth(0)).to_contain_text("Queued")
+    expect(_feature_header(page)).to_contain_text("Building")
+    expect(rows.nth(0)).to_contain_text("You sent it back once, from pull request #")
+    expect(rows.nth(0)).to_contain_text(said)
     _look(page, "devflow-feature-card-sent-back")
 
     # The fake worker takes it next, on a new branch from the feature's, and
@@ -4568,9 +4588,13 @@ def test_i_send_a_card_back_from_the_features_page(
         "devflow/61-read-the-sub-issues-2",
     )
     page.reload()
-    rows = page.get_by_role("table", name="Cards of the feature").get_by_role("row")
-    expect(rows.nth(1)).to_contain_text("Building")
-    expect(page.get_by_role("article", name="The feature")).to_contain_text("Building")
+    rows = (
+        page.get_by_role("article", name="Cards")
+        .get_by_role("list", name="Cards of the feature")
+        .get_by_role("listitem")
+    )
+    expect(rows.nth(0)).to_contain_text("Building")
+    expect(_feature_header(page)).to_contain_text("Building")
 
 
 def test_a_finished_feature_gets_its_pull_request(
@@ -4690,9 +4714,8 @@ def test_a_finished_feature_gets_its_pull_request(
     # The feature's page links to its pull request and says it is reviewed as a
     # whole next.
     page.goto(f"/devflow/projects/{project}/features/60")
-    feature = page.get_by_role("article", name="The feature")
+    feature = _feature_header(page)
     expect(feature).to_contain_text("Reviewing")
-    expect(feature).to_contain_text("1 of 1 cards done")
     link = feature.get_by_role("link", name=f"Pull request #{pull['number']}")
     expect(link).to_have_attribute("href", pull["url"])
     _look(page, "devflow-feature-pull-request")
@@ -4769,7 +4792,7 @@ def test_a_conflict_is_resolved_by_an_agent(
     _fake_review(page, base_url, project, _verdict("approve"))
     assert [write for write in _writes(page) if write["kind"] == "branch_merge"] == []
     page.goto(f"/devflow/projects/{project}/features/60")
-    feature = page.get_by_role("article", name="The feature")
+    feature = _feature_header(page)
     expect(feature).to_contain_text("Resolving a conflict")
     expect(feature).to_contain_text(
         "main conflicts with the feature's branch; an agent resolves it"
@@ -4828,17 +4851,11 @@ def test_a_conflict_is_resolved_by_an_agent(
     # Its page shows the run that resolved it, newest first, after the reading
     # of its cards.
     page.goto(f"/devflow/projects/{project}/features/60")
-    feature = page.get_by_role("article", name="The feature")
+    feature = _feature_header(page)
     expect(feature).to_contain_text("Reviewing")
-    runs = page.get_by_role("article", name="Runs").get_by_role(
-        "list", name="Runs of the feature"
-    )
-    expect(runs.get_by_role("listitem")).to_have_count(2)
-    run = runs.get_by_role("listitem").first
-    expect(run).to_contain_text("Conflict")
-    expect(run).to_contain_text("Succeeded")
-    expect(run).to_contain_text(f"on {resolved.json()['head_commit'][:7]}")
-    expect(run).to_contain_text("Tokens 12 in, 3,400 out")
+    runs = page.get_by_role("article", name="Its own runs")
+    expect(runs.locator("dt")).to_have_text(["Conflict", "Reading"])
+    expect(runs.locator("dd").first).to_contain_text("Succeeded · ")
     _look(page, "devflow-feature-conflict-resolved")
 
 
@@ -5046,10 +5063,10 @@ def test_a_reviewed_feature_is_ready_for_me(
     # Its page shows the review, for the pull request's head.
     item.get_by_role("link", name="Open the feature").click()
     expect(page).to_have_url(re.compile(rf"/devflow/projects/{project}/features/60$"))
-    feature = page.get_by_role("article", name="The feature")
+    feature = _feature_header(page)
     expect(feature).to_contain_text("Ready for you")
-    reviews = page.get_by_role("list", name="Reviews of the feature")
-    latest = reviews.get_by_role("listitem").first
+    reviews = _every_review_and_round(page)
+    latest = reviews.locator(":scope > li").first
     expect(latest).to_contain_text(head[:7])
     expect(latest).to_contain_text("Approved")
     expect(latest).to_contain_text("For the pull request's head")
@@ -5081,16 +5098,12 @@ def test_a_feature_is_fixed_after_its_review(
     reviewed_head = reviewed["head_commit"]
 
     page.goto(f"/devflow/projects/{project}/features/60")
-    feature = page.get_by_role("article", name="The feature")
+    feature = _feature_header(page)
     expect(feature).to_contain_text("Fixing")
     expect(feature).to_contain_text(
         "Round 1 of 3: the review of the whole feature asked for changes; a fix runs next"
     )
-    latest = (
-        page.get_by_role("list", name="Reviews of the feature")
-        .get_by_role("listitem")
-        .first
-    )
+    latest = _every_review_and_round(page).locator(":scope > li").first
     expect(latest).to_contain_text("The card and the end both read the branch's head")
     _look(page, "devflow-feature-fixing")
 
@@ -5135,11 +5148,13 @@ def test_a_feature_is_fixed_after_its_review(
     # Its page shows the round: the review that started it, the reply, the
     # commit it left and the review of it.
     page.reload()
-    expect(page.get_by_role("article", name="The feature")).to_contain_text(
-        "Ready for you"
-    )
-    expect(page.get_by_text("Fix rounds, 1 of 3 used")).to_be_visible()
-    round_one = page.get_by_role("list", name="Fix rounds of the feature").get_by_role(
+    expect(_feature_header(page)).to_contain_text("Ready for you")
+    expect(
+        page.get_by_role("article", name="Reviews and rounds").get_by_role(
+            "img", name="Fix rounds: 1 of 3 used"
+        )
+    ).to_be_visible()
+    round_one = _every_review_and_round(page).get_by_role(
         "listitem", name="Round 1 of 3"
     )
     expect(round_one).to_contain_text(reviewed_head[:7])
@@ -5157,15 +5172,16 @@ def test_i_send_the_whole_feature_back(
 
     # From the feature's page, with a comment.
     page.goto(f"/devflow/projects/{project}/features/60")
-    feature = page.get_by_role("article", name="The feature")
+    feature = _feature_header(page)
     expect(feature).to_contain_text("Waiting for you")
-    feature.get_by_role("button", name="Send the whole feature back").click()
+    merging = page.get_by_role("article", name="Merging into main")
+    merging.get_by_role("button", name="Send the whole feature back").click()
     said = "Read the branch's head in one place for the card and the end."
-    feature.get_by_role(
+    merging.get_by_role(
         "textbox", name="What should the developer change in the whole feature?"
     ).fill(said)
     _look(page, "devflow-feature-send-back")
-    feature.get_by_role("button", name="Send", exact=True).click()
+    merging.get_by_role("button", name="Send", exact=True).click()
     expect(page.get_by_text("Sent back feature #60")).to_be_visible()
 
     # Posted as me on the feature's pull request, never as the app.
@@ -5199,18 +5215,26 @@ def test_i_send_the_whole_feature_back(
 
 
 def _reviewed_feature(
-    page: Page, base_url: str, devflow_world, whole: dict
+    page: Page,
+    base_url: str,
+    devflow_world,
+    whole: dict,
+    titles: tuple[str, ...] = ("Merge the feature",),
 ) -> tuple[str, int, str]:
-    """A labelled feature of one card carried to its end: the card built and
-    landed, main brought in and the feature's pull request opened, its whole
-    review answered `whole`, and CI green on its head, decided on the next
-    minute. A verdict other than approve comes after every fix round is used,
-    each a review asking for changes and its fix, so the feature waits for me,
-    the one way one its review did not approve does. The project, the
-    feature's pull request and its head."""
+    """A labelled feature of a card for each of `titles`, 61 onwards, one
+    unless given, carried to its end: each card built and landed in turn,
+    only the first marking a decision for me, main brought in and the
+    feature's pull request opened, its whole review answered `whole`, and CI
+    green on its head, decided on the next minute. A verdict other than
+    approve comes after every fix round is used, each a review asking for
+    changes and its fix, so the feature waits for me, the one way one its
+    review did not approve does. The project, the feature's pull request and
+    its head."""
+    numbers = [61 + at for at in range(len(titles))]
     world = one_repository()
-    add_issue(world, 60, "The feature's branch", labels=["devflow"], sub_issues=[61])
-    add_issue(world, 61, "Merge the feature")
+    add_issue(world, 60, "The feature's branch", labels=["devflow"], sub_issues=numbers)
+    for number, title in zip(numbers, titles, strict=True):
+        add_issue(world, number, title)
     add_file(
         world,
         ".devflow/project.json",
@@ -5229,46 +5253,68 @@ def _reviewed_feature(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
-    _fake_read(page, base_url, project, [_ready(61)])
+    _fake_read(page, base_url, project, [_ready(number) for number in numbers])
 
-    # The fake worker builds the one card; meanwhile I push to main, and the
+    # The fake worker builds each card in turn, and each lands in the
+    # feature's branch on CI green and the reviewer's approve; only the first
+    # marks a decision for me. Before the last lands I push to main, and the
     # project is read, so the watch judges my push fine.
-    ran = page.request.post(
-        "/devflow/api/fake/worker/run",
-        data={
-            "project_id": project,
-            "result": {
-                "outcome": "succeeded",
-                "report": _report(),
-                "failure": None,
-                "check": {"exit_code": 0, "output": "Tests: 12 passed"},
-                "auth_method": "oauth_token",
-                "usage": {
-                    "usage": {"input_tokens": 41, "output_tokens": 6113},
-                    "num_turns": 23,
+    for number in numbers:
+        report = _report()
+        if number != numbers[0]:
+            report["decisions"] = [
+                decision
+                for decision in report["decisions"]
+                if not decision["for_owner"]
+            ]
+        ran = page.request.post(
+            "/devflow/api/fake/worker/run",
+            data={
+                "project_id": project,
+                "result": {
+                    "outcome": "succeeded",
+                    "report": report,
+                    "failure": None,
+                    "check": {"exit_code": 0, "output": "Tests: 12 passed"},
+                    "auth_method": "oauth_token",
+                    "usage": {
+                        "usage": {"input_tokens": 41, "output_tokens": 6113},
+                        "num_turns": 23,
+                    },
+                    "duration_ms": 184213,
+                    "stderr": "",
                 },
-                "duration_ms": 184213,
-                "stderr": "",
             },
-        },
-        headers={"Origin": base_url},
-    )
-    assert ran.status == 200, ran.text()
-    pushed = page.request.post(
-        "/devflow/api/fake/push",
-        data={"repository": REPOSITORY, "branch": "main", "message": "Main moves on"},
-        headers={"Origin": base_url},
-    )
-    assert pushed.status == 200, pushed.text()
-    refreshed = page.request.post(
-        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
-    )
-    assert refreshed.status == 204, refreshed.text()
+            headers={"Origin": base_url},
+        )
+        assert ran.status == 200, ran.text()
+        assert ran.json()["card"] == number, ran.json()
+        if number == numbers[-1]:
+            pushed = page.request.post(
+                "/devflow/api/fake/push",
+                data={
+                    "repository": REPOSITORY,
+                    "branch": "main",
+                    "message": "Main moves on",
+                },
+                headers={"Origin": base_url},
+            )
+            assert pushed.status == 200, pushed.text()
+        refreshed = page.request.post(
+            f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+        )
+        assert refreshed.status == 204, refreshed.text()
+        _stage_ci(page, devflow_world, ran.json()["head_commit"], [check_run("test")])
+        _fake_review(page, base_url, project, _verdict("approve"))
+        if number != numbers[-1]:
+            refreshed = page.request.post(
+                f"/devflow/api/projects/{project}/refresh",
+                headers={"Origin": base_url},
+            )
+            assert refreshed.status == 204, refreshed.text()
 
-    # CI green and the reviewer's approve: the card lands, which ends the
-    # feature: main is brought in, and the feature's pull request opened.
-    _stage_ci(page, devflow_world, ran.json()["head_commit"], [check_run("test")])
-    _fake_review(page, base_url, project, _verdict("approve"))
+    # The last card landing ends the feature: main is brought in, and the
+    # feature's pull request opened.
     opened = [
         write
         for write in _writes(page)
@@ -5381,10 +5427,117 @@ def test_i_merge_a_feature_into_main(
 
     # Its page says it is merged, and offers the merge no more.
     page.goto(f"/devflow/projects/{project}/features/60")
-    feature = page.get_by_role("article", name="The feature")
+    feature = _feature_header(page)
     expect(feature).to_contain_text("Merged")
     expect(page.get_by_role("button", name="Merge into main")).to_have_count(0)
     _look(page, "devflow-feature-merged")
+
+
+ELEVEN_CARDS = (
+    "Features and their cards",
+    "The feature's branch, made once",
+    "Watching a feature's branch",
+    "A card lands in its feature",
+    "The feature's page",
+    "Bringing main in",
+    "Resolving a conflict",
+    "Reviewing the whole feature",
+    "Fixing a feature",
+    "Merging a feature into main",
+    "Sending a card back",
+)
+
+
+def test_a_feature_page_puts_merging_first(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    project, pull, head = _reviewed_feature(
+        page, base_url, devflow_world, _verdict("approve"), titles=ELEVEN_CARDS
+    )
+
+    # The header: its state with the mono caption, the title, its links.
+    page.goto(f"/devflow/projects/{project}/features/60")
+    expect(
+        page.get_by_role("heading", name="The feature's branch", exact=True)
+    ).to_be_visible()
+    expect(
+        page.get_by_text(f"{OWNER}/{NAME} · FEATURE #60 · 11 CARDS".upper())
+    ).to_be_visible()
+    expect(page.get_by_role("link", name=f"Pull request #{pull}")).to_be_visible()
+
+    # The merge card, before the decisions and the cards: CI, the review and
+    # the decisions as tiles, with the head it merges.
+    merging = page.get_by_role("article", name="Merging into main")
+    wants = page.get_by_role("article", name="What the agents want you to know")
+    cards = page.get_by_role("article", name="Cards")
+    expect(merging).to_contain_text(f"head {head[:7]}")
+    tiles = merging.get_by_role("list", name="At a glance").get_by_role("listitem")
+    expect(tiles).to_have_count(3)
+    expect(tiles.nth(0)).to_contain_text("Passed")
+    expect(tiles.nth(1)).to_contain_text("Approved")
+    expect(tiles.nth(2)).to_contain_text("0 of 1 answered")
+    expect(merging).to_contain_text(
+        "Merging confirms 1 decision you have not answered."
+    )
+    tops = [box.bounding_box()["y"] for box in (merging, wants, cards)]
+    assert tops == sorted(tops), tops
+
+    # Exactly one primary on the page: Merge into main.
+    primaries = [
+        button.inner_text()
+        for button in page.get_by_role("button").all()
+        if button.is_visible()
+        and re.search(r"(^|\s)_?primary", button.get_attribute("class") or "")
+    ]
+    assert primaries == ["Merge into main"], primaries
+
+    # The one open decision, with its two answers.
+    decision = wants.get_by_role("list", name="Decisions for you").get_by_role(
+        "listitem"
+    )
+    expect(decision).to_have_count(1)
+    expect(decision).to_contain_text("#61 · Features and their cards")
+    expect(decision).to_contain_text("Show it on every list")
+    expect(
+        decision.get_by_role("button", name=re.compile("^Fine as it is"))
+    ).to_be_visible()
+    expect(
+        decision.get_by_role("button", name=re.compile("^Send back #61"))
+    ).to_be_visible()
+
+    # The eleven cards in order, all landed, each with Send back: beside its
+    # title on desktop, under it on phone.
+    expect(cards).to_contain_text("11 of 11 landed")
+    expect(cards.get_by_role("img", name="Cards: 11 of 11 landed")).to_be_visible()
+    rows = cards.get_by_role("list", name="Cards of the feature").get_by_role(
+        "listitem"
+    )
+    expect(rows).to_have_count(len(ELEVEN_CARDS))
+    for at, title in enumerate(ELEVEN_CARDS):
+        row = rows.nth(at)
+        expect(row).to_contain_text(f"#{61 + at}")
+        expect(row).to_contain_text("Landed")
+        named = row.get_by_role("link", name=title, exact=True).bounding_box()
+        back = row.get_by_role(
+            "button", name=f"Send back #{61 + at}", exact=True
+        ).bounding_box()
+        if viewport == "phone":
+            assert back["y"] >= named["y"] + named["height"] - 1, (title, named, back)
+        else:
+            assert back["y"] < named["y"] + named["height"], (title, named, back)
+            assert back["x"] > named["x"] + named["width"], (title, named, back)
+
+    # The side column: the branch with its command, and the review.
+    expect(page.get_by_role("article", name="The branch")).to_contain_text(
+        FEATURE_BRANCH
+    )
+    expect(
+        page.get_by_role("article", name="Reviews and rounds").get_by_role(
+            "img", name="Fix rounds: 0 of 3 used"
+        )
+    ).to_be_visible()
+    _look(page, "devflow-feature")
 
 
 def test_merging_warns_when_the_review_did_not_approve(
@@ -5421,10 +5574,12 @@ def test_merging_warns_when_the_review_did_not_approve(
     # It waits for me, since the review asked for changes with every round
     # used, and CI passed, so Merge into main is offered on its page.
     page.goto(f"/devflow/projects/{project}/features/60")
-    feature = page.get_by_role("article", name="The feature")
+    feature = _feature_header(page)
     expect(feature).to_contain_text("Waiting for you")
     expect(feature).to_contain_text("Review rounds used up")
-    feature.get_by_role("button", name="Merge into main").click()
+    page.get_by_role("article", name="Merging into main").get_by_role(
+        "button", name="Merge into main"
+    ).click()
 
     # The confirmation says the review asked for changes and lists the open
     # findings, and counts the decision I have not answered.
