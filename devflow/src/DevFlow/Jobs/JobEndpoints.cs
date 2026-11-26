@@ -37,7 +37,7 @@ public static partial class JobEndpoints
 
         routes.MapPost(WorkerApi.ResultRoute, Result)
             .WorkerRoute("workerJobResult", "A job has ended",
-                "What the worker sends when its job ends, whatever happened: outcome, succeeded with the agent's report or failed with the failure's reason and whether it lies in the card; the check's exit code and the last 200 lines of its output, null when it did not run; the branch, which must be the job's, and its head commit; the auth method; Claude's usage as it came, an object; the duration in milliseconds; the last 200 lines of stderr; and permission_denials, the actions the agent was refused, an array or null. Each is stored on the run as it came. A build's report is read against contracts/devflow/report.schema.json, and one that does not match is a failure in the card; a review's report is its verdict, read against contracts/devflow/verdict.schema.json, and one that does not match is a failure in the run, never a verdict. A review's head_commit is the commit it was handed, or null on a failure; any other is 422. A failure outside the card puts the card back in queued, counting nothing against it; a failure in the card, a report that does not match, a report that stopped, a check that did not run or failed stop it with why; otherwise the card waits, checked, for its pull request. A check runs no agent: its report is null, a success means the check ran and carries its result, which is the verdict on the version, and pictures, its address taken at both sizes as PNGs of at most 5 MB, base64, named as screenshots names them; pictures on any other job are 422. A setup's success is validated by Dev flow at the commit it names, its .devflow/Dockerfile by the recipe route's rules and its .devflow/project.json by its schema, as its check; 503 when GitHub did not answer, and the worker sends the result again. 204. Only for the worker holding the job while it runs, and once; 404 otherwise. 422 naming a field that is missing or breaks a rule.",
+                "What the worker sends when its job ends, whatever happened: outcome, succeeded with the agent's report, failed with the failure's reason and whether it lies in the card, or stopped, when the owner stopped the run, with report, failure, check and pictures null and the commit a pushing job pushed of what it did, or none; the check's exit code and the last 200 lines of its output, null when it did not run; the branch, which must be the job's, and its head commit; the auth method; Claude's usage as it came, an object; the duration in milliseconds; the last 200 lines of stderr; and permission_denials, the actions the agent was refused, an array or null. Each is stored on the run as it came. A build's report is read against contracts/devflow/report.schema.json, and one that does not match is a failure in the card; a review's report is its verdict, read against contracts/devflow/verdict.schema.json, and one that does not match is a failure in the run, never a verdict. A review's head_commit is the commit it was handed, or null on a failure; any other is 422. A run stopped is stopped_by_owner, never a failure: a card's build, review or fix leaves the card stopped, \"Stopped by you\", counting nothing; a feature's own run holds the feature; a reading, a setup or a check is put back. A failure outside the card puts the card back in queued, counting nothing against it; a failure in the card, a report that does not match, a report that stopped, a check that did not run or failed stop it with why; otherwise the card waits, checked, for its pull request. A check runs no agent: its report is null, a success means the check ran and carries its result, which is the verdict on the version, and pictures, its address taken at both sizes as PNGs of at most 5 MB, base64, named as screenshots names them; pictures on any other job are 422. A setup's success is validated by Dev flow at the commit it names, its .devflow/Dockerfile by the recipe route's rules and its .devflow/project.json by its schema, as its check; 503 when GitHub did not answer, and the worker sends the result again. 204. Only for the worker holding the job while it runs, and once; 404 otherwise. 422 naming a field that is missing or breaks a rule.",
                 StatusCodes.Status404NotFound, StatusCodes.Status422UnprocessableEntity, StatusCodes.Status503ServiceUnavailable);
 
         routes.MapPost(WorkerApi.LogRoute, Log)
@@ -307,7 +307,8 @@ public static partial class JobEndpoints
                 request.Failure?.TimedOut ?? false,
                 request.Failure?.ResetsAt,
                 request.RemergeDiff,
-                request.Pictures);
+                request.Pictures,
+                request.Outcome == ResultRequest.Stopped);
 
     /// <summary>Each field of <paramref name="request"/> that is missing or breaks a rule, for a
     /// job of <paramref name="kind"/>, or any job but a check when it is null.</summary>
@@ -370,8 +371,31 @@ public static partial class JobEndpoints
                 }
 
                 break;
+            case ResultRequest.Stopped:
+                // The owner stopped it: nothing was judged, so there is nothing to judge it by.
+                if (hasReport)
+                {
+                    errors["report"] = ["must be null when the outcome is stopped"];
+                }
+
+                if (request.Failure is not null)
+                {
+                    errors["failure"] = ["must be null when the outcome is stopped"];
+                }
+
+                if (request.Check is not null)
+                {
+                    errors["check"] = ["must be null when the outcome is stopped"];
+                }
+
+                if (request.Pictures is not null)
+                {
+                    errors["pictures"] = ["must be null when the outcome is stopped"];
+                }
+
+                break;
             default:
-                errors["outcome"] = [$"must be {ResultRequest.Succeeded} or {ResultRequest.Failed}"];
+                errors["outcome"] = [$"must be {ResultRequest.Succeeded}, {ResultRequest.Failed} or {ResultRequest.Stopped}"];
                 break;
         }
 

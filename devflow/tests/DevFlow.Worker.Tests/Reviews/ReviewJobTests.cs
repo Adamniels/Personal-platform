@@ -75,7 +75,7 @@ public sealed class ReviewJobTests
             Assert.Equal(("stopped", (string?)null), ((string)sent["outcome"]!, (string?)sent["head_commit"]));
             Assert.Null(sent["check"]);
             Assert.Null(sent["pictures"]);
-            Assert.DoesNotContain(bench.Handler.Calls, call => call.Path == WorkerApi.LogPath(jobId) && call.Body.Contains("finished", StringComparison.Ordinal));
+            Assert.DoesNotContain("finished", bench.Logged("check", jobId));
         }
     }
 

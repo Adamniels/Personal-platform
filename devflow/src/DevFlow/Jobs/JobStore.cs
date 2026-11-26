@@ -160,7 +160,7 @@ public static class JobStore
     /// </summary>
     private const string FeatureLetsItStart = $"""
         (cards.feature_id IS NULL OR (
-            EXISTS (SELECT 1 FROM features f WHERE f.id = cards.feature_id AND f.state IN ('queued', 'building')
+            EXISTS (SELECT 1 FROM features f WHERE f.id = cards.feature_id AND f.state IN ('queued', 'building') AND f.stopped_by_owner_at IS NULL
                     AND NOT EXISTS (SELECT 1 FROM runs fr WHERE fr.project_id = f.project_id AND fr.feature_number = f.number AND fr.finished_at IS NULL))
             AND {CardStore.HeldBackBy} IS NULL
             AND NOT EXISTS (SELECT 1 FROM runs r JOIN cards s ON s.project_id = r.project_id AND s.number = r.card_number
@@ -254,6 +254,7 @@ public static class JobStore
     /// </summary>
     private const string Resolvable = $"""
         features.project_id = @projectId AND features.state = 'resolving' AND features.branch IS NOT NULL
+        AND features.stopped_by_owner_at IS NULL
         AND features.branch_base_commit IS NOT NULL AND features.picked_body_sha256 IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM runs
                         WHERE runs.project_id = features.project_id AND runs.feature_number = features.number AND runs.finished_at IS NULL)
@@ -274,6 +275,7 @@ public static class JobStore
     /// </summary>
     private const string FeatureReviewable = $"""
         features.project_id = @projectId AND features.state = 'reviewing' AND features.pull_request_number IS NOT NULL
+        AND features.stopped_by_owner_at IS NULL
         AND features.branch IS NOT NULL AND features.branch_base_commit IS NOT NULL AND features.picked_body_sha256 IS NOT NULL
         AND features.review_commit IS NOT NULL AND features.review_commit = {FeatureHeadOf}
         AND features.review_commit IS DISTINCT FROM features.review_failed_at
@@ -294,6 +296,7 @@ public static class JobStore
     /// </summary>
     private const string FeatureFixable = """
         features.project_id = @projectId AND features.state = 'fixing' AND features.pull_request_number IS NOT NULL
+        AND features.stopped_by_owner_at IS NULL
         AND features.branch IS NOT NULL AND features.branch_base_commit IS NOT NULL AND features.picked_body_sha256 IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM runs
                         WHERE runs.project_id = features.project_id AND runs.feature_number = features.number AND runs.finished_at IS NULL)

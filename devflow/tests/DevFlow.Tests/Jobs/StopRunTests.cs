@@ -119,7 +119,7 @@ public sealed class StopRunTests
             var run = Assert.Single(await jobs.Runs());
             Assert.Equal(("stopped_by_owner", DevFlow.Jobs.RunStore.StoppedByYou), (run.Result, run.Reason));
             Assert.Equal((string)built["head_commit"]!, run.HeadCommit);
-            Assert.Equal(("stopped", DevFlow.Jobs.RunStore.StoppedByYou, true, "build", (int?)null, 1, 0), await Held(jobs, card));
+            Assert.Equal(("stopped", DevFlow.Jobs.RunStore.StoppedByYou, true, "build", (int?)null, 0, 1), await Held(jobs, card));
             // Nothing outside the card failed, so the project does not wait, and the watch, read
             // again, finds nothing it does not accept.
             Assert.Null(await Stop.Wait(jobs));

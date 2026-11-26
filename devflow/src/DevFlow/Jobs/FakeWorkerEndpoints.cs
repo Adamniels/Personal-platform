@@ -308,9 +308,10 @@ public static class FakeWorkerEndpoints
             // A feature's fix continues the feature's branch from the commit it was handed, pushed
             // by the app, listed among the branch's changes as GitHub lists a push, only when the agent succeeded with a done report and
             // its check passed; with leave_no_commit it names the commit it was handed, as an agent that changed nothing.
-            var passed = prepared.Outcome == ResultRequest.Succeeded
+            // A fix the owner stopped pushes what it did, as a worker does.
+            var passed = (prepared.Outcome == ResultRequest.Succeeded
                 && prepared.Report is { } report && Report.TryRead(report, out var read, out _) && read.Outcome == ReportOutcome.Done
-                && prepared.Check is { ExitCode: 0 };
+                && prepared.Check is { ExitCode: 0 }) || prepared.Outcome == ResultRequest.Stopped;
             var pushed = request.LeaveNoCommit == true ? feature.Commit
                 : passed ? await fake.Push(userId, repository, job.Branch, string.Create(CultureInfo.InvariantCulture, $"Fix the feature #{job.Card!.Number}, by the fake worker"), FakeCodeHost.AppLogin, cancellationToken)
                 : null;

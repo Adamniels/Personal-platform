@@ -446,7 +446,10 @@ public static class ReadingStore
             """
             UPDATE cards SET state = @state, reason = @reason, changed_at = @now,
                 stopped_at = CASE WHEN @state = 'stopped' THEN @now ELSE stopped_at END,
-                stop_marked_at = CASE WHEN @state = 'stopped' THEN NULL ELSE stop_marked_at END
+                stop_marked_at = CASE WHEN @state = 'stopped' THEN NULL ELSE stop_marked_at END,
+                stopped_by_owner = CASE WHEN @state = 'stopped' THEN false ELSE stopped_by_owner END,
+                stopped_kind = CASE WHEN @state = 'stopped' THEN NULL ELSE stopped_kind END,
+                stopped_round = CASE WHEN @state = 'stopped' THEN NULL ELSE stopped_round END
             WHERE project_id = @projectId AND number = @number AND state = 'reading'
             """,
             new { projectId, number, state, reason, now },
