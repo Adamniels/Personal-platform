@@ -699,6 +699,18 @@ check "idle sleeps the poll interval" $([ "$(sleeps)" = 15 ]; echo $?)
 setup; pending IDLE STOP; runner
 check "idle without a merged slice only logs" $(no_file "$D/comments.log" && grep -q 'idle' "$AGENT_HOME/agent-logs/runner.log"; echo $?)
 
+setup
+printf '%s' '[{"number":60,"mergedAt":"2027-01-10T10:00:00Z","headRefName":"38-a","closingIssuesReferences":[{"number":38}]}]' > "$D/merged.json"
+printf '443 #442\n444 #443,#440\n' > "$D/blocked"; pending IDLE STOP; runner
+check "idle with Ready slices all blocked names the first one and what it waits for" \
+  $(grep -q "38 @Adamniels the runner's queue is empty: no pull request waits on it and no Ready slice can start: #443 waits for #442, and 1 more Ready slices wait for an open blocker. It looks again" "$D/comments.log"; echo $?)
+
+setup
+printf '%s' '[{"number":60,"mergedAt":"2027-01-10T10:00:00Z","headRefName":"38-a","closingIssuesReferences":[{"number":38}]}]' > "$D/merged.json"
+pending IDLE STOP; runner
+check "idle with nothing blocked says no slice is Ready" \
+  $(grep -q "no pull request waits on it and no slice is Ready. It looks again" "$D/comments.log"; echo $?)
+
 # --- A merged slice is closed (#472) ----------------------------------------------------------------------------
 # GitHub did not link #471 to #442, so the owner's merge closed nothing and #443 onwards waited on it for ever.
 ref() { printf '{"number":%s,"repository":{"name":"Personal-platform","owner":{"login":"Adamniels"}}}' "$1"; }

@@ -896,12 +896,20 @@ cap_item() { # pr slice
     || pause transient "could not hand #$1 to the owner" "$2"
 }
 
+# idle: one mention per empty queue. When Ready slices wait for open blockers (next.sh --blocked), it names the
+# first and what it waits for, so a chain held back by an open slice is never reported as "no slice is Ready".
 idle() {
+  local why="no slice is Ready" first n
   if [ ! -e "$logs/idle" ]; then
+    if call 120 bash "$scripts/next.sh" --blocked && [ -n "$call_out" ]; then
+      first="${call_out%%$'\n'*}"; n="$(grep -c '' <<<"$call_out")"
+      why="no Ready slice can start: #${first%% *} waits for $(sed 's/,/, /g' <<<"${first#* }")"
+      [ "$n" -gt 1 ] && why="$why, and $((n - 1)) more Ready slices wait for an open blocker"
+    fi
     merged_slice
     if [ -z "$merged" ]; then
-      log "idle: the queue is empty, and no merged slice to mention the owner on"; : > "$logs/idle"
-    elif comment "$merged" "@$OWNER the runner's queue is empty: no pull request waits on it and no slice is Ready. It looks again every $poll s."; then
+      log "idle: the queue is empty ($why), and no merged slice to mention the owner on"; : > "$logs/idle"
+    elif comment "$merged" "@$OWNER the runner's queue is empty: no pull request waits on it and $why. It looks again every $poll s."; then
       log "idle: the queue is empty, mentioned the owner on #$merged"; : > "$logs/idle"
     else
       log "idle: could not mention the owner on #$merged"
