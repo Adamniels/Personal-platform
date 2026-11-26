@@ -19,6 +19,14 @@
 
 /* The feature's reason under its title, in body large at the reading
  * width, as the page header's summary line is (design/DESIGN.md, section 2). */
+/* A feature the owner stopped: his line, then Run again under it. */
+.stopped {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: var(--space-3);
+}
+
 .lede {
 	max-width: var(--reading-max);
 	margin: 0;

@@ -43,6 +43,7 @@ import { confirms, type FeatureMergeApi, MergeFeature } from "./feature-merge";
 import { Inline } from "./format";
 import { askNavAgain } from "./nav-attention";
 import { Command } from "./project";
+import { type RunAgainApi, RunFeatureAgain, STOPPED_BY_YOU } from "./run-again";
 import { cardScreenshot, Screenshots } from "./screenshots";
 import { cardPath } from "./sections";
 import {
@@ -63,41 +64,42 @@ export const NOT_ANSWERED =
 
 /** How the page reads a feature, answers a decision and merges the feature,
  * Dev flow's API in the page and a test's own in a test. */
-export type FeatureApi = FeatureMergeApi & {
-	/** The feature, or null when the caller has no such feature. */
-	loadFeature: (
-		project: string,
-		number: number,
-	) => Promise<FeatureStory | null>;
-	/** Answers the decision "Fine as it is", answering the answer kept. */
-	answerFine: (
-		project: string,
-		number: number,
-		run: string,
-		position: number,
-	) => Promise<DecisionAnswer>;
-	/** Sends the whole feature back with the owner's comment, posted as him
-	 * on its pull request. */
-	sendBack: SendBackFeature;
-	/** Sends a card that landed back with the owner's comment, posted as
-	 * him on its issue. */
-	sendBackCard: (
-		project: string,
-		card: number,
-		comment: string,
-	) => Promise<void>;
-	/** Sends a decision's card back with the owner's comment, the decision
-	 * quoted above it, posted as him on the card's issue. */
-	sendBackDecision: (
-		project: string,
-		number: number,
-		run: string,
-		position: number,
-		comment: string,
-	) => Promise<void>;
-	/** Copies text to the clipboard, the browser's by default. */
-	copy?: (text: string) => Promise<void>;
-};
+export type FeatureApi = FeatureMergeApi &
+	Pick<RunAgainApi, "runFeatureAgain"> & {
+		/** The feature, or null when the caller has no such feature. */
+		loadFeature: (
+			project: string,
+			number: number,
+		) => Promise<FeatureStory | null>;
+		/** Answers the decision "Fine as it is", answering the answer kept. */
+		answerFine: (
+			project: string,
+			number: number,
+			run: string,
+			position: number,
+		) => Promise<DecisionAnswer>;
+		/** Sends the whole feature back with the owner's comment, posted as him
+		 * on its pull request. */
+		sendBack: SendBackFeature;
+		/** Sends a card that landed back with the owner's comment, posted as
+		 * him on its issue. */
+		sendBackCard: (
+			project: string,
+			card: number,
+			comment: string,
+		) => Promise<void>;
+		/** Sends a decision's card back with the owner's comment, the decision
+		 * quoted above it, posted as him on the card's issue. */
+		sendBackDecision: (
+			project: string,
+			number: number,
+			run: string,
+			position: number,
+			comment: string,
+		) => Promise<void>;
+		/** Copies text to the clipboard, the browser's by default. */
+		copy?: (text: string) => Promise<void>;
+	};
 
 export type FeaturePageProps = FeatureApi & {
 	project: string;
@@ -141,6 +143,7 @@ export function FeaturePage({
 	answerFine,
 	loadFeatureMerge,
 	mergeFeature,
+	runFeatureAgain,
 	sendBack,
 	sendBackCard,
 	sendBackDecision,
@@ -250,7 +253,22 @@ export function FeaturePage({
 					<p className={styles.caption}>{caption}</p>
 				</div>
 				<h2 className={`${styles.name} ${styles.title}`}>{story.title}</h2>
-				{story.reason === null ? null : (
+				{story.stopped_by_owner ? (
+					// Held by the owner's stop: his line and his button, whatever the
+					// reason says, since a read may have moved it while it was held.
+					<div className={own.stopped}>
+						<p className={own.lede}>
+							{STOPPED_BY_YOU}. None of its jobs is handed out until you run it
+							again.
+						</p>
+						<RunFeatureAgain
+							projectId={project}
+							number={number}
+							run={runFeatureAgain}
+							reload={load}
+						/>
+					</div>
+				) : story.reason === null ? null : (
 					<p className={own.lede}>{story.reason}</p>
 				)}
 				<p className={styles.links}>

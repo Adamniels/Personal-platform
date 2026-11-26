@@ -108,6 +108,8 @@ public sealed class WaitingTests
             ["own_items"] = new JsonArray(),
             ["cards"] = new JsonArray(),
             ["stopped_cards"] = new JsonArray(),
+            // Nor a feature I stopped.
+            ["stopped_features"] = new JsonArray(),
             ["refused_cards"] = new JsonArray(),
             ["failing_projects"] = new JsonArray(),
             ["decisions"] = new JsonArray(),
@@ -122,6 +124,52 @@ public sealed class WaitingTests
         Assert.True(JsonNode.DeepEquals(expected, waited), waited.ToJsonString());
         // Bob's two are stored, and none of them is the caller's.
         Assert.Equal(2, (await Reading.StoredItems(routes.Database, bobs)).Count);
+    }
+
+    [Fact]
+    public async Task StoppedByYouIsListed()
+    {
+        // A card I stopped and one Dev flow stopped, twice failing in it: both are listed under
+        // Stopped, and only mine says it was me.
+        await using (var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(1), Jobs.Jobs.Card(2)]))
+        {
+            var mine = (int)(await PullRequests.Built.Run(jobs, Jobs.StopRunTests.PreparedStopped()))["card"]!;
+            await Stops.Stop.Run(jobs, Stops.Stop.InCard(), leaveNoCommit: true);
+            await Stops.Stop.Run(jobs, Stops.Stop.InCard(), leaveNoCommit: true);
+
+            var (_, list) = await PullRequests.Built.Get(jobs, "/devflow/api/waiting");
+            var stopped = list!["stopped_cards"]!.AsArray();
+            Assert.Equal(2, stopped.Count);
+            var byMe = Assert.Single(stopped, card => (bool)card!["stopped_by_owner"]!)!;
+            Assert.Equal(mine, (int)byMe["number"]!);
+            Assert.Equal(DevFlow.Jobs.RunStore.StoppedByYou, (string)byMe["reason"]!);
+            Assert.False((bool)Assert.Single(stopped, card => (int)card!["number"]! != mine)!["stopped_by_owner"]!);
+            Assert.Null(byMe["feature_number"]);
+            Assert.Empty(list["stopped_features"]!.AsArray());
+        }
+
+        // A feature whose whole review I stopped is listed, and counted, until I run it again.
+        await using (var jobs = await Features.Ending.Feature())
+        {
+            await Features.Reviewing.Published(jobs);
+            jobs.Routes.Time.Advance(TimeSpan.FromMinutes(1));
+            var (_, before) = await PullRequests.Built.Get(jobs, "/devflow/api/waiting");
+            await PullRequests.Built.Run(jobs, Jobs.StopRunTests.PreparedStopped());
+
+            var (_, list) = await PullRequests.Built.Get(jobs, "/devflow/api/waiting");
+            var feature = Assert.Single(list!["stopped_features"]!.AsArray())!;
+            Assert.Equal(Features.Ending.Parent, (int)feature["number"]!);
+            Assert.Equal("reviewing", (string)feature["state"]!);
+            Assert.Equal(DevFlow.Jobs.RunStore.StoppedByYou, (string)feature["reason"]!);
+            Assert.Equal(jobs.Project, (Guid)feature["project_id"]!);
+            Assert.NotNull(feature["title"]);
+            Assert.NotNull(feature["stopped_at"]);
+            Assert.Equal((int)before!["count"]! + 1, (int)list["count"]!);
+
+            Assert.Equal(StatusCodes.Status204NoContent, (await Acting.RunAgainTests.RunFeatureAgain(jobs, Features.Ending.Parent)).Response.StatusCode);
+            (_, list) = await PullRequests.Built.Get(jobs, "/devflow/api/waiting");
+            Assert.Empty(list!["stopped_features"]!.AsArray());
+        }
     }
 
     [Fact]

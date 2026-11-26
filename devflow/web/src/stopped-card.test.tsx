@@ -9,12 +9,14 @@ import {
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { ActionsApi } from "./actions";
 import { UNLINKED } from "./actions";
+import { ApiError } from "./api/client";
 import { App } from "./app";
 import type { Status } from "./status";
 import { RUN_AGAIN } from "./stopped-card";
 import type {
 	FailingProjectItem,
 	StoppedCardItem,
+	StoppedFeatureItem,
 	WaitingApi,
 	WaitingList,
 } from "./waiting";
@@ -35,6 +37,32 @@ function stopped(overrides: Partial<StoppedCardItem> = {}): StoppedCardItem {
 		reason: REASON,
 		stopped_at: "2027-01-15T11:50:00+00:00",
 		pull_request_url: null,
+		stopped_by_owner: false,
+		feature_number: null,
+		...overrides,
+	};
+}
+
+/** A card the owner stopped himself, on its own. */
+function mine(overrides: Partial<StoppedCardItem> = {}): StoppedCardItem {
+	return stopped({
+		stopped_by_owner: true,
+		reason: "Stopped by you",
+		...overrides,
+	});
+}
+
+function held(overrides: Partial<StoppedFeatureItem> = {}): StoppedFeatureItem {
+	return {
+		project_id: PROJECT,
+		project_name: "Fodr",
+		owner: "Adamniels",
+		number: 38,
+		title: "Feeding plan, version 2",
+		web_url: "https://github.com/Adamniels/Fodr/issues/38",
+		state: "reviewing",
+		reason: "Stopped by you",
+		stopped_at: "2027-01-15T11:40:00+00:00",
 		...overrides,
 	};
 }
@@ -59,9 +87,11 @@ function failing(
 function list(
 	stoppedCards: StoppedCardItem[],
 	failingProjects: FailingProjectItem[] = [],
+	stoppedFeatures: StoppedFeatureItem[] = [],
 ): WaitingList {
 	return {
-		count: stoppedCards.length + failingProjects.length,
+		count:
+			stoppedCards.length + failingProjects.length + stoppedFeatures.length,
 		needs_relink: false,
 		features: [],
 		items: [],
@@ -78,6 +108,7 @@ function list(
 		own_items: [],
 		cards: [],
 		stopped_cards: stoppedCards,
+		stopped_features: stoppedFeatures,
 		refused_cards: [],
 		question_cards: [],
 		failing_projects: failingProjects,
@@ -105,14 +136,24 @@ function open(
 ) {
 	window.history.pushState(null, "", "/devflow");
 	let current = answer;
+	const loadWaiting = vi.fn(() => Promise.resolve(current));
 	const waiting: WaitingApi = {
-		loadWaiting: vi.fn(() => Promise.resolve(current)),
+		loadWaiting,
 		refresh: () => Promise.resolve(),
 	};
 	const sendBackCard = vi.fn<ActionsApi["sendBackCard"]>(async () => {
 		current = after;
 	});
 	const merge = vi.fn<ActionsApi["merge"]>(() => Promise.resolve());
+	const runCardAgain = vi.fn<ActionsApi["runCardAgain"]>(async () => {
+		current = after;
+	});
+	const dropCard = vi.fn<ActionsApi["dropCard"]>(async () => {
+		current = after;
+	});
+	const runFeatureAgain = vi.fn<ActionsApi["runFeatureAgain"]>(async () => {
+		current = after;
+	});
 	render(
 		<App
 			loadStatus={() => Promise.resolve(status(login))}
@@ -126,6 +167,9 @@ function open(
 				merge,
 				sendBack: () => Promise.resolve(),
 				resume: () => Promise.resolve(),
+				runCardAgain,
+				dropCard,
+				runFeatureAgain,
 				mergeCard: () => Promise.resolve(),
 				sendBackCard,
 				loadFeatureMerge: () => Promise.reject(new Error("not offered")),
@@ -136,7 +180,21 @@ function open(
 			now={() => NOW}
 		/>,
 	);
-	return { sendBackCard, merge };
+	return {
+		sendBackCard,
+		merge,
+		runCardAgain,
+		dropCard,
+		runFeatureAgain,
+		loadWaiting,
+	};
+}
+
+/** The buttons drawn as the primary in what is shown. */
+function primaries(within_: ReturnType<typeof within>) {
+	return within_
+		.getAllByRole("button")
+		.filter((button: HTMLElement) => /primary/.test(button.className));
 }
 
 /** The tab, once the Stopped group is in its queue; its first item is
@@ -146,6 +204,18 @@ async function stoppedTab() {
 	await tab.findByRole("region", { name: "Stopped" });
 	return tab;
 }
+
+// jsdom has HTMLDialogElement and its `open` attribute, but neither showModal
+// nor close. These stand in for the browser's, as claude-login.test.tsx's do.
+HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+	this.open = true;
+	this.querySelector("button")?.focus();
+};
+HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+	if (!this.open) return;
+	this.open = false;
+	this.dispatchEvent(new Event("close"));
+};
 
 afterEach(cleanup);
 
@@ -248,6 +318,146 @@ describe("a stopped card", () => {
 
 		const group = await stoppedTab();
 		expect(group.queryByRole("link", { name: "Open on GitHub" })).toBeNull();
+	});
+});
+
+describe("a card or a feature stopped by me", () => {
+	test("a card stopped by me offers Run again and Drop, not a comment", async () => {
+		const { dropCard, sendBackCard, runCardAgain, loadWaiting } = open(
+			list([mine()]),
+			{ after: list([]) },
+		);
+
+		const group = await stoppedTab();
+		const card = within(
+			group.getByRole("article", { name: "Show the empty state" }),
+		);
+		expect(card.getByText("Stopped by you")).toBeTruthy();
+		expect(card.queryByRole("button", { name: RUN_AGAIN })).toBeNull();
+		expect(card.queryByLabelText("A comment runs it again.")).toBeNull();
+		expect(card.queryByText("Why it stopped")).toBeNull();
+		expect(card.queryByRole("button", { name: "Merge" })).toBeNull();
+		const run = card.getByRole("button", { name: "Run again" });
+		expect(primaries(card)).toEqual([run]);
+		expect(
+			card.getByRole("link", { name: "Open on GitHub" }).getAttribute("href"),
+		).toBe("https://github.com/Adamniels/Fodr/issues/12");
+
+		// Drop asks first, and sends nothing until it is confirmed.
+		const drop = card.getByRole("button", { name: "Drop" });
+		await waitFor(() => expect(drop).toHaveProperty("disabled", false));
+		fireEvent.click(drop);
+		const dialog = within(screen.getByRole("dialog", { name: "Drop #12?" }));
+		expect(
+			dialog.getByText("Dev flow takes its label off and leaves its branch."),
+		).toBeTruthy();
+		expect(dropCard).not.toHaveBeenCalled();
+		const reads = loadWaiting.mock.calls.length;
+		fireEvent.click(dialog.getByRole("button", { name: "Drop" }));
+
+		await waitFor(() => expect(dropCard).toHaveBeenCalledWith(PROJECT, 12));
+		expect(await screen.findByText("Dropped #12")).toBeTruthy();
+		await waitFor(() =>
+			expect(loadWaiting.mock.calls.length).toBeGreaterThan(reads),
+		);
+		expect(runCardAgain).not.toHaveBeenCalled();
+		expect(sendBackCard).not.toHaveBeenCalled();
+	});
+
+	test("Run again on a card I stopped runs it, says so, and reads the list again", async () => {
+		const { runCardAgain, loadWaiting } = open(list([mine()]), {
+			after: list([]),
+		});
+
+		const group = await stoppedTab();
+		const reads = loadWaiting.mock.calls.length;
+		fireEvent.click(group.getByRole("button", { name: "Run again" }));
+
+		await waitFor(() => expect(runCardAgain).toHaveBeenCalledWith(PROJECT, 12));
+		expect(await screen.findByText("Running #12 again")).toBeTruthy();
+		await waitFor(() =>
+			expect(loadWaiting.mock.calls.length).toBeGreaterThan(reads),
+		);
+		expect(await screen.findByText("Nothing waits for you")).toBeTruthy();
+	});
+
+	test("a card of a feature I stopped offers Run again and no Drop", async () => {
+		open(list([mine({ feature_number: 38 })]));
+
+		const group = await stoppedTab();
+		const card = within(
+			group.getByRole("article", { name: "Show the empty state" }),
+		);
+		expect(card.getByRole("button", { name: "Run again" })).toBeTruthy();
+		expect(card.queryByRole("button", { name: "Drop" })).toBeNull();
+	});
+
+	test("without a usable link, Drop is disabled and says why, and Run again is not", async () => {
+		open(list([mine()]), { login: "none" });
+
+		const group = await stoppedTab();
+		const card = within(
+			group.getByRole("article", { name: "Show the empty state" }),
+		);
+		await waitFor(() => expect(card.getByText(UNLINKED)).toBeTruthy());
+		expect(card.getByRole("button", { name: "Drop" })).toHaveProperty(
+			"disabled",
+			true,
+		);
+		expect(card.getByRole("button", { name: "Run again" })).toHaveProperty(
+			"disabled",
+			false,
+		);
+	});
+
+	test("a refusal is said in the card, and it stays", async () => {
+		const { runCardAgain } = open(list([mine()]));
+		runCardAgain.mockRejectedValueOnce(
+			new ApiError({
+				status: 409,
+				title: "This card was not stopped by you",
+				detail:
+					"Run again is for a card you stopped. A card Dev flow stopped runs again on your comment.",
+			}),
+		);
+
+		const group = await stoppedTab();
+		fireEvent.click(group.getByRole("button", { name: "Run again" }));
+
+		expect((await group.findByRole("alert")).textContent).toContain(
+			"This card was not stopped by you",
+		);
+		expect(
+			group.getByRole("article", { name: "Show the empty state" }),
+		).toBeTruthy();
+	});
+
+	test("a feature I stopped is listed with Run again, its page and its issue", async () => {
+		const { runFeatureAgain } = open(list([], [], [held()]), {
+			after: list([]),
+		});
+
+		const group = await stoppedTab();
+		const feature = within(
+			group.getByRole("article", { name: "Feeding plan, version 2" }),
+		);
+		expect(feature.getByText("Stopped by you")).toBeTruthy();
+		expect(feature.getByText("feature #38")).toBeTruthy();
+		expect(feature.getByText(/You stopped its review/)).toBeTruthy();
+		expect(
+			feature
+				.getByRole("link", { name: /Open the feature/ })
+				.getAttribute("href"),
+		).toBe(`/devflow/projects/${PROJECT}/features/38`);
+		expect(feature.queryByRole("button", { name: "Drop" })).toBeNull();
+		const run = feature.getByRole("button", { name: "Run again" });
+		expect(primaries(feature)).toEqual([run]);
+
+		fireEvent.click(run);
+		await waitFor(() =>
+			expect(runFeatureAgain).toHaveBeenCalledWith(PROJECT, 38),
+		);
+		expect(await screen.findByText("Running #38 again")).toBeTruthy();
 	});
 });
 

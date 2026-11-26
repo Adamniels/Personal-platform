@@ -112,6 +112,7 @@ function open(api: Partial<FeatureApi> = {}) {
 		sendBack: vi.fn(() => Promise.resolve()),
 		sendBackCard: vi.fn(() => Promise.resolve()),
 		sendBackDecision: vi.fn(() => Promise.resolve()),
+		runFeatureAgain: vi.fn(() => Promise.resolve()),
 		copy: vi.fn(() => Promise.resolve()),
 		...api,
 	};
@@ -621,6 +622,57 @@ describe("a feature's page", () => {
 	});
 });
 
+describe("a feature I stopped", () => {
+	test("says so, and Run again releases it and reads it again", async () => {
+		const stopped = story({
+			state: "reviewing",
+			reason: "Stopped by you",
+			stopped_by_owner: true,
+		});
+		const feature = open({
+			loadFeature: vi
+				.fn<FeatureApi["loadFeature"]>()
+				.mockResolvedValueOnce(stopped)
+				.mockResolvedValue({
+					...stopped,
+					stopped_by_owner: false,
+					reason: null,
+				}),
+		});
+
+		expect(
+			await screen.findByText(
+				"Stopped by you. None of its jobs is handed out until you run it again.",
+			),
+		).toBeTruthy();
+		const run = screen.getByRole("button", { name: "Run again" });
+		expect(run.className).toMatch(/primary/);
+		fireEvent.click(run);
+
+		await waitFor(() =>
+			expect(feature.runFeatureAgain).toHaveBeenCalledWith(PROJECT, 38),
+		);
+		expect(await screen.findByText("Running #38 again")).toBeTruthy();
+		await waitFor(() =>
+			expect(screen.queryByRole("button", { name: "Run again" })).toBeNull(),
+		);
+	});
+
+	test("one not stopped by me shows its reason and no Run again", async () => {
+		open({
+			loadFeature: () =>
+				Promise.resolve(
+					story({ reason: "Waits for #40, earlier in the feature" }),
+				),
+		});
+
+		expect(
+			await screen.findByText("Waits for #40, earlier in the feature"),
+		).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Run again" })).toBeNull();
+	});
+});
+
 describe("sending a card back", () => {
 	afterEach(cleanup);
 
@@ -998,6 +1050,7 @@ describe("merging the feature", () => {
 					sendBack: () => new Promise(() => {}),
 					sendBackCard: () => new Promise(() => {}),
 					sendBackDecision: () => new Promise(() => {}),
+					runFeatureAgain: () => new Promise(() => {}),
 				}}
 			/>,
 		);
