@@ -2098,6 +2098,20 @@ not his answer to the stop. His comment is the input to the next run, and the co
 since he has changed what the card is asked. Only his linked login counts, as everywhere a comment
 is read.
 
+**A stop by the owner is no failure, and is not marked on the issue.** The owner stopping a run says
+nothing about the card: the run was going the wrong way by his judgement, not failing by the
+card's own work or by the machine. Counting it in the card would stop a good card at his second
+stop, and counting it outside would make the project wait for nothing. So it is a result of its
+own, `stopped_by_owner`, beside `stopped`, which is the agent's own word that it stopped, and it
+touches no count, no fix round and no wait. A pushing job keeps what it did on its branch, since
+the owner may want to run it again from there, and the commit it names is Dev flow's own push as
+any result's is, so the watch accepts it. The card is not marked on its issue: the comment and the
+attention label are how Dev flow tells the owner something he does not know, and he is the one who
+stopped it. A feature's own run is held rather than stopped, since a feature never stops, and
+everything of the feature waits with it, its cards' builds included, so nothing builds on a branch
+the owner just stopped work on. A reading, a setup or a check has nothing to resume from, so it is
+put back as a lost one is; keeping one from running is pausing the project.
+
 **The usage limit's reset is read from the text Claude Code prints.** Its JSON answer has no field
 for it, and the exact `resetsAt` is in a streamed event the worker's format never prints, so the
 worker reads the time from the message, as Claude Code 2.1.322's own formatter writes it, and Dev

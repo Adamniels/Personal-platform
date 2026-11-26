@@ -33,7 +33,8 @@ public static class StopStore
 
     /// <summary>The project's cards whose stop waits to be marked, and those running again whose
     /// attention label waits to be taken off, by number. A refused card keeps its label, which
-    /// <see cref="Readings.RefusalMarker"/> put on, until it is queued again.</summary>
+    /// <see cref="Readings.RefusalMarker"/> put on, until it is queued again. A card the owner
+    /// stopped is never marked: he knows, and nothing went wrong in it.</summary>
     public static async Task<IReadOnlyList<PendingMark>> Pending(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
@@ -42,7 +43,7 @@ public static class StopStore
             SELECT number AS Number, state = 'stopped' AS Stopped, stopped_at AS StoppedAt, reason AS Reason, attention_labelled AS Labelled
             FROM cards
             WHERE project_id = @projectId
-              AND ((state = 'stopped' AND stop_marked_at IS NULL AND stopped_at IS NOT NULL) OR (state NOT IN ('stopped', 'refused') AND attention_labelled))
+              AND ((state = 'stopped' AND NOT stopped_by_owner AND stop_marked_at IS NULL AND stopped_at IS NOT NULL) OR (state NOT IN ('stopped', 'refused') AND attention_labelled))
             ORDER BY number
             """,
             new { projectId },

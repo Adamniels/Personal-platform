@@ -10,7 +10,9 @@ namespace DevFlow.Stops;
 /// Marks each stopped card on its issue as the app, with a <see cref="WritePurpose.Post"/> key: the
 /// project's attention label, and one comment, <see cref="StopText"/>, saying why, what was tried,
 /// the last run's outcome and how to run it again; and takes the label off a card that runs again.
-/// Nothing else is opened: an attention issue is only for a decision on a card that has merged.
+/// Nothing else is opened: an attention issue is only for a decision on a card that has merged. A
+/// card the owner stopped himself is not marked, no comment and no label, as
+/// <see cref="StopStore.Pending"/> leaves it out.
 /// Before commenting, the app's own comments on the issue are looked at only to find this stop's
 /// copy already there, by the last line, so an answer that was lost never posts it twice. Nothing is
 /// held while the code host answers, and what it did not answer for is tried again on the next
