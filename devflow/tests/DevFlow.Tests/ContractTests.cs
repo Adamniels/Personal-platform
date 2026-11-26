@@ -167,10 +167,27 @@ public sealed class ContractTests
             ("/devflow/api/worker/jobs/{id}/push-key", "workerPushKey"),
             ("/devflow/api/worker/jobs/{id}/progress", "workerJobProgress"),
             ("/devflow/api/worker/jobs/{id}/result", "workerJobResult"),
+            ("/devflow/api/worker/jobs/{id}/log", "workerJobLog"),
         })
         {
             Assert.Equal(operation, (string?)paths[path]?["post"]?["operationId"]);
             Assert.Contains("Authorization: Bearer dfw_", (string)paths[path]!["post"]!["description"]!, StringComparison.Ordinal);
+        }
+
+        // The log route's bodies, the lines and the usage it takes and the answer it gives, so the
+        // worker posting them is written against the same shapes; the file sorts their keys.
+        var document = JsonNode.Parse(await File.ReadAllTextAsync(Schema, TestContext.Current.CancellationToken))!;
+        var log = paths["/devflow/api/worker/jobs/{id}/log"]!["post"]!;
+        Assert.Equal("#/components/schemas/LogRequest", (string?)log["requestBody"]?["content"]?["application/json"]?["schema"]?["$ref"]);
+        Assert.Equal("#/components/schemas/LogAnswer", (string?)log["responses"]?["200"]?["content"]?["application/json"]?["schema"]?["$ref"]);
+        var schemas = document["components"]!["schemas"]!;
+        Assert.Equal(["lines", "usage", "worker_id"], schemas["LogRequest"]!["properties"]!.AsObject().Select(pair => pair.Key).Order(StringComparer.Ordinal));
+        Assert.Equal(["at", "kind", "seq", "text"], schemas["LogLine"]!["properties"]!.AsObject().Select(pair => pair.Key).Order(StringComparer.Ordinal));
+        Assert.Equal(["cache_creation_input_tokens", "cache_read_input_tokens", "input_tokens", "output_tokens"], schemas["LogUsage"]!["properties"]!.AsObject().Select(pair => pair.Key).Order(StringComparer.Ordinal));
+        Assert.Equal(["stop"], schemas["LogAnswer"]!["properties"]!.AsObject().Select(pair => pair.Key).Order(StringComparer.Ordinal));
+        foreach (var status in new[] { "404", "422" })
+        {
+            Assert.True(log["responses"]!.AsObject().ContainsKey(status), $"the log route answers {status}");
         }
 
         var next = paths["/devflow/api/worker/jobs/next"]!["post"]!["responses"]!.AsObject();

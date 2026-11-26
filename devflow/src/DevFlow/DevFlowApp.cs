@@ -118,6 +118,9 @@ public static class DevFlowApp
         builder.Services.AddSingleton(provider => new WorkerKeys(database, provider.GetRequiredService<TimeProvider>()));
         builder.Services.AddWorkerAuthentication();
         builder.Services.AddSingleton(provider => new WorkerStore(database, provider.GetRequiredService<TimeProvider>()));
+        // The lines of each run's log as they are stored, which the live pages read. See "Jobs" in
+        // devflow/README.md.
+        builder.Services.AddSingleton(new RunLogFeed());
         // Watching each project's default branch: whether it hands out work, its stopped projects and
         // resuming one, and Dev flow's own merges, recorded so the watch finds them fine. See
         // "Watching branches" in devflow/README.md.

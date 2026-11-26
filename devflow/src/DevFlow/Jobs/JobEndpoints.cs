@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -39,7 +40,160 @@ public static partial class JobEndpoints
                 "What the worker sends when its job ends, whatever happened: outcome, succeeded with the agent's report or failed with the failure's reason and whether it lies in the card; the check's exit code and the last 200 lines of its output, null when it did not run; the branch, which must be the job's, and its head commit; the auth method; Claude's usage as it came, an object; the duration in milliseconds; the last 200 lines of stderr; and permission_denials, the actions the agent was refused, an array or null. Each is stored on the run as it came. A build's report is read against contracts/devflow/report.schema.json, and one that does not match is a failure in the card; a review's report is its verdict, read against contracts/devflow/verdict.schema.json, and one that does not match is a failure in the run, never a verdict. A review's head_commit is the commit it was handed, or null on a failure; any other is 422. A failure outside the card puts the card back in queued, counting nothing against it; a failure in the card, a report that does not match, a report that stopped, a check that did not run or failed stop it with why; otherwise the card waits, checked, for its pull request. A check runs no agent: its report is null, a success means the check ran and carries its result, which is the verdict on the version, and pictures, its address taken at both sizes as PNGs of at most 5 MB, base64, named as screenshots names them; pictures on any other job are 422. A setup's success is validated by Dev flow at the commit it names, its .devflow/Dockerfile by the recipe route's rules and its .devflow/project.json by its schema, as its check; 503 when GitHub did not answer, and the worker sends the result again. 204. Only for the worker holding the job while it runs, and once; 404 otherwise. 422 naming a field that is missing or breaks a rule.",
                 StatusCodes.Status404NotFound, StatusCodes.Status422UnprocessableEntity, StatusCodes.Status503ServiceUnavailable);
 
+        routes.MapPost(WorkerApi.LogRoute, Log)
+            .WorkerRoute("workerJobLog", "A running job's log, and its heartbeat",
+                string.Create(CultureInfo.InvariantCulture, $"What the worker sends from the job's start until its result is sent: every 2 seconds when it has new lines, every 15 with none. lines, at most {LogRequest.MostLines}, each with seq, its place in the run's log from 1, a positive whole number; at, a time; kind, one of {string.Join(", ", LogKinds.All)}; and text, 1 to {LogLine.MostText} characters, a longer one cut to {LogLine.MostText} ending in \"{LogLine.CutMark}\". Each text has every value of the project scrubbed from it before it is stored. A line whose seq the run already holds is skipped, so a retried post never doubles one, and gaps are allowed. A run keeps at most {RunLogStore.MostLines:N0} lines; past that one system line, \"{RunLogStore.NotKept}\", and nothing more. usage, optional, the run's token figures so far, input_tokens, cache_creation_input_tokens, cache_read_input_tokens and output_tokens, each a whole number, 0 or more; it sets the run's figures, which its result's usage replaces. Every post, with lines or none, is the run's heartbeat and marks the worker seen: a run whose worker has sent nothing for 2 minutes is lost. 200 with stop, whether the owner marked the run to stop, so the worker ends it now. Only for the worker holding the job, named by worker_id, while it runs; 404 for any other worker, a job that is not one of the project's, or one that has finished. 422 naming a field that is missing or breaks a rule."),
+                StatusCodes.Status404NotFound, StatusCodes.Status422UnprocessableEntity)
+            .Produces<LogAnswer>(StatusCodes.Status200OK);
+
         return routes;
+    }
+
+    private static async Task<Results<Ok<LogAnswer>, ProblemHttpResult>> Log(Guid id, LogRequest request, HttpContext context, [FromServices] UserDb database, [FromServices] Values.ProjectValues values, [FromServices] WorkerStore workers, [FromServices] WorkerStart start, [FromServices] RunLogFeed feed, [FromServices] TimeProvider time)
+    {
+        var errors = LogErrors(request);
+        if (errors.Count > 0)
+        {
+            return WorkerEndpoints.Invalid(errors);
+        }
+
+        var caller = context.Worker();
+        var worker = request.WorkerId!.Value;
+        if (await workers.Seen(caller, worker, start.Image, context.RequestAborted) == WorkerState.Unknown)
+        {
+            return WorkerEndpoints.NoSuchJob();
+        }
+
+        if (!await Hear(database, values, feed, caller, id, worker, request, Now(time), context.RequestAborted))
+        {
+            return WorkerEndpoints.NoSuchJob();
+        }
+
+        // Stopping a run is "Stop now reaches the worker", #445; until it, no run is marked to stop.
+        return TypedResults.Ok(new LogAnswer(Stop: false));
+    }
+
+    /// <summary>
+    /// Records a post to the run's log, as the worker's log route does, whose rules
+    /// <see cref="LogErrors"/> found <paramref name="request"/> to keep: each line's text scrubbed of
+    /// every value of the project, then stored by <see cref="RunLogStore.Heard"/> with the run's
+    /// heartbeat and usage, and the lines stored handed to <paramref name="feed"/> once committed.
+    /// The fake worker posts its lines through it too, so nothing reaches a run's log any other way.
+    /// False when the worker holds no such run under way.
+    /// </summary>
+    internal static async Task<bool> Hear(UserDb database, Values.ProjectValues values, RunLogFeed feed, WorkerCaller caller, Guid runId, Guid workerId, LogRequest request, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+        ArgumentNullException.ThrowIfNull(feed);
+        ArgumentNullException.ThrowIfNull(caller);
+        ArgumentNullException.ThrowIfNull(request);
+
+        // Scrubbed as a result's text is, by the values the project has now; a post of none, the
+        // heartbeat alone, opens no value.
+        var scrub = request.Lines!.Count > 0 ? await values.ScrubFor(caller.UserId, caller.ProjectId, cancellationToken) : ValueScrub.None;
+        var lines = request.Lines!.Select(line => LogLineOf(line!, scrub)).ToList();
+        var usage = request.Usage is { } given
+            ? new RunUsageSoFar(given.InputTokens!.Value, given.CacheCreationInputTokens!.Value, given.CacheReadInputTokens!.Value, given.OutputTokens!.Value)
+            : null;
+        var stored = await RunLogStore.Heard(database, caller.UserId, caller.ProjectId, runId, workerId, lines, usage, now, cancellationToken);
+        if (stored is null)
+        {
+            return false;
+        }
+
+        // Only once the lines are committed, so a reader never sees one the table does not hold.
+        feed.Publish(runId, stored);
+        return true;
+    }
+
+    /// <summary>A line whose rules <see cref="LogErrors"/> checked, as it is stored: its text
+    /// scrubbed of each of <paramref name="scrub"/>'s values, made storable, then cut, the
+    /// placeholder being longer than some values; its time to the microsecond.</summary>
+    internal static RunLogLine LogLineOf(LogLine line, ValueScrub scrub)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        ArgumentNullException.ThrowIfNull(scrub);
+        return new RunLogLine(line.Seq!.Value, RunLogStore.Microseconds(line.At!.Value), line.Kind!, CutLine(Storable.Text(scrub.Scrub(line.Text!))));
+    }
+
+    /// <summary><paramref name="text"/>, or when it is longer than <see cref="LogLine.MostText"/> as
+    /// much of it as fits with <see cref="LogLine.CutMark"/> after, never splitting a surrogate
+    /// pair.</summary>
+    internal static string CutLine(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        if (text.Length <= LogLine.MostText)
+        {
+            return text;
+        }
+
+        var keep = LogLine.MostText - LogLine.CutMark.Length;
+        if (char.IsHighSurrogate(text[keep - 1]))
+        {
+            keep--;
+        }
+
+        return string.Concat(text.AsSpan(0, keep), LogLine.CutMark);
+    }
+
+    /// <summary>Each field of <paramref name="request"/> that is missing or breaks a rule: the
+    /// worker's id; the lines, given and at most <see cref="LogRequest.MostLines"/>, and of the
+    /// first line that breaks a rule each field that does, as <c>lines[i].field</c>; and the usage,
+    /// null or all four figures, each 0 or more.</summary>
+    internal static Dictionary<string, string[]> LogErrors(LogRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var errors = new Dictionary<string, string[]>();
+        WorkerEndpoints.CheckId(request.WorkerId, errors);
+        if (request.Lines is not { } lines || lines.Count > LogRequest.MostLines)
+        {
+            errors["lines"] = [$"must be a list of at most {LogRequest.MostLines} lines, empty when there are none"];
+        }
+        else
+        {
+            for (var i = 0; i < lines.Count && !errors.Keys.Any(key => key.StartsWith("lines[", StringComparison.Ordinal)); i++)
+            {
+                CheckLine(lines[i], $"lines[{i}]", errors);
+            }
+        }
+
+        if (request.Usage is { } usage
+            && (usage.InputTokens is not >= 0 || usage.CacheCreationInputTokens is not >= 0
+                || usage.CacheReadInputTokens is not >= 0 || usage.OutputTokens is not >= 0))
+        {
+            errors["usage"] = ["must be null, or hold input_tokens, cache_creation_input_tokens, cache_read_input_tokens and output_tokens, each a whole number, 0 or more"];
+        }
+
+        return errors;
+    }
+
+    private static void CheckLine(LogLine? line, string at, Dictionary<string, string[]> errors)
+    {
+        if (line is null)
+        {
+            errors[at] = ["must be a line, an object"];
+            return;
+        }
+
+        if (line.Seq is not > 0)
+        {
+            errors[$"{at}.seq"] = ["must be a positive whole number"];
+        }
+
+        if (line.At is null)
+        {
+            errors[$"{at}.at"] = ["must be a time"];
+        }
+
+        if (line.Kind is null || !LogKinds.All.Contains(line.Kind, StringComparer.Ordinal))
+        {
+            errors[$"{at}.kind"] = [$"must be one of {string.Join(", ", LogKinds.All)}"];
+        }
+
+        if (string.IsNullOrEmpty(line.Text))
+        {
+            errors[$"{at}.text"] = ["must be text of at least 1 character"];
+        }
     }
 
     private static async Task<Results<NoContent, ProblemHttpResult>> Progress(Guid id, ProgressRequest request, HttpContext context, [FromServices] UserDb database, [FromServices] WorkerStore workers, [FromServices] WorkerStart start, [FromServices] TimeProvider time)
