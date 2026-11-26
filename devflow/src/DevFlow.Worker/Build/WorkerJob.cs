@@ -46,13 +46,21 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
     /// <summary>git, as root and as the agent.</summary>
     protected WorkerGit Git { get; } = new(tools.Root, tools.AsAgent, tools.User);
 
+    /// <summary>The job's log while it is sent, which reads the owner's stop from Dev flow.</summary>
+    private RunLogSender? _sending;
+
+    /// <summary>Cancelled once the owner stopped the job's run, as Dev flow answered a post to its
+    /// log: what runs is ended gently, and the job sends the outcome <c>stopped</c>. See "Jobs" in
+    /// devflow/README.md.</summary>
+    protected CancellationToken Stop => _sending?.Stopped ?? CancellationToken.None;
+
     /// <summary>The job's log, sent to Dev flow from now until it is disposed, once the result is
     /// sent: the agent's lines, the check's and every line the worker writes meanwhile, scrubbed of
     /// the job's Claude token and its values.</summary>
     protected RunLogSender Sending(Job job)
     {
         ArgumentNullException.ThrowIfNull(job);
-        return RunLogSender.Start(Client, job.JobId, WorkerId, job.ClaudeToken ?? "", job.Values, Time, Log);
+        return _sending = RunLogSender.Start(Client, job.JobId, WorkerId, job.ClaudeToken ?? "", job.Values, Time, Log);
     }
 
     /// <summary>Where a program's output goes as it is written, standard output's and standard
@@ -68,7 +76,9 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
     /// <paramref name="failure"/>, failed with it otherwise; the check's result when one ran, the
     /// commit, the agent's usage, standard error and refused actions as they came, and a build's
     /// pictures when they were tried, and a conflict's remerge diff; for a check, its pictures'
-    /// bytes, since it pushes nothing. Every text in it has each of the project's values the job
+    /// bytes, since it pushes nothing. A run the owner stopped, a <paramref name="failure"/> that
+    /// says so, is sent <c>stopped</c> instead, with the commit and the usage so far and no report,
+    /// failure, check or pictures. Every text in it has each of the project's values the job
     /// carried scrubbed first, so none leaves the container in clear, even to Dev flow, which scrubs
     /// it again; a picture's bytes are not text, and are sent as they are.
     /// </summary>
@@ -78,11 +88,17 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
         ArgumentNullException.ThrowIfNull(sending);
         await sending.Last(stopping);
         var scrub = new ValueScrub(job.Values ?? []);
+        var stopped = failure is { Stopped: true };
+        if (stopped)
+        {
+            (check, screenshots, remergeDiff, pictures) = (null, null, null, null);
+        }
+
         var request = new ResultRequest(
             WorkerId,
-            failure is null ? ResultRequest.Succeeded : ResultRequest.Failed,
+            stopped ? ResultRequest.Stopped : failure is null ? ResultRequest.Succeeded : ResultRequest.Failed,
             failure is null && agent?.Report is { } report ? JsonSerializer.SerializeToElement(scrub.Scrub(report), WorkerApi.Json) : null,
-            failure is { } failed ? new RunFailure(scrub.Scrub(failed.Reason), failed.Side == FailureSide.Card, failed.TimedOut, failed.ResetsAt) : null,
+            failure is { Stopped: false } failed ? new RunFailure(scrub.Scrub(failed.Reason), failed.Side == FailureSide.Card, failed.TimedOut, failed.ResetsAt) : null,
             check is null ? null : check with { Output = scrub.ScrubOrNull(check.Output) },
             job.Branch,
             head,
@@ -100,6 +116,10 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
             : $"Dev flow did not take the result: {answer.Detail}.");
     }
 
+    /// <summary>A failure that says the owner stopped the run, which <see cref="Send"/> sends as the
+    /// outcome <c>stopped</c>.</summary>
+    protected static AgentFailure StoppedFailure { get; } = new(FailureSide.OutsideCard, AgentResult.StoppedReason, Stopped: true);
+
     /// <summary>The longest auth method Dev flow takes.</summary>
     private const int MostAuthMethod = 255;
 
@@ -114,7 +134,14 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
     protected async Task<AgentResult> RunAgent(Job job, string workingDirectory, AgentAccess access, CancellationToken stopping)
     {
         var limits = new AgentLimits(job.Limits.Turns, job.Limits.BudgetUsd, TimeSpan.FromMinutes(job.Limits.Minutes));
-        var run = new AgentRun(workingDirectory, job.Brief, job.ReportSchema.GetRawText(), job.Model, limits, new AgentCredential(job.ClaudeToken), access, job.Values, Log.Run);
+        if (Stop.IsCancellationRequested)
+        {
+            // Stopped before the agent started: it does not start.
+            Log.Write("The agent does not start: the run was stopped.");
+            return AgentResult.Stopped([], "", null);
+        }
+
+        var run = new AgentRun(workingDirectory, job.Brief, job.ReportSchema.GetRawText(), job.Model, limits, new AgentCredential(job.ClaudeToken), access, job.Values, Log.Run, Stop);
         using var limit = new CancellationTokenSource(limits.Time, Time);
         using var either = CancellationTokenSource.CreateLinkedTokenSource(stopping, limit.Token);
         Log.Write($"Starting the agent on {job.Model}");
@@ -128,7 +155,12 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
             result = AgentResult.TimedOut(limits, [], "", null);
         }
 
-        Log.Write(result.Failure is { } failure ? $"The agent failed: {failure.Reason}." : "The agent finished with a report.");
+        Log.Write(result.Failure switch
+        {
+            { Stopped: true } => "The agent was ended: the run was stopped.",
+            { } failure => $"The agent failed: {failure.Reason}.",
+            null => "The agent finished with a report.",
+        });
         return result;
     }
 
@@ -353,6 +385,10 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
     protected const UnixFileMode RootOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
 
     protected const UnixFileMode RootWritesAgentReads = RootOnly | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute;
+
+    /// <summary>A step the owner's stop ended, or did not start: the job keeps what it may of its
+    /// work and sends the outcome <c>stopped</c>.</summary>
+    protected sealed class StoppedByOwner() : Exception(AgentResult.StoppedReason);
 
     /// <summary>A step that cannot go on, with why and on which side.</summary>
     protected sealed class StepFailed(FailureSide side, string message) : Exception(message)

@@ -113,6 +113,7 @@ public sealed partial class FeatureReadiness(UserDb database, ICodeHost host, Ti
                                    ORDER BY reviewed_at DESC, run_id DESC LIMIT 1) v ON true
                 WHERE f.project_id = @projectId AND f.state IN ('reviewing', 'waiting_for_owner', 'ready')
                   AND f.pull_request_number IS NOT NULL AND f.branch IS NOT NULL AND f.bring_in_failed_at IS NULL
+                  AND f.stopped_by_owner_at IS NULL
                   AND wb.last_commit IS NOT NULL AND wb.last_read_at >= @watchedSince
                   AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.project_id = f.project_id AND r.feature_number = f.number AND r.finished_at IS NULL)
                   AND EXISTS (SELECT 1 FROM cards c WHERE c.project_id = f.project_id AND c.feature_id = f.id)

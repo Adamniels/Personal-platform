@@ -26,7 +26,9 @@ internal interface IAgent
 /// nowhere else; null or empty when it carried none.</param>
 /// <param name="Log">Where its log lines and its usage so far go as it works; null keeps
 /// none.</param>
-internal sealed record AgentRun(string WorkingDirectory, string Brief, string ReportSchema, string Model, AgentLimits Limits, AgentCredential Credential, AgentAccess Access = AgentAccess.Write, IReadOnlyList<DevFlow.Protocol.JobValue>? Values = null, IRunLog? Log = null);
+/// <param name="Stop">Cancelled when the owner stopped the run: the agent ends gently, and its
+/// result says it was stopped, see <see cref="AgentResult.Stopped"/>.</param>
+internal sealed record AgentRun(string WorkingDirectory, string Brief, string ReportSchema, string Model, AgentLimits Limits, AgentCredential Credential, AgentAccess Access = AgentAccess.Write, IReadOnlyList<DevFlow.Protocol.JobValue>? Values = null, IRunLog? Log = null, CancellationToken Stop = default);
 
 /// <summary>What an agent may do in its run.</summary>
 internal enum AgentAccess
@@ -71,7 +73,9 @@ internal enum FailureSide
 /// <param name="TimedOut">Whether it reached its time limit and was ended.</param>
 /// <param name="ResetsAt">When Claude's usage limit resets, when its answer said so; null
 /// otherwise.</param>
-internal sealed record AgentFailure(FailureSide Side, string Reason, bool TimedOut = false, DateTimeOffset? ResetsAt = null);
+/// <param name="Stopped">Whether the owner stopped it, which is no failure of the card or of
+/// anything else: the job sends the outcome <c>stopped</c> rather than a failure.</param>
+internal sealed record AgentFailure(FailureSide Side, string Reason, bool TimedOut = false, DateTimeOffset? ResetsAt = null, bool Stopped = false);
 
 /// <summary>
 /// What a run answers: the report on success, or the failure, and either way the usage as the
@@ -94,6 +98,16 @@ internal sealed record AgentResult(JsonObject? Report, AgentFailure? Failure, Js
 
     public static AgentResult Failed(FailureSide side, string reason, JsonObject usage, string stderr, string? authMethod, JsonArray? denials = null) =>
         new(null, new AgentFailure(side, reason), usage, stderr, authMethod, denials);
+
+    /// <summary>What the stopped run of <see cref="AgentFailure.Stopped"/> says.</summary>
+    public const string StoppedReason = "Stopped by the owner";
+
+    /// <summary>A run the owner stopped, with the usage it had so far.</summary>
+    public static AgentResult Stopped(JsonObject usage, string stderr, string? authMethod, JsonArray? denials = null) =>
+        new(null, new AgentFailure(FailureSide.OutsideCard, StoppedReason, Stopped: true), usage, stderr, authMethod, denials);
+
+    /// <summary>Whether the owner stopped the run.</summary>
+    public bool WasStopped => Failure is { Stopped: true };
 
     /// <summary>A run ended at its time limit, a failure in the card.</summary>
     public static AgentResult TimedOut(AgentLimits limits, JsonObject usage, string stderr, string? authMethod, JsonArray? denials = null) =>

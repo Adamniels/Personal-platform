@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Text;
 using System.Threading.Channels;
 
@@ -196,10 +197,31 @@ internal sealed class RecordingHandler(HttpMessageHandler inner) : DelegatingHan
         }
     }
 
+    private readonly HashSet<string> _stopping = [];
+
+    /// <summary>Answers every log post of the job <paramref name="jobId"/> from now on <c>200</c>
+    /// with <c>stop</c>, as Dev flow answers a run the owner stopped, without passing it on: for a
+    /// job a test made up, which Dev flow does not know.</summary>
+    public void Stop(Guid jobId)
+    {
+        lock (_calls)
+        {
+            _stopping.Add(WorkerApi.LogPath(jobId));
+        }
+    }
+
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken);
-        var response = await base.SendAsync(request, cancellationToken);
+        bool stopping;
+        lock (_calls)
+        {
+            stopping = _stopping.Contains(request.RequestUri!.AbsolutePath);
+        }
+
+        var response = stopping
+            ? new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new LogAnswer(Stop: true), options: WorkerApi.Json) }
+            : await base.SendAsync(request, cancellationToken);
         lock (_calls)
         {
             _calls.Add(new Call(request.RequestUri!.AbsolutePath, body, ((int)response.StatusCode).ToString(System.Globalization.CultureInfo.InvariantCulture)));

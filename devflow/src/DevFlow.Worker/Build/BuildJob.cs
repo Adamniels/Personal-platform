@@ -32,6 +32,10 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
     /// <summary>The message of the commit the worker makes of what the agent left uncommitted.</summary>
     public const string LeftUncommitted = "Work the agent left uncommitted";
 
+    /// <summary>The message of the commit the worker makes of what the copy held when the owner
+    /// stopped the run.</summary>
+    public const string StoppedWork = "Work in progress, stopped by the owner";
+
     /// <summary>The longest the check may take.</summary>
     public static readonly TimeSpan CheckLimit = TimeSpan.FromMinutes(30);
 
@@ -140,11 +144,18 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
             return await Resolve(job, conflict, paths, stopping);
         }
 
+        string? start = null;
+        AgentResult? result = null;
         try
         {
-            var start = await Fetch(job, paths, stopping);
-            var result = await RunAgent(job, paths.Copy, AgentAccess.Write, stopping);
-            await KeepUncommitted(paths, stopping);
+            start = await Fetch(job, paths, stopping);
+            result = await RunAgent(job, paths.Copy, AgentAccess.Write, stopping);
+            if (result.WasStopped || Stop.IsCancellationRequested)
+            {
+                throw new StoppedByOwner();
+            }
+
+            await KeepUncommitted(paths, LeftUncommitted, stopping);
             var head = await FetchBack(job, paths, start, stopping);
             // A feature's branch is shared, and the head of its pull request to the default branch:
             // only a fix whose agent succeeded with a done report and whose check passed is pushed
@@ -174,16 +185,70 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
 
             // Pictures only of a card's work that passed its check and was pushed: of any other,
             // a feature's fix among them, nobody reads them, and taking them would spend minutes of
-            // a worker.
-            var screenshots = result.Succeeded && check is { ExitCode: 0 } && job.Kind is not (Job.FeatureFix or Job.Setup)
-                ? await WhileSeen(job, () => Screenshots(job, paths, head, result, stopping), stopping)
-                : null;
-            return new Outcome(result.Failure, result, check, head, screenshots);
+            // a worker. A stop while they are taken ends the project's start; what was pushed stays.
+            ResultScreenshots? screenshots = null;
+            if (result.Succeeded && check is { ExitCode: 0 } && job.Kind is not (Job.FeatureFix or Job.Setup))
+            {
+                using var pictures = CancellationTokenSource.CreateLinkedTokenSource(stopping, Stop);
+                var agent = result;
+                try
+                {
+                    screenshots = await WhileSeen(job, () => Screenshots(job, paths, head, agent, pictures.Token), stopping);
+                }
+                catch (OperationCanceledException) when (Stop.IsCancellationRequested && !stopping.IsCancellationRequested)
+                {
+                    Log.Write("The pictures were not finished: the run was stopped.");
+                    return Outcome.WasStopped(result, head);
+                }
+            }
+
+            return Stop.IsCancellationRequested ? Outcome.WasStopped(result, head) : new Outcome(result.Failure, result, check, head, screenshots);
+        }
+        catch (StoppedByOwner) when (start is not null)
+        {
+            return await Stopped(job, paths, start, result, stopping);
         }
         catch (StepFailed failed)
         {
             Log.Write($"The job ended: {failed.Message}.");
             return Outcome.Failed(new AgentFailure(failed.Side, failed.Message), null);
+        }
+    }
+
+    /// <summary>
+    /// What a pushing job does once the owner stopped it, from the step it was stopped at: what the
+    /// working copy holds is committed, <see cref="StoppedWork"/>, as the agent with the job's
+    /// committer, and taken back; and the branch is pushed, as the job's push does and never forced,
+    /// only when it has a commit beyond its base. Its outcome is stopped, naming the commit pushed or
+    /// none. A step of it that cannot go on, or a push refused, keeps nothing more and is still a
+    /// stop, never a failure, so the stop never counts against the card.
+    /// </summary>
+    private async Task<Outcome> Stopped(Job job, JobPaths paths, string start, AgentResult? agent, CancellationToken stopping)
+    {
+        Log.Write("The run was stopped; keeping what it did on its branch.");
+        try
+        {
+            await KeepUncommitted(paths, StoppedWork, stopping);
+            var head = await FetchBack(job, paths, start, stopping);
+            var counted = await Git.AsRoot(paths, ["rev-list", "--count", $"refs/heads/{job.Base}..{head}"], stopping);
+            if (counted.ExitCode != 0 || counted.Stdout.Trim() == "0")
+            {
+                Log.Write($"{job.Branch} has nothing beyond {job.Base}, so nothing is pushed.");
+                return Outcome.WasStopped(agent, null);
+            }
+
+            if (await Push(job, paths, head, stopping) is { } refused)
+            {
+                Log.Write($"What the run did was not pushed: {refused.Reason}.");
+                return Outcome.WasStopped(agent, null);
+            }
+
+            return Outcome.WasStopped(agent, head);
+        }
+        catch (StepFailed failed)
+        {
+            Log.Write($"What the run did could not be kept: {failed.Message}.");
+            return Outcome.WasStopped(agent, null);
         }
     }
 
@@ -205,10 +270,17 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
     /// </summary>
     private async Task<Outcome> Resolve(Job job, JobConflict conflict, JobPaths paths, CancellationToken stopping)
     {
+        string? start = null;
+        AgentResult? result = null;
         try
         {
-            var start = await Fetch(job, paths, stopping);
-            var result = await RunAgent(job, paths.Copy, AgentAccess.Write, stopping);
+            start = await Fetch(job, paths, stopping);
+            result = await RunAgent(job, paths.Copy, AgentAccess.Write, stopping);
+            if (result.WasStopped || Stop.IsCancellationRequested)
+            {
+                throw new StoppedByOwner();
+            }
+
             var head = await FetchBack(job, paths, start, stopping);
             if (!result.Succeeded)
             {
@@ -236,6 +308,10 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
             }
 
             return new Outcome(null, result, check, head, RemergeDiff: diff);
+        }
+        catch (StoppedByOwner) when (start is not null)
+        {
+            return await Stopped(job, paths, start, result, stopping);
         }
         catch (StepFailed failed)
         {
@@ -368,8 +444,8 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
     }
 
     /// <summary>What the agent left uncommitted, tracked or new and not ignored, committed in its
-    /// copy, as it, before anything is fetched from there.</summary>
-    private async Task KeepUncommitted(JobPaths paths, CancellationToken stopping)
+    /// copy, as it, with <paramref name="message"/>, before anything is fetched from there.</summary>
+    private async Task KeepUncommitted(JobPaths paths, string message, CancellationToken stopping)
     {
         var status = await Git.AsAgent(paths.Copy, ["status", "--porcelain", "--untracked-files=all"], stopping);
         if (status.ExitCode != 0)
@@ -384,7 +460,7 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
 
         Log.Write("The agent left work uncommitted; committing it.");
         await AgentGit(paths.Copy, ["add", "--all"], "The work the agent left could not be added", stopping);
-        await AgentGit(paths.Copy, ["commit", "--quiet", "--no-verify", "-m", LeftUncommitted], "The work the agent left could not be committed", stopping);
+        await AgentGit(paths.Copy, ["commit", "--quiet", "--no-verify", "-m", message], "The work the agent left could not be committed", stopping);
     }
 
     /// <summary>
@@ -408,18 +484,29 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
     /// <summary>The project's check, as <c>agent</c>, on a new clone of the head commit, with an
     /// environment built from nothing and <c>CI=true</c>, for at most 30 minutes, each line of its
     /// output a check line of the job's log as it is written: its exit code and the last 200 lines
-    /// of its output, standard error with it in the order written.</summary>
+    /// of its output, standard error with it in the order written. Stopped by the owner, before it
+    /// starts or while it runs, it is ended and throws <see cref="WorkerJob.StoppedByOwner"/>.</summary>
     private async Task<CheckResult> Check(Job job, JobPaths paths, CancellationToken stopping)
     {
+        if (Stop.IsCancellationRequested)
+        {
+            throw new StoppedByOwner();
+        }
+
         await CloneForAgent(job, paths, [$"refs/heads/{job.Branch}"], paths.Check, [], "The clean copy for the check could not be made", stopping);
         Log.Write($"Running the check: {job.Check}");
         var check = await WhileSeen(
             job,
             () => Tools.AsAgent.Run(
-                new ProcessSpec("sh", ["-c", $"exec 2>&1\n{job.Check}"], paths.Check, Tools.User.WithValues(job.Values, ("CI", "true")), Lines: CheckLines()),
+                new ProcessSpec("sh", ["-c", $"exec 2>&1\n{job.Check}"], paths.Check, Tools.User.WithValues(job.Values, ("CI", "true")), Lines: CheckLines(), Stop: Stop),
                 CheckLimit,
                 stopping),
             stopping);
+        if (check.Stopped)
+        {
+            Log.Write("The check was ended: the run was stopped.");
+            throw new StoppedByOwner();
+        }
 
         var output = Last(check.Stdout, TailLines);
         if (check.TimedOut)
@@ -532,5 +619,9 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
     private sealed record Outcome(AgentFailure? Failure, AgentResult? Agent, CheckResult? Check, string? Head, ResultScreenshots? Screenshots = null, string? RemergeDiff = null)
     {
         public static Outcome Failed(AgentFailure failure, AgentResult? agent, CheckResult? check = null) => new(failure, agent, check, null);
+
+        /// <summary>A run the owner stopped, with the agent's usage when it ran and the commit
+        /// pushed, or none.</summary>
+        public static Outcome WasStopped(AgentResult? agent, string? head) => new(StoppedFailure, agent, null, head);
     }
 }

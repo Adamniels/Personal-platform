@@ -2564,8 +2564,18 @@ see "The log" under "Jobs", with `{worker_id, lines, usage}`:
   first that fails ends it and the result is sent anyway, so the log never holds the result up. The
   heartbeat goes on while the result is sent, which can take 10 minutes while Dev flow is away, and
   ends with it.
-- **The answer's `stop`** is read by "Stop now reaches the worker", #445; until then the worker
-  ignores it.
+- **The answer's `stop`.** The first answer with `stop` true writes the `system` line "Stopped by
+  the owner" and tells the job, which ends what runs: Claude Code, or the check or the project's
+  start while one runs, `SIGTERM` to the process and every process it started, as `ps` lists them
+  then, and `SIGKILL` 10 seconds later to each still running and whatever it started since, a
+  zombie the worker never reaps passed over. A build, a fix, a conflict, a feature's fix and a setup
+  run then commit what the working copy holds, "Work in progress, stopped by the owner", as the
+  agent with the job's committer, take it back, and push the branch as the job's push does, never
+  forced, only when it has a commit beyond its base; a review, a feature's review, a reading and a
+  check push nothing. A step that ends what it kept, or a push refused, keeps nothing more and is
+  still a stop. Then the result goes with the outcome `stopped`, the head commit pushed or none, the
+  usage so far as the stream counted it, and no report, failure or check. A stop read before the
+  agent starts keeps it from starting.
 
 **When a run succeeds**: only when every one of these holds: exit `0`; the stream has a `result`
 event; `is_error` is false; `terminal_reason` is `completed`; `structured_output` is present and an
@@ -3133,8 +3143,8 @@ run's log, a positive whole number that starts at 1 and only grows; `at`, a time
 to 4,000 characters, a longer one cut to 4,000 ending in "… (cut)". `usage` is optional: the run's
 token figures so far, all four, each a whole number, 0 or more. A field missing or breaking a rule is
 `422` naming it, a line's as `lines[<i>].<field>` for the first line that breaks one, and nothing is
-stored. It answers `200` with `{"stop": false}`; "Stop now reaches the worker", #445, sets `stop`
-for a run the owner marked to stop. What the worker puts in it, and when, is "The job's log, sent as
+stored. It answers `200` with `{"stop": true}` for a run the owner marked to stop, see "Stopping a
+run", and `{"stop": false}` otherwise, read with the heartbeat in the same statement. What the worker puts in it, and when, is "The job's log, sent as
 it runs" under "The worker".
 
 Each line's text has every value of the project scrubbed from it, as a result's text has, made
@@ -3168,7 +3178,9 @@ transaction that takes the run's row first.
 }
 ```
 
-`outcome` is `succeeded`, with `report` and `failure` null, or `failed`, with `report` null and
+`outcome` is `succeeded`, with `report` and `failure` null; `stopped`, when the owner stopped the
+run, with `report`, `failure`, `check` and `pictures` null and `head_commit` what a pushing job
+pushed of its work, or null; or `failed`, with `report` null and
 `failure` `{"reason", "in_card", "timed_out", "resets_at"}`: whether the card's own work caused
 it; whether the run reached its time limit, which must be in the card, null read as false; and when
 Claude's usage limit resets, which must be outside it, null when the answer gave none, see
@@ -3187,6 +3199,7 @@ first that holds:
 
 | What came back | The run's `result` | The card |
 |---|---|---|
+| Stopped by the owner | `stopped_by_owner`, "Stopped by you" | `stopped`, "Stopped by you", see "Stopping a run" |
 | A failure outside the card | `failed_outside_card`, with its reason | Back to `queued`, nothing counted against it |
 | A failure in the card | `failed_in_card` | `stopped`, "The run failed: <reason>" |
 | A report that does not match its form | `report_invalid` | `stopped`, "The report did not match its form: <what>" |
@@ -3201,6 +3214,24 @@ two; it keeps one fewer instead. A card moves only while it is
 off while it ran is removed once its run ends, whatever the result; its runs stay. Every failure in
 the card above but a time limit and a report that stopped runs the card again once, and a failure
 outside the card makes its project wait, see "Stops".
+
+**Stopping a run.** `POST /devflow/api/projects/{id}/runs/{run}/stop`, `StopEndpoints` in
+`src/DevFlow/Jobs/`, as the owner, under the `Api` policy and the origin check, through the door as
+every page route: `202` once the run under way has `stop_requested_at` set, and again for one
+already marked, which keeps its first time; `409` "The run has already ended"; `404` for a project or
+run the caller does not have. The worker's next post to the run's log, at most 15 seconds later, is
+answered `stop`, and the worker ends the run as "The answer's `stop`" under "The worker" says. The
+"Stop now" button is "Running now", #448. Its result is recorded `stopped_by_owner`, "Stopped by
+you", beside `stopped`, which means the agent's report said it stopped. It is never a failure: the
+project's wait, a card's failures in a row and the commit they remember, and its fix rounds are
+untouched, and the commit it names is accounted for by the watch as any result's head commit is. A
+card's build, review or fix leaves the card `stopped`, "Stopped by you", with `stopped_by_owner`
+and the kind and fix round of its run, see "Stopped by you" under "Stops". A feature's own run, a
+review, a fix or a conflict, holds its feature where it is, "Stopped by you", with
+`stopped_by_owner_at`: none of its jobs, its cards' included, is handed out and its readiness is not
+decided while it is set. A reading, a setup run or a check is put back as a lost one is, its cards
+or its setup handed out again, without the project's wait; keeping one from running is pausing the
+project, #454.
 
 **A lost run.** Each read of a project, before it asks the code host anything, ends every run of it
 under way whose worker has sent nothing for 2 minutes: whose `last_heard_at`, the last post to its
@@ -3292,6 +3323,12 @@ has posted none; and `run_log_lines`, a run's log, `project_id`, `user_id`, `run
 `kind` and `text`, keyed by `(run_id, seq)`, referencing its run with the run's project and user,
 gone with it, and guarded by the project's user as `runs` is. The app role may insert, read and
 delete a line, never change one.
+
+From `migrations/0048_run_stop.sql`, `runs` gains `stop_requested_at`, when the owner first asked
+the run to stop. From `migrations/0049_stopped_by_owner.sql`, a run's `result` may be
+`stopped_by_owner`; `cards` gains `stopped_by_owner`, `stopped_kind`, `build`, `review` or `fix`,
+and `stopped_round`, a fix's round, which describe the card's current stop, so every other way a
+card stops sets them back; and `features` gains `stopped_by_owner_at`, null while it is not held.
 
 ## The pull request Dev flow opens
 
@@ -3420,7 +3457,8 @@ clone of the commit, and only what the project's own start creates is there.
    `/work/<job>/pictures`, each within 60 seconds: `<name>-desktop` at 1280 by 800 and
    `<name>-phone` at 390 by 844. `<name>` is the path lowercased, each run of anything but ASCII
    letters and digits one hyphen, trimmed, at most 60 characters, and `home` for `/`.
-6. The process group is ended: `SIGTERM`, and `SIGKILL` 5 seconds later to whatever is left.
+6. The process group is ended: `SIGTERM`, and `SIGKILL` 10 seconds later to whatever is left, the
+   grace a stop gives, so a run stopped while its pictures are taken ends its start the same way.
 7. Root reads each picture through a process of the agent's, `head -c` one byte past 5 MB, and
    keeps it only as a PNG of at most 5 MB.
 8. Root commits them in its own repository to `pr-screenshots`, an orphan branch made when the
@@ -4675,6 +4713,12 @@ and closes nothing. Before commenting, the app's own comments on the issue are l
 last line, so a marking whose answer was lost never posts twice. Nothing else is opened. Once the
 card runs again the app takes the label off, a label already gone being as good. A card stopped
 before this part, whose `stopped_at` is null, is never marked.
+
+**Stopped by you.** A card whose build, review or fix the owner stopped, see "Stopping a run" under
+"Jobs", is `stopped`, "Stopped by you", with `stopped_by_owner` and the kind and fix round of the
+run, so running it again knows where it goes back to; "Run again" and "Drop" are #446. It is not
+marked: `StopStore.Pending` leaves it out, so the app posts no comment and puts on no label. It
+counts as no failure and uses no round.
 
 **Running it again.** Each read of a project reads a stopped card's issue, and its pull request
 when still open, for the owner's comments, as "The owner's comment" under "Fixing" reads them, by

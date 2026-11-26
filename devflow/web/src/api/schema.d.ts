@@ -442,6 +442,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/projects/{id}/runs/{run}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop a run under way, as the caller
+         * @description Marks the run to stop. Its worker's next post to the run's log, at most 15 seconds later, is answered stop: it ends Claude Code, or the check or the project's start while one runs, SIGTERM to the process and everything it started and SIGKILL 10 seconds later; a build, a fix, a conflict, a feature's fix and a setup run commit what the working copy holds and push their branch when it has a commit beyond its base; and the result comes back with the outcome stopped. The run is recorded stopped_by_owner, never a failure: a card's build, review or fix leaves the card stopped, "Stopped by you"; a feature's review, fix or conflict holds the feature, "Stopped by you"; a reading, a setup run or a check is put back to run again. 202 once marked, and again for a run already marked, which changes nothing. In order: 404 for a project or run the caller does not have; 409 when the run has already ended. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["stopRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/projects/{id}/settings": {
         parameters: {
             query?: never;
@@ -830,6 +850,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/worker/jobs/{id}/log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A running job's log, and its heartbeat
+         * @description What the worker sends from the job's start until its result is sent: every 2 seconds when it has new lines, every 15 with none. lines, at most 500, each with seq, its place in the run's log from 1, a positive whole number; at, a time; kind, one of text, tool, tool_result, check, system; and text, 1 to 4000 characters, a longer one cut to 4000 ending in "… (cut)". Each text has every value of the project scrubbed from it before it is stored. A line whose seq the run already holds is skipped, so a retried post never doubles one, and gaps are allowed. A run keeps at most 20,000 lines; past that one system line, "The rest of this run's log was not kept", and nothing more. usage, optional, the run's token figures so far, input_tokens, cache_creation_input_tokens, cache_read_input_tokens and output_tokens, each a whole number, 0 or more; it sets the run's figures, which its result's usage replaces. Every post, with lines or none, is the run's heartbeat and marks the worker seen: a run whose worker has sent nothing for 2 minutes is lost. 200 with stop, whether the owner marked the run to stop, so the worker ends it now. Only for the worker holding the job, named by worker_id, while it runs; 404 for any other worker, a job that is not one of the project's, or one that has finished. 422 naming a field that is missing or breaks a rule. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.
+         */
+        post: operations["workerJobLog"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/worker/jobs/{id}/progress": {
         parameters: {
             query?: never;
@@ -881,7 +921,7 @@ export interface paths {
         put?: never;
         /**
          * A job has ended
-         * @description What the worker sends when its job ends, whatever happened: outcome, succeeded with the agent's report or failed with the failure's reason and whether it lies in the card; the check's exit code and the last 200 lines of its output, null when it did not run; the branch, which must be the job's, and its head commit; the auth method; Claude's usage as it came, an object; the duration in milliseconds; the last 200 lines of stderr; and permission_denials, the actions the agent was refused, an array or null. Each is stored on the run as it came. A build's report is read against contracts/devflow/report.schema.json, and one that does not match is a failure in the card; a review's report is its verdict, read against contracts/devflow/verdict.schema.json, and one that does not match is a failure in the run, never a verdict. A review's head_commit is the commit it was handed, or null on a failure; any other is 422. A failure outside the card puts the card back in queued, counting nothing against it; a failure in the card, a report that does not match, a report that stopped, a check that did not run or failed stop it with why; otherwise the card waits, checked, for its pull request. A check runs no agent: its report is null, a success means the check ran and carries its result, which is the verdict on the version, and pictures, its address taken at both sizes as PNGs of at most 5 MB, base64, named as screenshots names them; pictures on any other job are 422. A setup's success is validated by Dev flow at the commit it names, its .devflow/Dockerfile by the recipe route's rules and its .devflow/project.json by its schema, as its check; 503 when GitHub did not answer, and the worker sends the result again. 204. Only for the worker holding the job while it runs, and once; 404 otherwise. 422 naming a field that is missing or breaks a rule. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.
+         * @description What the worker sends when its job ends, whatever happened: outcome, succeeded with the agent's report, failed with the failure's reason and whether it lies in the card, or stopped, when the owner stopped the run, with report, failure, check and pictures null and the commit a pushing job pushed of what it did, or none; the check's exit code and the last 200 lines of its output, null when it did not run; the branch, which must be the job's, and its head commit; the auth method; Claude's usage as it came, an object; the duration in milliseconds; the last 200 lines of stderr; and permission_denials, the actions the agent was refused, an array or null. Each is stored on the run as it came. A build's report is read against contracts/devflow/report.schema.json, and one that does not match is a failure in the card; a review's report is its verdict, read against contracts/devflow/verdict.schema.json, and one that does not match is a failure in the run, never a verdict. A review's head_commit is the commit it was handed, or null on a failure; any other is 422. A run stopped is stopped_by_owner, never a failure: a card's build, review or fix leaves the card stopped, "Stopped by you", counting nothing; a feature's own run holds the feature; a reading, a setup or a check is put back. A failure outside the card puts the card back in queued, counting nothing against it; a failure in the card, a report that does not match, a report that stopped, a check that did not run or failed stop it with why; otherwise the card waits, checked, for its pull request. A check runs no agent: its report is null, a success means the check ran and carries its result, which is the verdict on the version, and pictures, its address taken at both sizes as PNGs of at most 5 MB, base64, named as screenshots names them; pictures on any other job are 422. A setup's success is validated by Dev flow at the commit it names, its .devflow/Dockerfile by the recipe route's rules and its .devflow/project.json by its schema, as its check; 503 when GitHub did not answer, and the worker sends the result again. 204. Only for the worker holding the job while it runs, and once; 404 otherwise. 422 naming a field that is missing or breaks a rule. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.
          */
         post: operations["workerJobResult"];
         delete?: never;
@@ -1499,6 +1539,33 @@ export interface components {
             /** Format: int64 */
             repository_id: number;
             summary: components["schemas"]["ProjectSummary"];
+        };
+        LogAnswer: {
+            stop: boolean;
+        };
+        LogLine: {
+            /** Format: date-time */
+            at: null | string;
+            kind: null | string;
+            /** Format: int64 */
+            seq: null | number;
+            text: null | string;
+        };
+        LogRequest: {
+            lines: null | components["schemas"]["LogLine"][];
+            usage?: null | components["schemas"]["LogUsage"];
+            /** Format: uuid */
+            worker_id: null | string;
+        };
+        LogUsage: {
+            /** Format: int64 */
+            cache_creation_input_tokens: null | number;
+            /** Format: int64 */
+            cache_read_input_tokens: null | number;
+            /** Format: int64 */
+            input_tokens: null | number;
+            /** Format: int64 */
+            output_tokens: null | number;
         };
         MergeRequest: {
             head_commit: null | string;
@@ -3210,6 +3277,52 @@ export interface operations {
             };
         };
     };
+    stopRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                run: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     getProjectSettings: {
         parameters: {
             query?: never;
@@ -4163,6 +4276,57 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    workerJobLog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LogRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LogAnswer"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

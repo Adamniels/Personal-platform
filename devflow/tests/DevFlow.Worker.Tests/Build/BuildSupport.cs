@@ -178,6 +178,32 @@ internal sealed class Bench : IAsyncDisposable
         return job;
     }
 
+    /// <summary>The owner stops the project's run under way, the one there is, through the route
+    /// the page's "Stop now" calls.</summary>
+    public async Task StopTheRun()
+    {
+        var run = Assert.Single(await Jobs.Runs(), run => run.FinishedAt is null);
+        var stop = await DevFlow.Tests.Jobs.StopRunTests.StopRun(Jobs, run.Id);
+        Assert.Equal(Microsoft.AspNetCore.Http.StatusCodes.Status202Accepted, stop.Response.StatusCode);
+    }
+
+    /// <summary>Moves the worker's clock a second at a time, so its log posts its heartbeat, until
+    /// <paramref name="done"/> holds, as Dev flow's answer stop or a job ending makes it; at most a
+    /// few hundred seconds of the clock, and of real time.</summary>
+    public async Task MoveUntil(Func<bool> done)
+    {
+        for (var i = 0; i < 400 && !done(); i++)
+        {
+            Clock.Advance(TimeSpan.FromSeconds(1));
+            await Task.Delay(TimeSpan.FromMilliseconds(25), Ct);
+        }
+
+        Assert.True(done(), "the worker's clock moved 400 seconds and it did not happen");
+    }
+
+    /// <summary>The remote's refs, each with its commit.</summary>
+    public async Task<string> Refs() => await Git(Remote, "for-each-ref", "--format=%(refname) %(objectname)");
+
     /// <summary>The commit the branch is at on the remote, or null when it is not there.</summary>
     public async Task<string?> RemoteHead(string branch = Branch)
     {

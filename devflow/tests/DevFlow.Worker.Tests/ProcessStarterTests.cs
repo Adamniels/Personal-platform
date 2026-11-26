@@ -117,6 +117,72 @@ public sealed class ProcessStarterTests
         Assert.Equal("started\n", outcome.Stdout);
         Assert.True(DateTimeOffset.UtcNow - started < TimeSpan.FromSeconds(30));
     }
+
+    [Fact]
+    public async Task StoppingEndsTheProcessGently()
+    {
+        // The program and a process it started each say when SIGTERM reaches them: the program
+        // then exits, and the process it started goes on, as one that ignores it would.
+        var folder = Directory.CreateTempSubdirectory("devflow-stop-");
+        try
+        {
+            var script = """
+                trap 'echo program >> said; exit 0' TERM
+                sh -c 'trap "echo child >> said" TERM; echo $$ > child.pid; while :; do sleep 0.1; done' &
+                while [ ! -f child.pid ]; do sleep 0.05; done
+                echo ready > ready
+                wait
+                """;
+            var time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(DateTimeOffset.UtcNow);
+            using var stop = new CancellationTokenSource();
+            var run = new SystemProcessStarter(runAs: null, time)
+                .Run(new ProcessSpec("/bin/sh", ["-c", script], folder.FullName, new Dictionary<string, string> { ["PATH"] = "/usr/bin:/bin" }, Stop: stop.Token), TimeSpan.FromHours(1), Ct);
+            await Until(() => File.Exists(Path.Combine(folder.FullName, "ready")));
+            var child = int.Parse(File.ReadAllText(Path.Combine(folder.FullName, "child.pid")).Trim(), System.Globalization.CultureInfo.InvariantCulture);
+
+            await stop.CancelAsync();
+
+            // SIGTERM reached both, the program first or not.
+            await Until(() => File.Exists(Path.Combine(folder.FullName, "said"))
+                && File.ReadAllLines(Path.Combine(folder.FullName, "said")).Order(StringComparer.Ordinal).SequenceEqual(["child", "program"]));
+            // Short of 10 seconds the child still runs, and the stop waits for it.
+            time.Advance(TimeSpan.FromSeconds(9));
+            await Task.Delay(TimeSpan.FromMilliseconds(500), Ct);
+            Assert.False(run.IsCompleted);
+            Assert.True(Alive(child));
+
+            // At 10 seconds, SIGKILL.
+            time.Advance(TimeSpan.FromSeconds(1));
+            var outcome = await run.WaitAsync(TimeSpan.FromSeconds(30), Ct);
+
+            Assert.True(outcome.Stopped);
+            Assert.False(outcome.TimedOut);
+            await Until(() => !Alive(child));
+        }
+        finally
+        {
+            folder.Delete(recursive: true);
+        }
+    }
+
+    private static async Task Until(Func<bool> condition)
+    {
+        for (var i = 0; i < 400 && !condition(); i++)
+        {
+            await Task.Delay(25, Ct);
+        }
+
+        Assert.True(condition(), "it never happened");
+    }
+
+    /// <summary>Whether a process with the id runs and is not a zombie, by <c>ps</c>.</summary>
+    private static bool Alive(int pid)
+    {
+        using var ps = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("ps", ["-o", "stat=", "-p", pid.ToString(System.Globalization.CultureInfo.InvariantCulture)]) { RedirectStandardOutput = true })!;
+        var stat = ps.StandardOutput.ReadToEnd().Trim();
+        ps.WaitForExit();
+        return stat.Length > 0 && !stat.StartsWith('Z');
+    }
 }
 
 /// <summary>The tests that change the test process's own environment, run one at a time.</summary>

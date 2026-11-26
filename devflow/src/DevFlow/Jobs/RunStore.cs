@@ -37,6 +37,8 @@ namespace DevFlow.Jobs;
 /// other run.</param>
 /// <param name="Pictures">A check's pictures of the project's address, null for any other run and
 /// when none were taken.</param>
+/// <param name="Stopped">Whether the owner stopped the run, which is judged by nothing it holds:
+/// it is <see cref="RunStore.StoppedByOwner"/>.</param>
 public sealed record RunResult(
     bool Succeeded,
     JsonElement? Report,
@@ -55,7 +57,8 @@ public sealed record RunResult(
     bool TimedOut = false,
     DateTimeOffset? ResetsAt = null,
     string? RemergeDiff = null,
-    IReadOnlyList<ResultPicture>? Pictures = null);
+    IReadOnlyList<ResultPicture>? Pictures = null,
+    bool Stopped = false);
 
 /// <summary>How a run ended and what it does to its card: the run's <c>result</c>, the reason,
 /// the state the card moves to, and what the card says there when that is not the run's reason or
@@ -65,6 +68,19 @@ public sealed record RunResult(
 /// <see cref="RunStore.Record"/>. A time limit and a report that stopped are not: either stops the
 /// card at once.</param>
 public sealed record RunEnding(string Result, string? Reason, string CardState, string? CardReason = null, bool Retry = false);
+
+/// <summary>What asking a run to stop comes to.</summary>
+public enum StopAsked
+{
+    /// <summary>The run is under way and marked to stop, now or before.</summary>
+    Marked,
+
+    /// <summary>The run has already ended.</summary>
+    Ended,
+
+    /// <summary>The caller has no such run in the project.</summary>
+    NoSuchRun,
+}
 
 /// <summary>What recording a result comes to.</summary>
 public enum Recorded
@@ -95,6 +111,13 @@ public static class RunStore
     /// <summary>What a card that built and passed its check says, until its pull request is
     /// opened.</summary>
     public const string Built = "Built, and its check passed; its pull request opens next";
+
+    /// <summary>A run's result when the owner stopped it, which is never a failure:
+    /// <c>stopped</c> already means the agent's report said it stopped.</summary>
+    public const string StoppedByOwner = "stopped_by_owner";
+
+    /// <summary>Why a run the owner stopped ended, and what its card or feature says.</summary>
+    public const string StoppedByYou = "Stopped by you";
 
     /// <summary>Why a lost run ended.</summary>
     public const string LostReason = "Its worker sent nothing for 2 minutes";
@@ -362,6 +385,42 @@ public static class RunStore
             cancellationToken: cancellationToken)), cancellationToken);
     }
 
+    /// <summary>
+    /// Marks the project's run <paramref name="runId"/> to stop, as the owner asked: while it is
+    /// under way, its <c>stop_requested_at</c> is set to <paramref name="now"/>, or kept when it was
+    /// set before, so asking twice changes nothing; its worker's next post to the run's log is
+    /// answered stop. Read through the door as <paramref name="userId"/>, so another user's run is
+    /// none.
+    /// </summary>
+    public static async Task<StopAsked> RequestStop(UserDb database, Guid userId, Guid projectId, Guid runId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        return await database.InUserTransaction(userId, async transaction =>
+        {
+            var underWay = await transaction.Connection!.QuerySingleOrDefaultAsync<bool?>(new CommandDefinition(
+                "SELECT finished_at IS NULL FROM runs WHERE id = @runId AND project_id = @projectId FOR UPDATE",
+                new { runId, projectId },
+                transaction,
+                cancellationToken: cancellationToken));
+            if (underWay is not { } running)
+            {
+                return StopAsked.NoSuchRun;
+            }
+
+            if (!running)
+            {
+                return StopAsked.Ended;
+            }
+
+            await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                "UPDATE runs SET stop_requested_at = coalesce(stop_requested_at, @now) WHERE id = @runId",
+                new { runId, now },
+                transaction,
+                cancellationToken: cancellationToken));
+            return StopAsked.Marked;
+        }, cancellationToken);
+    }
+
     /// <summary>Marks the run's check begun and its card <c>checking</c>, a feature's run moving no
     /// card, when the worker holds it under way. False otherwise.</summary>
     public static async Task<bool> Checking(UserDb database, Guid userId, Guid projectId, Guid runId, Guid workerId, DateTimeOffset now, CancellationToken cancellationToken)
@@ -464,7 +523,8 @@ public static class RunStore
                 return Recorded.WrongCommit;
             }
 
-            var ending = run.Kind switch
+            // A stop is judged by nothing the run holds: the owner ended it.
+            var ending = result.Stopped ? new RunEnding(StoppedByOwner, StoppedByYou, "stopped") : run.Kind switch
             {
                 // The rounds as the project has them now, so a change takes effect at this verdict.
                 Job.Review => JudgeReview(result, run.RoundsUsed, settings.FixRoundsCard),
@@ -562,6 +622,14 @@ public static class RunStore
             {
                 // A check that ran, whatever it found, is a run the machine could do.
                 await ProjectWaits.Succeeded(transaction, projectId, cancellationToken);
+            }
+
+            // A stop is no failure and no success: it leaves the project's wait as it was, and moves
+            // what the run was for as the owner stopping it does.
+            if (result.Stopped)
+            {
+                await EndStopped(transaction, projectId, runId, run, now, cancellationToken);
+                return Recorded.Stored;
             }
 
             // A check moves no card: what it found is recorded for its version.
@@ -760,6 +828,57 @@ public static class RunStore
     }
 
     /// <summary>
+    /// What a run the owner stopped leaves, inside the transaction that records it, counting nothing
+    /// against anything: a check or a setup's run is put back as <see cref="SweepLost"/> puts a lost
+    /// one back, by its run having ended, and a reading's cards are queued to be read again, none of
+    /// it making the project wait; a feature's own run, a review, a fix or a conflict, holds its
+    /// feature where it is, <see cref="StoppedByYou"/>, with <c>stopped_by_owner_at</c>, so none of
+    /// its jobs is handed out and its readiness is not decided; and a card's build, review or fix
+    /// stops the card, <see cref="StoppedByYou"/>, marked stopped by the owner with the kind and the
+    /// fix round of its run, its failures in a row, the commit they remember and its rounds
+    /// untouched. See "Stops" in devflow/README.md.
+    /// </summary>
+    private static async Task EndStopped(NpgsqlTransaction transaction, Guid projectId, Guid runId, HeldRun run, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        if (run.Kind == Job.RecipeCheck || run.SetupNumber is not null)
+        {
+            return;
+        }
+
+        if (run.Kind == Job.Read)
+        {
+            await Readings.ReadingStore.PutBack(transaction, projectId, runId, _ => Task.FromResult(("queued", (string?)null)), now, cancellationToken);
+            return;
+        }
+
+        if (run.FeatureNumber is { } feature)
+        {
+            await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                "UPDATE features SET reason = @reason, stopped_by_owner_at = @now, changed_at = @now WHERE project_id = @projectId AND number = @feature",
+                new { projectId, feature, reason = StoppedByYou, now },
+                transaction,
+                cancellationToken: cancellationToken));
+            return;
+        }
+
+        var card = run.CardNumber!.Value;
+        var running = run.Kind switch
+        {
+            Job.Review => UnderReview,
+            Job.Fix => Fixing,
+            _ => Building,
+        };
+        if (await EndCard(transaction, projectId, card, running, "stopped", StoppedByYou, now, cancellationToken))
+        {
+            await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                "UPDATE cards SET stopped_by_owner = true, stopped_kind = @kind, stopped_round = @round WHERE project_id = @projectId AND number = @card",
+                new { projectId, card, kind = run.Kind, round = run.Kind == Job.Fix ? run.FixRound : null },
+                transaction,
+                cancellationToken: cancellationToken));
+        }
+    }
+
+    /// <summary>
     /// Moves the cards a reading read, inside the transaction that records its result: by what it
     /// answered, when it came back in its form; otherwise each card still reading goes back as
     /// <paramref name="ending"/> says, <c>queued</c> for a failure outside the cards, stopped at once
@@ -877,7 +996,11 @@ public static class RunStore
             """
             UPDATE cards SET state = @state, reason = @reason, changed_at = @now,
                 stopped_at = CASE WHEN @state = 'stopped' THEN @now ELSE stopped_at END,
-                stop_marked_at = CASE WHEN @state = 'stopped' THEN NULL ELSE stop_marked_at END
+                stop_marked_at = CASE WHEN @state = 'stopped' THEN NULL ELSE stop_marked_at END,
+                -- A new stop is no owner's until the caller says it is.
+                stopped_by_owner = CASE WHEN @state = 'stopped' THEN false ELSE stopped_by_owner END,
+                stopped_kind = CASE WHEN @state = 'stopped' THEN NULL ELSE stopped_kind END,
+                stopped_round = CASE WHEN @state = 'stopped' THEN NULL ELSE stopped_round END
             WHERE project_id = @projectId AND number = @number AND state = ANY(@running)
             """,
             new { projectId, number, running, state, reason, now },

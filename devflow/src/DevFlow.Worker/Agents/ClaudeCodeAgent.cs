@@ -55,9 +55,15 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
         var environment = Environment(token, null);
 
         var login = Scrubbed(await starter.Run(
-            new ProcessSpec(options.Executable, ["auth", "status", "--json"], run.WorkingDirectory, environment),
+            new ProcessSpec(options.Executable, ["auth", "status", "--json"], run.WorkingDirectory, environment, Stop: run.Stop),
             LoginCheckLimit,
             cancellationToken), token);
+        if (login.Stopped)
+        {
+            log.Write("The owner stopped the run before it started.");
+            return AgentResult.Stopped([], login.Stderr, null);
+        }
+
         var (loggedIn, method) = ReadLogin(login.Stdout);
         if (login.TimedOut || login.ExitCode != 0 || !loggedIn || method != "oauth_token")
         {
@@ -86,15 +92,33 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
                     {
                         lines.Read(line);
                     }
-                }),
+                },
+                Stop: run.Stop),
             run.Limits.Time,
             cancellationToken), token);
-        var result = Judge(answer, run.Limits, method, run.Access, _time.GetUtcNow());
+        var result = answer.Stopped
+            ? AgentResult.Stopped(UsageOf(lines?.UsageSoFar), answer.Stderr, method)
+            : Judge(answer, run.Limits, method, run.Access, _time.GetUtcNow());
         log.Write(result.Failure is { } failure
             ? $"The run failed, {(failure.Side == FailureSide.Card ? "in the card" : "outside the card")}: {failure.Reason}."
             : "The run succeeded with a report.");
         return result;
     }
+
+    /// <summary>The usage a stopped run had so far, as the stream counted it, in the form of Claude
+    /// Code's answer, which Dev flow reads its figures from: empty when nothing was counted.</summary>
+    internal static JsonObject UsageOf(RunUsage? soFar) => soFar is null || soFar == RunUsage.Zero
+        ? []
+        : new JsonObject
+        {
+            ["usage"] = new JsonObject
+            {
+                ["input_tokens"] = soFar.InputTokens,
+                ["cache_creation_input_tokens"] = soFar.CacheCreationInputTokens,
+                ["cache_read_input_tokens"] = soFar.CacheReadInputTokens,
+                ["output_tokens"] = soFar.OutputTokens,
+            },
+        };
 
     /// <summary>The environment of a Claude Code process: the project's <paramref name="values"/>,
     /// for the run that works on its code, then Claude Code's own, which win over a value of the
