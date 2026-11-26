@@ -143,6 +143,12 @@ public sealed class FakeWorkerTests
         Assert.Null(run.HeadCommit);
         Assert.Equal("building", (await jobs.Card(4)).State);
 
+        // Its log holds its first lines, posted as a worker posts them, so a page showing a running
+        // card has lines to show.
+        var lines = await RunLogTests.Stored(jobs, run.Id);
+        Assert.Equal([(1L, "system"), (2L, "text"), (3L, "tool")], lines.Select(line => (line.Seq, line.Kind)));
+        Assert.StartsWith("Cloning Adamniels/Personal-platform", lines[0].Text, StringComparison.Ordinal);
+
         // Without it, a result is still required.
         var missing = await jobs.Routes.App.SendJson("POST", Path, Contract.Token, new JsonObject { ["project_id"] = jobs.Project }.ToJsonString());
         Assert.Equal(StatusCodes.Status422UnprocessableEntity, missing.Response.StatusCode);

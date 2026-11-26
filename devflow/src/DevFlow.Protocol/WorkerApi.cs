@@ -36,11 +36,17 @@ public static class WorkerApi
     /// <summary>The job has ended, with a <see cref="ResultRequest"/>.</summary>
     public const string ResultRoute = Prefix + "/jobs/{id:guid}/result";
 
+    /// <summary>The job's log lines so far and its heartbeat, with a <see cref="LogRequest"/>,
+    /// answered with a <see cref="LogAnswer"/>.</summary>
+    public const string LogRoute = Prefix + "/jobs/{id:guid}/log";
+
     public static string PushKeyPath(Guid jobId) => JobPath(jobId, "push-key");
 
     public static string ProgressPath(Guid jobId) => JobPath(jobId, "progress");
 
     public static string ResultPath(Guid jobId) => JobPath(jobId, "result");
+
+    public static string LogPath(Guid jobId) => JobPath(jobId, "log");
 
     private static string JobPath(Guid jobId, string what) => $"{Prefix}/jobs/{jobId:D}/{what}";
 

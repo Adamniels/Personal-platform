@@ -205,17 +205,23 @@ public sealed class RunSettingsTests
         var second = await jobs.Job(Jobs.Jobs.SecondWorker);
         Assert.Equal((2, "sonnet", 30, 50), ((int)second["card"]!["number"]!, (string)second["model"]!, (int)second["limits"]!["minutes"]!, (int)second["limits"]!["turns"]!));
 
-        // 41 minutes on, both workers gone: the second run is lost after its own 30 minutes and the
-        // margin, while the first keeps the 90 its job carried, and runs on.
-        jobs.Routes.Time.Advance(TimeSpan.FromMinutes(41));
-        await jobs.Routes.Read(jobs.Project, Jobs.Jobs.User);
-        Assert.Equal(("building", "queued"), ((await jobs.Card(1)).State, (await jobs.Card(2)).State));
+        // Each run keeps the minutes its job carried, which the worker enforces; finding a run lost
+        // reads no setting. Both workers quiet for 2 minutes: both are lost, whatever their minutes.
         var runs = await jobs.Runs();
-        Assert.Equal((null, "lost"), (runs.Single(run => run.CardNumber == 1).Result, runs.Single(run => run.CardNumber == 2).Result));
-
-        // The first is lost only after its own 90 minutes and the margin.
-        jobs.Routes.Time.Advance(TimeSpan.FromMinutes(59));
+        Assert.Equal((90, 30), (await RunMinutes(jobs, 1), await RunMinutes(jobs, 2)));
+        jobs.Routes.Time.Advance(TimeSpan.FromMinutes(2));
         await jobs.Routes.Read(jobs.Project, Jobs.Jobs.User);
-        Assert.Equal("lost", (await jobs.Runs()).Single(run => run.CardNumber == 1).Result);
+        runs = await jobs.Runs();
+        Assert.Equal(("lost", "lost"), (runs.Single(run => run.CardNumber == 1).Result, runs.Single(run => run.CardNumber == 2).Result));
+    }
+
+    /// <summary>The minutes the run of card <paramref name="card"/> was handed out with.</summary>
+    private static async Task<int> RunMinutes(Jobs.Jobs jobs, int card)
+    {
+        await using var admin = await jobs.Routes.Database.OpenAdmin(TestContext.Current.CancellationToken);
+        return await admin.QuerySingleAsync<int>(new CommandDefinition(
+            "SELECT run_minutes FROM runs WHERE project_id = @project AND card_number = @card",
+            new { project = jobs.Project, card },
+            cancellationToken: TestContext.Current.CancellationToken));
     }
 }

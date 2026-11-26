@@ -97,7 +97,7 @@ public static class RunStore
     public const string Built = "Built, and its check passed; its pull request opens next";
 
     /// <summary>Why a lost run ended.</summary>
-    public const string LostReason = "No result came back, and its worker was not seen for 10 minutes";
+    public const string LostReason = "Its worker sent nothing for 2 minutes";
 
     /// <summary>The most lines of a check's output or of stderr kept, the last ones.</summary>
     public const int MostLines = 200;
@@ -109,12 +109,10 @@ public static class RunStore
     /// <summary>The longest a reason from a worker is kept, so a card's line stays a line.</summary>
     public const int MostReason = 1000;
 
-    /// <summary>How long past its job's time limit a run with no result may be lost: the margin
-    /// that made the 100 minutes of the old fixed 90.</summary>
-    public static readonly TimeSpan LostMargin = TimeSpan.FromMinutes(10);
-
-    /// <summary>How long its worker must not have been seen for it to be lost.</summary>
-    public static readonly TimeSpan QuietFor = TimeSpan.FromMinutes(10);
+    /// <summary>How long a run under way may go without its worker posting to its log, or since its
+    /// start when it has posted nothing, before it is lost. The worker posts every 15 seconds at
+    /// least, so this is eight posts missed.</summary>
+    public static readonly TimeSpan Silence = TimeSpan.FromMinutes(2);
 
     /// <summary>
     /// How a review's result ends its run, in this order: a failure outside the card puts the card
@@ -683,10 +681,9 @@ public static class RunStore
     }
 
     /// <summary>
-    /// Ends the project's runs that never returned: handed out at least the minutes their job
-    /// carried and <see cref="LostMargin"/> ago, so a run keeps the limit it was handed out with
-    /// whatever the setting is now, with no result, and a worker not seen for
-    /// <see cref="QuietFor"/>. Each is recorded lost
+    /// Ends the project's runs whose worker has gone quiet: under way, with nothing posted to their
+    /// log for <see cref="Silence"/>, or since their start when they have posted nothing. Their
+    /// time limit plays no part, since the worker enforces it itself. Each is recorded lost
     /// and its card put back, counting nothing against it: a build's in <c>queued</c>, a review's in
     /// <c>reviewing</c>, a fix's in <c>fixing</c>, in the same round; and the pushes the watch
     /// awaited of them are judged, with no result to record them. A feature's run lost leaves its
@@ -708,13 +705,11 @@ public static class RunStore
             var lost = (await transaction.Connection!.QueryAsync<(Guid, int?, string, int?, int?)>(new CommandDefinition(
                 """
                 UPDATE runs r SET finished_at = @now, result = 'lost', reason = @reason
-                FROM workers w
                 WHERE r.project_id = @projectId AND r.finished_at IS NULL
-                  AND r.started_at + make_interval(mins => r.run_minutes) + @margin <= @now
-                  AND w.project_id = r.project_id AND w.id = r.worker_id AND w.last_seen_at <= @seenBefore
+                  AND coalesce(r.last_heard_at, r.started_at) <= @heardBefore
                 RETURNING r.id, r.card_number, r.kind, r.fix_round, r.feature_number
                 """,
-                new { projectId, now, reason = LostReason, margin = LostMargin, seenBefore = now - QuietFor },
+                new { projectId, now, reason = LostReason, heardBefore = now - Silence },
                 transaction,
                 cancellationToken: cancellationToken))).ToList();
             foreach (var (id, card, kind, round, feature) in lost)

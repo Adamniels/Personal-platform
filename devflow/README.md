@@ -1523,7 +1523,7 @@ Eighteen, and only the eighteen something reads, with the preset they match, see
 | `model_reading` | `opus` | The model the reading job runs on, see "Reading a card" under "Jobs" |
 | `model_building` | `opus` | The model of a build, a fix, a conflict and a feature's fix, see "Jobs" |
 | `model_reviewing` | `opus` | The model of a card's review and a feature's review |
-| `run_minutes` | 90 | The longest a run may take, 10 to 240; the worker ends it then, and a run is lost once it was handed out its minutes and 10 more ago, see "Jobs" |
+| `run_minutes` | 90 | The longest a run may take, 10 to 240; the worker ends it then. A run is lost by its heartbeat, never by its time, see "A lost run" under "Jobs" |
 | `run_turns` | 200 | The most turns a run may take, 20 to 1000, which Claude Code enforces |
 | `fix_rounds_card` | 3 | The fix rounds a card's reviews may start, 0 to 10; a `changes` verdict after them stops the card, see "Fixing" |
 | `fix_rounds_feature` | 3 | The fix rounds a whole feature's reviews may start, 0 to 10; a `changes` verdict after them has it wait for the owner, see "Fixing a feature" |
@@ -1540,9 +1540,9 @@ and the ranges.
 
 **A changed setting takes effect at the next decision.** Each job carries the model and the limits
 read when it was handed out, and its run keeps them while it runs, so a run under way is never
-shortened or moved to another model; the next job, the next verdict, a feature's next readiness and
-the next search for lost runs read the settings fresh, the search judging each run by the minutes
-its own job carried, which the run records. The page's "Round n of m" lines count against
+shortened or moved to another model; the next job, the next verdict and a feature's next readiness
+read the settings fresh. The search for lost runs reads no setting: a run is lost by its heartbeat,
+see "A lost run" under "Jobs". The page's "Round n of m" lines count against
 the setting as it is now.
 
 **Presets.** Three shortcuts, never stored: a project's preset is the one its settings match, which
@@ -2797,9 +2797,10 @@ token removes the login.
 A job is one card, or for a conflict or a whole feature's review or fix one feature, or for a reading the cards of a feature or a card on its own, handed to one worker, with what the worker needs
 for it and nothing more; a run is Dev flow's record of it, from when it was handed out to when its result came back or it was
 found lost. Why it is built so is "Handing out work" in `docs/devflow-architecture.md`. It is
-`Dispatcher`, `JobStore`, `RunStore`, `JobEndpoints` and `FakeWorkerEndpoints` in `src/DevFlow/Jobs/`,
-the brief in `src/DevFlow/Briefs/`, and the job's, the result's and the report's types in
-`DevFlow.Protocol`'s `Jobs.cs` and `Report.cs`, which the worker program shares.
+`Dispatcher`, `JobStore`, `RunStore`, `RunLogStore`, `RunLogFeed`, `JobEndpoints` and
+`FakeWorkerEndpoints` in `src/DevFlow/Jobs/`, the brief in `src/DevFlow/Briefs/`, and the job's, the
+result's, the log's and the report's types in `DevFlow.Protocol`'s `Jobs.cs`, `Log.cs` and
+`Report.cs`, which the worker program shares.
 
 Every route below is the worker's, under the worker scheme, see "Workers". A job's own routes
 answer only the worker holding it, named by `worker_id`, while it runs, and mark that worker seen;
@@ -3078,6 +3079,40 @@ an hour and a run up to 90 minutes. `503` "GitHub did not answer" when the code 
 `{"worker_id", "state": "checking"}`, says the agent has finished and the check runs: the card moves
 from `building` to `checking`, and the run records `checking_at`. `204`. Any other state is `422`.
 
+**The log.** `POST /devflow/api/worker/jobs/{id}/log`, `WorkerApi.LogRoute`, from the job's start
+until its result is sent, every 2 seconds when the run has new lines and every 15 with none:
+
+```json
+{
+  "worker_id": "<uuid>",
+  "lines": [{ "seq": 1, "at": "<time>", "kind": "system", "text": "Cloning" }],
+  "usage": { "input_tokens": 41, "cache_creation_input_tokens": 18204, "cache_read_input_tokens": 512870, "output_tokens": 6113 }
+}
+```
+
+`lines` is a list of at most 500, empty when there are none. Each line has `seq`, its place in the
+run's log, a positive whole number that starts at 1 and only grows; `at`, a time, the worker's;
+`kind`, one of `text`, what the agent wrote, `tool`, a tool call, `tool_result`, a tool's answer,
+`check`, a line of the check's output, and `system`, a line the worker writes itself; and `text`, 1
+to 4,000 characters, a longer one cut to 4,000 ending in "… (cut)". `usage` is optional: the run's
+token figures so far, all four, each a whole number, 0 or more. A field missing or breaking a rule is
+`422` naming it, a line's as `lines[<i>].<field>` for the first line that breaks one, and nothing is
+stored. It answers `200` with `{"stop": false}`; "Stop now reaches the worker", #445, sets `stop`
+for a run the owner marked to stop.
+
+Each line's text has every value of the project scrubbed from it, as a result's text has, made
+storable as a result is, and is then cut, and it is stored in `run_log_lines` under the run. A line
+whose `seq` the run already holds is skipped, so a retried post never doubles one, and gaps are
+allowed. A run keeps at most 20,000 lines; in place of the first line past that, one `system` line,
+"The rest of this run's log was not kept", and nothing more. Each post, with lines or none, is the
+run's heartbeat: it sets the run's `last_heard_at`, marks the worker seen, and, with `usage`, sets
+the run's `input_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens` and
+`output_tokens`, which the result's usage replaces at the end. The lines a post stored are then
+handed to `RunLogFeed`, in process, by run, once their transaction has committed, which the live
+pages of "Running now", #448, read; a reader that falls 2,000 lines behind is ended, and takes up
+again from the table after the last `seq` it had. `RunLogStore.Heard` stores a post, in one
+transaction that takes the run's row first.
+
 **The result.** `POST /devflow/api/worker/jobs/{id}/result`, once, whatever happened:
 
 ```json
@@ -3131,12 +3166,12 @@ the card above but a time limit and a report that stopped runs the card again on
 outside the card makes its project wait, see "Stops".
 
 **A lost run.** Each read of a project, before it asks the code host anything, ends every run of it
-handed out at least its job's minutes and 10 more ago, its `run_minutes` and the margin, 100 minutes
-for the default 90, with no result, whose worker has not been seen for 10 minutes:
-the run is `lost`, "No result came back, and its worker was not seen for 10 minutes", and its card
-goes back to `queued`, nothing counted against it, and its project waits as after any failure
-outside the card, see "Stops". A result that comes after is for a finished job,
-`404`. It is `RunStore.SweepLost`.
+under way whose worker has sent nothing for 2 minutes: whose `last_heard_at`, the last post to its
+log, or its `started_at` when it has posted none, is 2 minutes or more ago. Its time limit plays no
+part; the worker ends a run at its time limit itself. The run is `lost`, "Its worker sent nothing for
+2 minutes", and its card goes back to `queued`, nothing counted against it, and its project waits as
+after any failure outside the card, see "Stops". A result or a log post that comes after is for a
+finished job, `404`. It is `RunStore.SweepLost`.
 
 **The brief** is one template, `src/DevFlow/Briefs/developer.md`, embedded in the assembly, the
 same for every project, filled by `Brief.Developer` with the card and the project's facts: the
@@ -3177,7 +3212,9 @@ on a stop or written on a done.
 of `contracts/devflow/openapi.json`: `POST /devflow/api/fake/worker/run` with
 `{"project_id", "result"}`, `result` a result as above without `worker_id`, `branch` and
 `head_commit`; or `{"project_id", "keep_running": true}`, with no result needed, which takes the
-job and sends nothing back, as a worker still at it, answering `head_commit` null. It says hello in the caller's project as `devflow-fake-worker` on the image expected,
+job, posts the first three lines of its log through the same code the log route stores them with,
+a `system` line "Cloning <owner>/<name> at <base>", a `text` line and a `tool` line, and sends
+nothing more, as a worker still at it, answering `head_commit` null. It says hello in the caller's project as `devflow-fake-worker` on the image expected,
 takes its next job through the same `Dispatcher`, makes a commit on the job's branch in the fake's
 git repository, by the job's committer, on top of the base branch, giving the base branch a first
 commit of its own when the fake's git has none, as a real repository has, ends the job with the
@@ -3211,6 +3248,13 @@ index allows one run under way per feature. From `migrations/0031_feature_review
 "Reviewing a feature". From `migrations/0032_feature_fixes.sql`, `kind` takes `feature_fix`, a
 feature's run that needs `from_commit`, the feature's head it starts from, see "Fixing a feature"
 under "Reviewing a feature".
+
+From `migrations/0047_run_log.sql`, `runs` gains `last_heard_at`, the last post to its log, null
+before the first, which the index of the runs under way is now by, with `started_at` for a run that
+has posted none; and `run_log_lines`, a run's log, `project_id`, `user_id`, `run_id`, `seq`, `at`,
+`kind` and `text`, keyed by `(run_id, seq)`, referencing its run with the run's project and user,
+gone with it, and guarded by the project's user as `runs` is. The app role may insert, read and
+delete a line, never change one.
 
 ## The pull request Dev flow opens
 
@@ -4608,7 +4652,8 @@ start afresh, and the next marking takes the label off. "Comment to run again" o
 you" is the send back route, which posts his comment on the card's issue, see "Fixing".
 
 **Outside the card.** A failure the worker says lies outside the card, `failed_outside_card`, or a
-lost run, puts the card back as "Jobs" and "Fixing" say and never counts against it. The project
+lost run, "Its worker sent nothing for 2 minutes", whose worker went quiet, see "A lost run" under
+"Jobs", puts the card back as "Jobs" and "Fixing" say and never counts against it. The project
 then hands out no job, `jobs/next` answering `204` before anything else is read, for 5 minutes
 after the first, doubling with each one in a row up to 60, `ProjectWaits`, until a run of the
 project succeeds, which ends the count. When the failure carries `resets_at`, the project waits

@@ -785,11 +785,13 @@ starting from the base. A push without force, of the fetched head to the job's o
 history the agent rewrote is refused at the fetch, and a branch someone else moved meanwhile at
 the push, rather than overwritten.
 
-**A worker running a check stays seen.** A run is lost once it was handed out its job's minutes and
-10 more ago and its worker has not been seen for 10, see "Handing out work"; the agent's minutes and
-the check's 30 can pass that. So while the check runs the worker says `progress` `checking` again every 5
-minutes, which the route takes as often as it comes and which marks the worker seen, so a worker
-that is still working is never taken for gone.
+**A worker running a check stays heard.** A run is lost once its worker has sent nothing for 2
+minutes, see "A run is lost when its worker goes quiet" under "Handing out work", and the check can
+take 30. So the worker keeps posting to the run's log while the check runs, its output as `check`
+lines and a post with none every 15 seconds when it is quiet, which "The worker sends its log as it
+runs", #444, builds; the route marks the worker seen as every post does. Saying `progress`
+`checking` again every 5 minutes, as the worker does now, no longer keeps a run, since 5 minutes is
+past the 2.
 
 **A run's credentials are the Claude login and the project's values, and Dev flow holds both**, as
 the spec's rounds 3 and 4b have it. The owner runs `claude setup-token` once and pastes the token on the Projects tab, so a
@@ -995,17 +997,44 @@ report that stopped, or a check that did not run or failed is the card's to answ
 with why, at once for a report that stopped or a run past its time limit, and otherwise when it
 is the second in a row with nothing new. See "Stops" below.
 
-**A run that never returns is lost after its time limit and a margin, and only once its worker is
-gone.** The time is the minutes its job carried, the project's `run_minutes` when it was handed
-out, 90 by default, and 10 more, the margin the old fixed 100 minutes held for the check and the
-push. It is the run's own minutes, recorded on it, and not the setting as it is now, since a change
-takes effect at the next decision: a run handed out with 90 that the owner lowers to 30 meanwhile is
-still allowed its 90 by the worker, and finding it lost at 40 would hand its card out again while it
-still runs. A worker not seen for 10 minutes is the second condition, so a slow worker that is still
-there is not robbed of its card. The search runs on each project's read, before the code host is
-asked anything, so GitHub being away holds no card. A worker that is still seen keeps its card, and
-one running a check says so every 5 minutes, see "A worker running a check stays seen" under
-"Workers", since the agent's minutes and the check's 30 can pass the time.
+**A run is lost when its worker goes quiet, not when its time is up.** The log route is the
+heartbeat, as the feature "Dev flow: running now, usage and history", #441, decided: the worker
+posts to it from the job's start until its result, every 2 seconds with new lines and every 15
+without, and a run under way whose last post, or its start when it has posted none, is 2 minutes or
+more ago is lost. This replaces losing a run once it was handed out its minutes and a margin of 10
+more ago with its worker unseen for 10, which found a stuck run only after up to 100 minutes, and
+held its card that long. 2 minutes is eight posts missed, so a slow network or a busy machine is not
+taken for a worker gone, and a worker that is gone is found within the project's next read or two.
+The time limit plays no part: the worker enforces it itself, ending the agent and sending its
+result, so a run that keeps posting keeps its card however long its limit is, and the setting can
+change while it runs without anything here reading it. The heartbeat is `last_heard_at` on the run,
+set by every post with lines or none in the transaction that stores the lines, and not the worker's
+`last_seen_at`, since a worker that is seen asking for work or posting for another run says nothing
+about this one. The search runs on each project's read, before the code host is asked anything, so
+GitHub being away holds no card.
+
+**A run's log is kept under the run, each line once.** A line is keyed by its run and its `seq`,
+which the worker numbers from 1, so a post retried after its answer was lost stores nothing twice,
+`ON CONFLICT DO NOTHING`, and a gap, a post that never arrived, is allowed rather than refused,
+since refusing it would lose every line after it too. Each post takes the run's row first, so two
+posts of one run, and a post and the run's result, store one after the other, and a post for a run
+that has finished is `404` like any other route of a finished job. A run keeps at most 20,000
+lines, about four times what a long build writes, and then one line saying the rest was not kept,
+so a run whose agent loops on a tool cannot fill the database; the count is read in the same
+transaction, under the run's row. A line's text is scrubbed of the project's values again, as a
+result's is, see "Security decisions and accepted risks", and cut to 4,000 characters, since a
+tool's answer is already cut to 2,000 by the worker and a line is for reading. The usage so far is
+the run's token figures while it runs, which the result's usage replaces, so a page can show what a
+run has used before it ends.
+
+**Lines reach a live page from memory, never by polling.** The lines a post stored are handed to
+`RunLogFeed` once their transaction has committed, so a reader never sees a line the table does not
+hold, and the live pages, #448, read them from it. Dev flow runs as one replica, so every line
+passes through it. A reader that falls 2,000 lines behind is ended rather than handed lines with a
+hole in them, and takes up again from the table after the last `seq` it had, which the browser's
+`EventSource` does by itself with `Last-Event-ID`; publishing never waits for a reader, so a slow
+page never slows a worker's post. The feed holds nothing a reader has not asked for, and nothing
+once its readers are gone.
 
 **The model and the limits are the project's, carried by the job.** Which model reads, builds and
 reviews, and the minutes and turns a run takes, are settings, as the spec's round 4b has them per
@@ -2562,6 +2591,14 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   bytes are not text and are not scrubbed, so a page that shows a value shows it in its picture. That
   is why a value must be a throwaway or a key made for the automation with a low limit, never
   production's, as the spec's round 3 has it.
+- **A run's log is scrubbed of the token and the project's values only.** The worker replaces the
+  Claude token and scrubs the job's values from every line before it sends it, and Dev flow scrubs
+  the project's values from each line again before it stores it, `JobEndpoints.Hear`, as it does a
+  result's text. Nothing else is looked for. Accepted: a secret the agent reads from a file the
+  values do not hold, a key in the repository or one the project's own code prints, can reach the
+  log, as it can reach a result's stderr today; the log is shown only to the project's user, through
+  the door as them, and a line is never posted on GitHub. A project that keeps such a secret where
+  its agent can read it should give it as a value, so it is scrubbed.
 - **The Claude token, the project's values and a push key leave Dev flow only inside a job, to the
   worker holding it.**
   A job is answered only to a worker of the key's own project, through the door as its user, so
