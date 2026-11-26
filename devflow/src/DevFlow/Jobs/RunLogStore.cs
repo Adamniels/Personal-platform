@@ -13,6 +13,10 @@ namespace DevFlow.Jobs;
 /// <param name="Text">1 to <see cref="LogLine.MostText"/> characters.</param>
 public sealed record RunLogLine(long Seq, DateTimeOffset At, string Kind, string Text);
 
+/// <summary>What a post to a run's log came to: the lines stored, by seq, which may be none, and
+/// whether the owner marked the run to stop, which the route answers the worker.</summary>
+public sealed record HeardPost(IReadOnlyList<RunLogLine> Stored, bool Stop);
+
 /// <summary>A run's token figures so far, each checked to be 0 or more.</summary>
 public sealed record RunUsageSoFar(long InputTokens, long CacheCreationInputTokens, long CacheReadInputTokens, long OutputTokens);
 
@@ -37,18 +41,19 @@ public static class RunLogStore
     /// figures to <paramref name="usage"/> when given; then stores each of <paramref name="lines"/>
     /// whose seq the run does not hold yet, the first of a seq given twice, until the run holds
     /// <see cref="MostLines"/>, and in place of the first line past that one
-    /// <see cref="NotKept"/>, after which nothing more. The lines stored, by seq, which may be none;
-    /// null when the worker holds no such run.
+    /// <see cref="NotKept"/>, after which nothing more. The lines stored, by seq, which may be none,
+    /// and whether the run is marked to stop, read with the heartbeat; null when the worker holds no
+    /// such run.
     /// </summary>
-    public static async Task<IReadOnlyList<RunLogLine>?> Heard(UserDb database, Guid userId, Guid projectId, Guid runId, Guid workerId, IReadOnlyList<RunLogLine> lines, RunUsageSoFar? usage, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<HeardPost?> Heard(UserDb database, Guid userId, Guid projectId, Guid runId, Guid workerId, IReadOnlyList<RunLogLine> lines, RunUsageSoFar? usage, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(lines);
-        return await database.InUserTransaction<IReadOnlyList<RunLogLine>?>(userId, async transaction =>
+        return await database.InUserTransaction<HeardPost?>(userId, async transaction =>
         {
             // Takes the run's row, so two posts for one run store their lines one after the other,
             // and a result being recorded waits, or is waited for.
-            var held = await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            var held = await transaction.Connection!.QuerySingleOrDefaultAsync<bool?>(new CommandDefinition(
                 """
                 UPDATE runs SET last_heard_at = @now,
                     input_tokens = coalesce(@inputTokens, input_tokens),
@@ -56,6 +61,7 @@ public static class RunLogStore
                     cache_read_input_tokens = coalesce(@cacheRead, cache_read_input_tokens),
                     output_tokens = coalesce(@outputTokens, output_tokens)
                 WHERE id = @runId AND project_id = @projectId AND worker_id = @workerId AND finished_at IS NULL
+                RETURNING stop_requested_at IS NOT NULL
                 """,
                 new
                 {
@@ -70,14 +76,14 @@ public static class RunLogStore
                 },
                 transaction,
                 cancellationToken: cancellationToken));
-            if (held == 0)
+            if (held is not { } stop)
             {
                 return null;
             }
 
             if (lines.Count == 0)
             {
-                return [];
+                return new HeardPost([], stop);
             }
 
             var seqs = lines.Select(line => line.Seq).Distinct().ToArray();
@@ -89,7 +95,7 @@ public static class RunLogStore
             if (count > MostLines)
             {
                 // Past the most, with the line that says so already held.
-                return [];
+                return new HeardPost([], stop);
             }
 
             var known = (await transaction.Connection!.QueryAsync<long>(new CommandDefinition(
@@ -111,7 +117,7 @@ public static class RunLogStore
 
             if (stored.Count == 0)
             {
-                return [];
+                return new HeardPost([], stop);
             }
 
             await transaction.Connection!.ExecuteAsync(new CommandDefinition(
@@ -133,7 +139,7 @@ public static class RunLogStore
                 },
                 transaction,
                 cancellationToken: cancellationToken));
-            return stored;
+            return new HeardPost(stored, stop);
         }, cancellationToken);
     }
 

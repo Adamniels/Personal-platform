@@ -64,13 +64,11 @@ public static partial class JobEndpoints
             return WorkerEndpoints.NoSuchJob();
         }
 
-        if (!await Hear(database, values, feed, caller, id, worker, request, Now(time), context.RequestAborted))
-        {
-            return WorkerEndpoints.NoSuchJob();
-        }
-
-        // Stopping a run is "Stop now reaches the worker", #445; until it, no run is marked to stop.
-        return TypedResults.Ok(new LogAnswer(Stop: false));
+        // The owner's stop reaches the worker here, on its next post, at most 15 seconds after it
+        // was asked for, since the worker posts at least that often.
+        return await Hear(database, values, feed, caller, id, worker, request, Now(time), context.RequestAborted) is { } stop
+            ? TypedResults.Ok(new LogAnswer(stop))
+            : WorkerEndpoints.NoSuchJob();
     }
 
     /// <summary>
@@ -79,9 +77,9 @@ public static partial class JobEndpoints
     /// every value of the project, then stored by <see cref="RunLogStore.Heard"/> with the run's
     /// heartbeat and usage, and the lines stored handed to <paramref name="feed"/> once committed.
     /// The fake worker posts its lines through it too, so nothing reaches a run's log any other way.
-    /// False when the worker holds no such run under way.
+    /// Whether the owner marked the run to stop; null when the worker holds no such run under way.
     /// </summary>
-    internal static async Task<bool> Hear(UserDb database, Values.ProjectValues values, RunLogFeed feed, WorkerCaller caller, Guid runId, Guid workerId, LogRequest request, DateTimeOffset now, CancellationToken cancellationToken)
+    internal static async Task<bool?> Hear(UserDb database, Values.ProjectValues values, RunLogFeed feed, WorkerCaller caller, Guid runId, Guid workerId, LogRequest request, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(values);
         ArgumentNullException.ThrowIfNull(feed);
@@ -95,15 +93,14 @@ public static partial class JobEndpoints
         var usage = request.Usage is { } given
             ? new RunUsageSoFar(given.InputTokens!.Value, given.CacheCreationInputTokens!.Value, given.CacheReadInputTokens!.Value, given.OutputTokens!.Value)
             : null;
-        var stored = await RunLogStore.Heard(database, caller.UserId, caller.ProjectId, runId, workerId, lines, usage, now, cancellationToken);
-        if (stored is null)
+        if (await RunLogStore.Heard(database, caller.UserId, caller.ProjectId, runId, workerId, lines, usage, now, cancellationToken) is not { } heard)
         {
-            return false;
+            return null;
         }
 
         // Only once the lines are committed, so a reader never sees one the table does not hold.
-        feed.Publish(runId, stored);
-        return true;
+        feed.Publish(runId, heard.Stored);
+        return heard.Stop;
     }
 
     /// <summary>A line whose rules <see cref="LogErrors"/> checked, as it is stored: its text

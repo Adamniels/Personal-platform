@@ -66,6 +66,19 @@ public sealed record RunResult(
 /// card at once.</param>
 public sealed record RunEnding(string Result, string? Reason, string CardState, string? CardReason = null, bool Retry = false);
 
+/// <summary>What asking a run to stop comes to.</summary>
+public enum StopAsked
+{
+    /// <summary>The run is under way and marked to stop, now or before.</summary>
+    Marked,
+
+    /// <summary>The run has already ended.</summary>
+    Ended,
+
+    /// <summary>The caller has no such run in the project.</summary>
+    NoSuchRun,
+}
+
 /// <summary>What recording a result comes to.</summary>
 public enum Recorded
 {
@@ -95,6 +108,13 @@ public static class RunStore
     /// <summary>What a card that built and passed its check says, until its pull request is
     /// opened.</summary>
     public const string Built = "Built, and its check passed; its pull request opens next";
+
+    /// <summary>A run's result when the owner stopped it, which is never a failure:
+    /// <c>stopped</c> already means the agent's report said it stopped.</summary>
+    public const string StoppedByOwner = "stopped_by_owner";
+
+    /// <summary>Why a run the owner stopped ended, and what its card or feature says.</summary>
+    public const string StoppedByYou = "Stopped by you";
 
     /// <summary>Why a lost run ended.</summary>
     public const string LostReason = "Its worker sent nothing for 2 minutes";
@@ -360,6 +380,42 @@ public static class RunStore
             new { runId, projectId, workerId },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);
+    }
+
+    /// <summary>
+    /// Marks the project's run <paramref name="runId"/> to stop, as the owner asked: while it is
+    /// under way, its <c>stop_requested_at</c> is set to <paramref name="now"/>, or kept when it was
+    /// set before, so asking twice changes nothing; its worker's next post to the run's log is
+    /// answered stop. Read through the door as <paramref name="userId"/>, so another user's run is
+    /// none.
+    /// </summary>
+    public static async Task<StopAsked> RequestStop(UserDb database, Guid userId, Guid projectId, Guid runId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        return await database.InUserTransaction(userId, async transaction =>
+        {
+            var underWay = await transaction.Connection!.QuerySingleOrDefaultAsync<bool?>(new CommandDefinition(
+                "SELECT finished_at IS NULL FROM runs WHERE id = @runId AND project_id = @projectId FOR UPDATE",
+                new { runId, projectId },
+                transaction,
+                cancellationToken: cancellationToken));
+            if (underWay is not { } running)
+            {
+                return StopAsked.NoSuchRun;
+            }
+
+            if (!running)
+            {
+                return StopAsked.Ended;
+            }
+
+            await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                "UPDATE runs SET stop_requested_at = coalesce(stop_requested_at, @now) WHERE id = @runId",
+                new { runId, now },
+                transaction,
+                cancellationToken: cancellationToken));
+            return StopAsked.Marked;
+        }, cancellationToken);
     }
 
     /// <summary>Marks the run's check begun and its card <c>checking</c>, a feature's run moving no

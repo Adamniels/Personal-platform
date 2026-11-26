@@ -294,7 +294,9 @@ public sealed record ProgressRequest(Guid? WorkerId, string? State)
 /// </summary>
 /// <param name="WorkerId">The id it said hello with.</param>
 /// <param name="Outcome"><see cref="Succeeded"/> when the agent answered a report, or for a check
-/// when the check ran, whatever its exit code; <see cref="Failed"/> when it did not.</param>
+/// when the check ran, whatever its exit code; <see cref="Failed"/> when it did not;
+/// <see cref="Stopped"/> when the owner stopped the run, with no report, no failure and no check,
+/// and the commit a pushing job pushed of what it did, or none.</param>
 /// <param name="Report">The agent's report as it came, on a success; Dev flow checks it against
 /// its schema. Null on a check, which runs no agent.</param>
 /// <param name="Failure">Why the run failed, and whether that lies in the card, on a failure.</param>
@@ -337,6 +339,10 @@ public sealed record ResultRequest(
 {
     public const string Succeeded = "succeeded";
     public const string Failed = "failed";
+
+    /// <summary>The owner stopped the run, which Dev flow's answer to a log post said; never a
+    /// failure. See "Jobs" in devflow/README.md.</summary>
+    public const string Stopped = "stopped";
 }
 
 /// <summary>A picture a check took of the project's address.</summary>

@@ -442,6 +442,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/projects/{id}/runs/{run}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop a run under way, as the caller
+         * @description Marks the run to stop. Its worker's next post to the run's log, at most 15 seconds later, is answered stop: it ends Claude Code, or the check or the project's start while one runs, SIGTERM to the process and everything it started and SIGKILL 10 seconds later; a build, a fix, a conflict, a feature's fix and a setup run commit what the working copy holds and push their branch when it has a commit beyond its base; and the result comes back with the outcome stopped. The run is recorded stopped_by_owner, never a failure: a card's build, review or fix leaves the card stopped, "Stopped by you"; a feature's review, fix or conflict holds the feature, "Stopped by you"; a reading, a setup run or a check is put back to run again. 202 once marked, and again for a run already marked, which changes nothing. In order: 404 for a project or run the caller does not have; 409 when the run has already ended. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["stopRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/projects/{id}/settings": {
         parameters: {
             query?: never;
@@ -824,6 +844,26 @@ export interface paths {
          * @description Marks the worker seen and answers its next job, 200 with Cache-Control: no-store: the first of its project's queued cards that waits for nothing, by priority, high, none, low, then oldest first, moved to building, with a run recorded for this worker. The job holds the card, the repository, the branch, the brief, the report's schema, the check, the run's user's Claude token, a push key narrowed to the repository and its expiry, the committer and the limits; and values, the project's values by name, for the environment of the agent, the check and the start, on every job that runs the project's code, a build, a fix, a conflict, a feature's fix, a setup and a check, and empty on a reading and a review. 204 when there is no work for it: a project that is stopped, or whose default branch has not been watched for five minutes, no card to take, a user without a Claude login or with one past its renewal, a worker that needs a rebuild, running another version of the recipe than Dev flow last read or another base image than the one released, or the code host not answering what a job needs, such as the project's .devflow/project.json. 409 for a worker that has not said hello in the key's project, which says hello and asks again; 422 without worker_id. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.
          */
         post: operations["workerNextJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/worker/jobs/{id}/log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A running job's log, and its heartbeat
+         * @description What the worker sends from the job's start until its result is sent: every 2 seconds when it has new lines, every 15 with none. lines, at most 500, each with seq, its place in the run's log from 1, a positive whole number; at, a time; kind, one of text, tool, tool_result, check, system; and text, 1 to 4000 characters, a longer one cut to 4000 ending in "… (cut)". Each text has every value of the project scrubbed from it before it is stored. A line whose seq the run already holds is skipped, so a retried post never doubles one, and gaps are allowed. A run keeps at most 20,000 lines; past that one system line, "The rest of this run's log was not kept", and nothing more. usage, optional, the run's token figures so far, input_tokens, cache_creation_input_tokens, cache_read_input_tokens and output_tokens, each a whole number, 0 or more; it sets the run's figures, which its result's usage replaces. Every post, with lines or none, is the run's heartbeat and marks the worker seen: a run whose worker has sent nothing for 2 minutes is lost. 200 with stop, whether the owner marked the run to stop, so the worker ends it now. Only for the worker holding the job, named by worker_id, while it runs; 404 for any other worker, a job that is not one of the project's, or one that has finished. 422 naming a field that is missing or breaks a rule. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.
+         */
+        post: operations["workerJobLog"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1499,6 +1539,33 @@ export interface components {
             /** Format: int64 */
             repository_id: number;
             summary: components["schemas"]["ProjectSummary"];
+        };
+        LogAnswer: {
+            stop: boolean;
+        };
+        LogLine: {
+            /** Format: date-time */
+            at: null | string;
+            kind: null | string;
+            /** Format: int64 */
+            seq: null | number;
+            text: null | string;
+        };
+        LogRequest: {
+            lines: null | components["schemas"]["LogLine"][];
+            usage?: null | components["schemas"]["LogUsage"];
+            /** Format: uuid */
+            worker_id: null | string;
+        };
+        LogUsage: {
+            /** Format: int64 */
+            cache_creation_input_tokens: null | number;
+            /** Format: int64 */
+            cache_read_input_tokens: null | number;
+            /** Format: int64 */
+            input_tokens: null | number;
+            /** Format: int64 */
+            output_tokens: null | number;
         };
         MergeRequest: {
             head_commit: null | string;
@@ -3210,6 +3277,52 @@ export interface operations {
             };
         };
     };
+    stopRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                run: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     getProjectSettings: {
         parameters: {
             query?: never;
@@ -4163,6 +4276,57 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    workerJobLog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LogRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LogAnswer"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

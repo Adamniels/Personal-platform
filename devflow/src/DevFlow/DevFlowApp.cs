@@ -249,6 +249,7 @@ public static class DevFlowApp
         app.MapWorkers();
         app.MapWatch();
         app.MapJobs();
+        app.MapStops();
         app.MapCards();
         app.MapCardScreenshots();
         app.MapFeatures();
