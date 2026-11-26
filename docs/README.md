@@ -142,7 +142,7 @@ features" in `High-level/docs/platform-architecture.md`.
   two commands, the memory rule and when a worker needs a rebuild, the worker program with its
   settings, its loop, its exit codes, the agent interface, when a run succeeds, a build job step by
   step with the git rules it keeps, publishing it and its tests, the Claude login, its routes and its table, jobs, with handing out a card, a feature's cards one at a time and its branch, the job, a
-  fresh push key, a job's progress and result and how each moves its card, a lost run, the brief,
+  fresh push key, a job's progress and result and how each moves its card, a run's log, its heartbeat and its feed, a lost run, the brief,
   the report, the fake worker and the runs table, the review, with its job, the read only worker, the
   verdict's form, the reviews table and the comment the app posts, registering the GitHub App, how it
   authenticates a request with `PlatformAuth` and with a worker's key, and the libraries it is built
@@ -161,11 +161,11 @@ features" in `High-level/docs/platform-architecture.md`.
   worker's job, why every version of `.devflow/` is checked once and first and why the version covers
   `project.json`, why a project's values are a step that holds nothing back, sealed in their project's own table and scrubbed in two places with one function, a build job's two users, why its
   check runs on a clean copy, why its branch is pushed whatever the check said and why a worker
-  running a check stays seen, the Claude login Dev flow holds for
+  running a check stays heard, the Claude login Dev flow holds for
   a user's runs, handing out work, with the lock that takes a card, a feature's cards one at a time and why a card waits for every earlier one not done, stopped or held, a feature's branch and why one Dev flow did not make is never taken, why nothing is read from GitHub
   under it, the brief quoting the card as picked, how a card reaches its pull request and
   how the waiting list reads Dev flow's own cards beside the runner's, why the report decides nothing, where a failure
-  lies and when a run is lost, the worker's pictures and why they never decide a merge, why the developer looks at its own pages too, the review and why its verdict lives in the database tied to its
+  lies and why a run is lost when its worker goes quiet, a run's log kept each line once and its lines reaching a live page from memory, the worker's pictures and why they never decide a merge, why the developer looks at its own pages too, the review and why its verdict lives in the database tied to its
   commit, fixing, why rounds are limited and why the owner's comment is the one input read from
   GitHub, the merge check, each condition and why it fails closed, a card of a feature, why the app
   closes its issue and why its decisions open no issue, sending a card back, with why only his
@@ -185,7 +185,7 @@ features" in `High-level/docs/platform-architecture.md`.
   again, why a stop is marked on the card, running it again on his comment and reading the usage
   limit's reset, and its security decisions and accepted risks, kept for an audit,
   the vault's, the fake's, the worker key's, the agent run's environment and token, the Claude
-  token's and a job's, a project's values' and their scrubbing, with the risk accepted, the brief's, the report's text in a pull request body, push keys before the watch, the project run as `agent` in a clean copy, its test mode off
+  token's and a job's, a project's values' and their scrubbing, with the risk accepted, a run's log scrubbed of the token and the values only, the brief's, the report's text in a pull request body, push keys before the watch, the project run as `agent` in a clean copy, its test mode off
   without `DEVFLOW=1`, pictures served through part 1's checks, root never running git in the
   agent's copy, the copy without credentials, a push never forced, the reviewer that cannot write, a fix started only from the commit handed, only the owner's comment read,
   a verdict that is never a comment, no language model deciding a merge, CI that never reports not

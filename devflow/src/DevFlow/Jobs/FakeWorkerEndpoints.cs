@@ -29,8 +29,9 @@ namespace DevFlow.Jobs;
 /// names none, as a run that failed before anything was pushed. For a build or a fix whose
 /// result lists pictures, <paramref name="Pictures"/> holds their bytes by name, base64 in the
 /// JSON, which it puts where a worker pushes them. With <paramref name="KeepRunning"/>, it takes the
-/// job and sends nothing back, as a worker still at it, so the card stays where taking it put it;
-/// no result is needed then. With <paramref name="ForCheck"/>, the prepared result is a check's and
+/// job, posts the first lines of its log, <see cref="FakeWorkerEndpoints.FirstLines"/>, and sends
+/// nothing back, as a worker still at it, so the card stays where taking it put it; no result is
+/// needed then. With <paramref name="ForCheck"/>, the prepared result is a check's and
 /// ends the check the worker is handed, as a check's worker sends it; without it, a check the worker
 /// is handed first is passed, as a recipe that works, and the next job taken, so a test of anything
 /// after setting up never meets it. With <paramref name="Setup"/>, it says hello as a worker built
@@ -71,6 +72,20 @@ public static class FakeWorkerEndpoints
     /// <summary>Why a job ends when the fake's git made no commit on its branch.</summary>
     public const string NoCommit = "The fake's git made no commit on the job's branch";
 
+    /// <summary>The lines a job the fake worker keeps running posts to its log, at
+    /// <paramref name="now"/>: the worker's own line, then what the agent wrote and a tool it
+    /// called, as a real run's first post holds them.</summary>
+    public static LogRequest FirstLines(Job job, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        return new LogRequest(WorkerId,
+        [
+            new LogLine(1, now, LogKinds.System, $"Cloning {job.Repository.Owner}/{job.Repository.Name} at {job.Base}"),
+            new LogLine(2, now, LogKinds.Text, "Reading the card and the code it touches."),
+            new LogLine(3, now, LogKinds.Tool, "Read README.md"),
+        ]);
+    }
+
     public static IEndpointRouteBuilder MapFakeWorker(this IEndpointRouteBuilder routes)
     {
         ArgumentNullException.ThrowIfNull(routes);
@@ -100,6 +115,7 @@ public static class FakeWorkerEndpoints
         [FromServices] Readings.QuestionComments questions,
         [FromServices] Readings.RefusalMarker refusals,
         [FromServices] Setup.SetupLoop setups,
+        [FromServices] RunLogFeed feed,
         [FromServices] TimeProvider time)
     {
         var cancellationToken = context.RequestAborted;
@@ -168,7 +184,9 @@ public static class FakeWorkerEndpoints
 
         if (keepRunning)
         {
-            // Taken and still running: nothing is pushed and no result comes back.
+            // Taken and still running: nothing is pushed and no result comes back, and the first
+            // lines of its log are posted as a worker posts them, through the same code.
+            await JobEndpoints.Hear(database, values, feed, caller, job.JobId, WorkerId, FirstLines(job, Now(time)), Now(time), cancellationToken);
             return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card?.Number, job.Branch, null, job.Brief));
         }
 
