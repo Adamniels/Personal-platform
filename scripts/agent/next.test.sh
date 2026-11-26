@@ -130,6 +130,19 @@ FAKE_PAGES="$tmp/title.json" run --machine
 [ "$code" = 0 ] && [ "$out" = "next 26" ]
 check "--machine ignores an issue title that looks like a status" $?
 
+page "$tmp/chain.json" \
+  "$(item 443 Ready OPEN 441 442,443,444,445 '442:OPEN')" \
+  "$(item 444 Ready OPEN 441 442,443,444,445 '443:OPEN,440:OPEN')" \
+  "$(item 445 Ready OPEN 441 442,443,444,445 '19:CLOSED')" \
+  "$(item 442 'In review' OPEN 441 442,443,444,445)"
+FAKE_PAGES="$tmp/chain.json" run --blocked
+[ "$code" = 0 ] && [ "$out" = "$(printf '443 #442\n444 #443,#440')" ]
+check "--blocked prints each Ready slice waiting for an open blocker, in rank order, with its blockers" $?
+
+FAKE_PAGES="$tmp/order.json" run --blocked
+[ "$code" = 0 ] && [ -z "$out" ]
+check "--blocked prints nothing when no Ready slice is blocked" $?
+
 run --bogus
 [ "$code" = 2 ]
 check "an unknown flag is a usage error" $?

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Proposes the next slice for `/pick-up-slice` without a number, from Project 5.
 #
-#   bash scripts/agent/next.sh [--number | --machine]
+#   bash scripts/agent/next.sh [--number | --machine | --blocked]
 #
 # Prints four sections: "In flight" (In progress, In review or Blocked), "Proposal" (one slice),
 # "Alternatives" (up to two) and "Blocked" (Ready slices waiting for an open blocker, with the
@@ -13,6 +13,8 @@
 # With --number, prints only the proposed slice's number, or nothing when there is none; for scripts.
 # With --machine, one board read printing `inprogress <n>` for every open issue with status In progress and
 # `next <n>` for the proposal (absent when there is none); pending.sh relies on this format.
+# With --blocked, `<n> <blockers>` for every Ready slice waiting for an open blocker, in rank order, the blockers
+# as `#<n>` joined by commas, so the runner's idle mention can say what holds the queue back.
 # Exit codes: 0 ok, non-zero when the GitHub read fails (nothing is proposed then), 2 usage error.
 set -euo pipefail
 
@@ -25,9 +27,10 @@ case "${1:-}" in
   "") ;;
   --number) mode=number ;;
   --machine) mode=machine ;;
-  *) echo "usage: next.sh [--number | --machine]" >&2; exit 2 ;;
+  --blocked) mode=blocked ;;
+  *) echo "usage: next.sh [--number | --machine | --blocked]" >&2; exit 2 ;;
 esac
-[ $# -le 1 ] || { echo "usage: next.sh [--number | --machine]" >&2; exit 2; }
+[ $# -le 1 ] || { echo "usage: next.sh [--number | --machine | --blocked]" >&2; exit 2; }
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -59,6 +62,7 @@ jq -r --slurp --arg mode "$mode" --arg repo "$OWNER/$REPO_NAME" '
   | if $mode == "number" then ($free[0:1][] | .number)
     elif $mode == "machine" then
       ($open | sort_by(.number)[] | select(.status == "In progress") | "inprogress \(.number)"), ($free[0:1][] | "next \(.number)")
+    elif $mode == "blocked" then ($blocked[] | "\(.number) \(blockers | join(","))")
     else
     "In flight:", ($inflight | sort_by(.number) | map("  #\(.number) \(.status): \(.title)") | lines),
     "Proposal:", ($free[0:1] | map(line) | lines),

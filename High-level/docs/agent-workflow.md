@@ -223,6 +223,16 @@ change the rules it is judged by until the owner has merged that change.
 gate merges with `--match-head-commit`, so a commit pushed after the checks cannot slip in, and then
 sets the slice Done.
 
+**A merged slice is always closed, whoever merged it.** Which slice a pull request closes is one
+rule, `scripts/agent/pr-slice.sh`, shared by the gate and the runner: the issue the branch is named
+for, which GitHub links to the pull request, or, when GitHub links none, which the body's
+`Closes #<n>` names. GitHub once missed that link, on #471, although the body was correct: the gate
+refused a correct pull request, the owner's merge closed nothing, and every slice blocked by #442
+waited while the runner reported an empty queue. So a slice GitHub did not link is closed by the
+gate after its own merge, and by the runner, every loop, after anyone's merge, each time with a
+comment saying why. And when the queue is empty because every Ready slice waits for an open blocker,
+the runner's idle mention names the first one and what it waits for.
+
 ## What waits for the owner
 
 A pull request waits for him when its slice is high risk, when it touches a protected path, when

@@ -9,7 +9,7 @@
 # $AGENT_HOME/runner/run.sh and execs the copy, so a branch switch never changes the running script. Every loop it
 # fetches again (a failure is a transient pause), restarts itself when main's run.sh differs from the running copy,
 # and extracts scripts/agent from refs/runner/main into a fresh temp dir, from which pending.sh, verdict.sh,
-# merge-gate.sh, board.sh and gh-guard.sh are called. Every git call ignores the repository's hooks.
+# merge-gate.sh, board.sh, gh-guard.sh, pr-slice.sh and next.sh are called. Every git call ignores the repository's hooks.
 #
 # Every loop, before asking pending.sh, the runner makes the labels and review-ok true for every open pull request
 # by the bot. It lists them, reads each one's verdict (verdict.sh) and the status its head commit has, and writes
@@ -45,6 +45,10 @@
 # owner-blocked, owner-blocked replaces the other three, and a pull request the gate merges gets no owner label,
 # its in-review taken off after the merge (a failure there is only logged). A failed label write anywhere else is
 # a transient pause.
+#
+# Every loop, before that pass, the runner closes the slice of any merged bot pull request that GitHub did not link
+# to it and so left open, as `close_left_open` says: the owner's merges included, since otherwise a slice he merged
+# by hand stays open and holds back every slice blocked by it.
 #
 # After a merge the runner is done with a pull request. One the gate merged, or answered with the single reason
 # `pull request is already merged`, or that GitHub says is merged, is recorded in agent-logs/merged-prs. An item
@@ -139,7 +143,8 @@
 #   AGENT_REPO                  [the repository holding this script] the clone the agents work in
 #   AGENT_REMOTE                [https://github.com/Adamniels/Personal-platform.git] where main is fetched from
 #   AGENT_SCRIPTS               [scripts/agent from refs/runner/main, each loop] a fixed directory holding
-#                               pending.sh, merge-gate.sh, board.sh, verdict.sh and gh-guard.sh instead: a test override
+#                               pending.sh, merge-gate.sh, board.sh, verdict.sh, gh-guard.sh, pr-slice.sh and
+#                               next.sh instead: a test override
 #   AGENT_POLL_SECONDS          [600] idle, ci-ok pending and already-told wait
 #   AGENT_TIMEOUT_SECONDS       [5400] a claude run is killed, with its process group, after this long
 #   AGENT_CALL_TIMEOUT_SECONDS  [per call, 60 to 300] one timeout for every other external call: a test override
@@ -194,6 +199,7 @@ last_ok_file="$logs/last-ok"
 open_prs="$logs/.open-prs"        # this loop's open pull requests by the bot: "<pr> <head sha> <labels>"
 approved="$logs/.approved"        # this loop's approved heads, review-ok success on each: "<pr> <head sha>"
 merged_prs="$logs/merged-prs"     # pull requests known to be merged, one number per line: the runner is done with them
+settled_prs="$logs/settled-prs"   # merged pull requests whose slice is known closed, one number per line
 
 [[ "$poll" =~ ^[0-9]+$ ]] || { echo "run.sh: AGENT_POLL_SECONDS must be a number: $poll" >&2; exit 2; }
 [[ "$timeout_secs" =~ ^[1-9][0-9]*$ ]] || { echo "run.sh: AGENT_TIMEOUT_SECONDS must be a positive number: $timeout_secs" >&2; exit 2; }
@@ -473,6 +479,44 @@ merged_slice() {
   merged="$(jq -r 'sort_by(.mergedAt) | last | if . == null then empty else
     ((.closingIssuesReferences[0].number // empty | tostring), ((.headRefName // "") | capture("^(?<n>[0-9]+)-").n)?)
     end' <<<"$call_out" 2> /dev/null | head -n1)"
+}
+# close_left_open: a merged slice must never stay open, or every slice blocked by it waits for ever while the runner
+# sees an empty queue (#442, 2026-11-26). GitHub closes the slice only when it linked the pull request to it, and
+# the merge gate closes one it did not link only for the merges it makes itself, not for the owner's. So every loop
+# the runner reads the 30 most recently merged bot pull requests, and for each it has not settled whose slice
+# pr-slice.sh finds only in the body (GitHub did not link it), closes that slice when it is still open, with a
+# comment saying why, and moves it to Done. A pull request is settled, in agent-logs/settled-prs, once its slice is
+# known closed or it has no slice to close, so each is read once. A failed read, close or board write is logged and
+# tried again the next loop; it never pauses.
+close_left_open() {
+  local pj pr link slice how
+  call 120 gh pr list --repo "$REPO_SLUG" --state merged --author "$BOT" --limit 30 \
+    --json number,headRefName,body,closingIssuesReferences \
+    || { log "could not list the merged pull requests to close their slices"; return 0; }
+  jq -c '.[]' <<<"$call_out" > "$logs/.merged-prs.jsonl" 2> /dev/null \
+    || { log "unreadable list of merged pull requests"; return 0; }
+  while IFS= read -r pj; do
+    pr="$(jq -r '.number' <<<"$pj" 2> /dev/null)"
+    number "$pr" || continue
+    grep -qxF "$pr" "$settled_prs" 2> /dev/null && continue
+    link="$(bash "$scripts/pr-slice.sh" <<<"$pj" 2>> "$logs/runner.log")" || link="-"
+    slice="${link%% *}" how="${link#* }"
+    if [ "$how" = body ]; then
+      call 120 gh issue view "$slice" --repo "$REPO_SLUG" --json state --jq .state \
+        || { log "could not read whether #$slice of the merged #$pr is open"; continue; }
+      if [ "$call_out" = OPEN ]; then
+        call 120 gh issue close "$slice" --repo "$REPO_SLUG" --reason completed \
+          --comment "Closed by the runner: its pull request #$pr is merged, and GitHub did not link the two." \
+          || { log "could not close #$slice of the merged #$pr"; continue; }
+        log "closed #$slice: its pull request #$pr is merged, and GitHub did not link the two"
+        call 120 bash "$scripts/board.sh" status "$slice" Done \
+          || { log "closed #$slice, but could not move it to Done"; continue; }
+      fi
+    fi
+    echo "$pr" >> "$settled_prs"
+  done < "$logs/.merged-prs.jsonl"
+  rm -f "$logs/.merged-prs.jsonl"
+  return 0
 }
 
 # --- Failures and pauses -----------------------------------------------------------------------------------------
@@ -852,12 +896,20 @@ cap_item() { # pr slice
     || pause transient "could not hand #$1 to the owner" "$2"
 }
 
+# idle: one mention per empty queue. When Ready slices wait for open blockers (next.sh --blocked), it names the
+# first and what it waits for, so a chain held back by an open slice is never reported as "no slice is Ready".
 idle() {
+  local why="no slice is Ready" first n
   if [ ! -e "$logs/idle" ]; then
+    if call 120 bash "$scripts/next.sh" --blocked && [ -n "$call_out" ]; then
+      first="${call_out%%$'\n'*}"; n="$(grep -c '' <<<"$call_out")"
+      why="no Ready slice can start: #${first%% *} waits for $(sed 's/,/, /g' <<<"${first#* }")"
+      [ "$n" -gt 1 ] && why="$why, and $((n - 1)) more Ready slices wait for an open blocker"
+    fi
     merged_slice
     if [ -z "$merged" ]; then
-      log "idle: the queue is empty, and no merged slice to mention the owner on"; : > "$logs/idle"
-    elif comment "$merged" "@$OWNER the runner's queue is empty: no pull request waits on it and no slice is Ready. It looks again every $poll s."; then
+      log "idle: the queue is empty ($why), and no merged slice to mention the owner on"; : > "$logs/idle"
+    elif comment "$merged" "@$OWNER the runner's queue is empty: no pull request waits on it and $why. It looks again every $poll s."; then
       log "idle: the queue is empty, mentioned the owner on #$merged"; : > "$logs/idle"
     else
       log "idle: could not mention the owner on #$merged"
@@ -963,6 +1015,7 @@ while :; do
   paused=0
   cur_item="-"
   load_scripts || continue
+  close_left_open
   make_true || continue
   stopped && break
   call 300 bash "$scripts/pending.sh"; prc=$?
