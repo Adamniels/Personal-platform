@@ -14,10 +14,11 @@ namespace DevFlow.Worker.Build;
 internal sealed record JobTools(IAgent Agent, IProcessStarter Root, IProcessStarter AsAgent, JobFolders Folders, AgentUser User, PageTools Pages);
 
 /// <summary>
-/// What every job a worker runs shares, a build's and a review's: root's folders for the job, made
-/// new where only root can write; the bundles root hands the agent, so root never writes where the
-/// agent can; git as root and as the agent; the job's folders removed whatever happened; and the
-/// result sent, patiently, while Dev flow is away. The steps of each kind of job are in
+/// What every job a worker runs shares, a build's and a review's: the job's log, sent as it runs from
+/// the moment it is taken until its result is sent, <see cref="Sending"/>; root's folders for the
+/// job, made new where only root can write; the bundles root hands the agent, so root never writes
+/// where the agent can; git as root and as the agent; the job's folders removed whatever happened;
+/// and the result sent, after the log's last lines, patiently, while Dev flow is away. The steps of each kind of job are in
 /// <see cref="BuildJob"/> and <see cref="Review.ReviewJob"/>. See "The worker" in
 /// devflow/README.md, and "Workers" in devflow/docs/devflow-architecture.md for why.
 /// </summary>
@@ -45,8 +46,18 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
     /// <summary>git, as root and as the agent.</summary>
     protected WorkerGit Git { get; } = new(tools.Root, tools.AsAgent, tools.User);
 
+    /// <summary>The job's log, sent to Dev flow from now until it is disposed, once the result is
+    /// sent: the agent's lines, the check's and every line the worker writes meanwhile, scrubbed of
+    /// the job's Claude token and its values.</summary>
+    protected RunLogSender Sending(Job job)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        return RunLogSender.Start(Client, job.JobId, WorkerId, job.ClaudeToken ?? "", job.Values, Time, Log);
+    }
+
     /// <summary>
-    /// Sends the job's result, trying again while Dev flow is away, for at most
+    /// Sends the job's result, after the last lines of its log, <paramref name="sending"/>, which
+    /// never holds it up, trying again while Dev flow is away, for at most
     /// <see cref="Patience"/>: succeeded with the agent's report when there is no
     /// <paramref name="failure"/>, failed with it otherwise; the check's result when one ran, the
     /// commit, the agent's usage, standard error and refused actions as they came, and a build's
@@ -55,9 +66,11 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
     /// carried scrubbed first, so none leaves the container in clear, even to Dev flow, which scrubs
     /// it again; a picture's bytes are not text, and are sent as they are.
     /// </summary>
-    protected async Task Send(Job job, AgentFailure? failure, AgentResult? agent, CheckResult? check, string? head, TimeSpan duration, CancellationToken stopping, ResultScreenshots? screenshots = null, string? remergeDiff = null, IReadOnlyList<ResultPicture>? pictures = null)
+    protected async Task Send(Job job, RunLogSender sending, AgentFailure? failure, AgentResult? agent, CheckResult? check, string? head, TimeSpan duration, CancellationToken stopping, ResultScreenshots? screenshots = null, string? remergeDiff = null, IReadOnlyList<ResultPicture>? pictures = null)
     {
         ArgumentNullException.ThrowIfNull(job);
+        ArgumentNullException.ThrowIfNull(sending);
+        await sending.Last(stopping);
         var scrub = new ValueScrub(job.Values ?? []);
         var request = new ResultRequest(
             WorkerId,
@@ -95,11 +108,10 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
     protected async Task<AgentResult> RunAgent(Job job, string workingDirectory, AgentAccess access, CancellationToken stopping)
     {
         var limits = new AgentLimits(job.Limits.Turns, job.Limits.BudgetUsd, TimeSpan.FromMinutes(job.Limits.Minutes));
-        // The run's log is kept in memory for now; sending it as the run goes is #444's.
-        var run = new AgentRun(workingDirectory, job.Brief, job.ReportSchema.GetRawText(), job.Model, limits, new AgentCredential(job.ClaudeToken), access, job.Values, new MemoryRunLog(Time));
+        var run = new AgentRun(workingDirectory, job.Brief, job.ReportSchema.GetRawText(), job.Model, limits, new AgentCredential(job.ClaudeToken), access, job.Values, Log.Run);
         using var limit = new CancellationTokenSource(limits.Time, Time);
         using var either = CancellationTokenSource.CreateLinkedTokenSource(stopping, limit.Token);
-        Log.Write($"Starting the agent, for at most {limits.Time.TotalMinutes:0} minutes.");
+        Log.Write($"Starting the agent on {job.Model}");
         AgentResult result;
         try
         {
@@ -150,6 +162,16 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
             await Task.Delay(wait, Time, stopping);
             wait = TimeSpan.FromTicks(Math.Min(wait.Ticks * 2, WorkerLoop.LongestWait.Ticks));
         }
+    }
+
+    /// <summary>Root clones the job's repository with its key into its own bare repository, in the
+    /// job's folder of secrets, which root has made.</summary>
+    protected async Task CloneRepository(Job job, JobPaths paths, CancellationToken stopping)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        Log.Write($"Cloning {job.Repository.Owner}/{job.Repository.Name}");
+        var credential = new PushCredential(job.PushKey, job.Repository.CloneAddress);
+        await Root(paths, ["clone", "--bare", "--quiet", "--", job.Repository.CloneAddress.OriginalString, paths.Repository], FailureSide.OutsideCard, "The repository could not be fetched", stopping, credential, inSecret: true);
     }
 
     /// <summary>

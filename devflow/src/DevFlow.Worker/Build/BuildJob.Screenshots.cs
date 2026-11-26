@@ -138,6 +138,7 @@ internal sealed partial class BuildJob
     private async Task<(List<(string Name, byte[] Bytes)> Pictures, List<string> Failures)> Take(
         Job job, JobPaths paths, string head, IReadOnlyList<(string Name, string Path)> pages, CancellationToken stopping)
     {
+        Log.Write("Taking pictures");
         await CloneForAgent(job, paths, [$"refs/heads/{job.Branch}"], paths.Pages, [], "the clean copy for the pictures could not be made", stopping);
         var at = await Git.AsAgent(paths.Pages, ["rev-parse", "HEAD"], stopping);
         if (at.ExitCode != 0 || at.Stdout.Trim() != head)

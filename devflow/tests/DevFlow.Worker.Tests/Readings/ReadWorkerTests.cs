@@ -84,6 +84,11 @@ public sealed class ReadWorkerTests
         Assert.Null(sent["check"]);
         Assert.Equal("main", (string)sent["branch"]!);
 
+        // The reading's log went to Dev flow as it ran, with the worker's steps.
+        var system = bench.Logged("system");
+        Assert.Contains("Cloning Adamniels/Personal-platform", system);
+        Assert.Contains($"Starting the agent on {given.Model}", system);
+
         // Nothing was pushed or asked for to push with: the remote's refs are as they were, no push
         // key was asked for, and neither user ran git push or git commit.
         Assert.Equal(before, await Refs(bench));

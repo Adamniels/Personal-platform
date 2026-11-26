@@ -194,6 +194,16 @@ internal sealed class Bench : IAsyncDisposable
         JsonNode.Parse(Assert.Single(Handler.Calls, call => call.Path.EndsWith("/result", StringComparison.Ordinal)
             && (jobId is null || call.Path == WorkerApi.ResultPath(jobId.Value))).Body)!.AsObject();
 
+    /// <summary>The texts of the lines of <paramref name="kind"/> Dev flow took from the worker's
+    /// log posts, in the order they were sent; of the job <paramref name="jobId"/> alone when one is
+    /// given.</summary>
+    public List<string> Logged(string kind, Guid? jobId = null) =>
+        [.. Handler.Calls
+            .Where(call => (jobId is null ? call.Path.EndsWith("/log", StringComparison.Ordinal) : call.Path == WorkerApi.LogPath(jobId.Value)) && call.Answer == "200")
+            .SelectMany(call => JsonNode.Parse(call.Body)!["lines"]!.AsArray())
+            .Where(line => (string)line!["kind"]! == kind)
+            .Select(line => (string)line!["text"]!)];
+
     /// <summary>The identity the test commits as, where it commits as someone other than the
     /// worker or the agent.</summary>
     public static readonly string[] Someone = ["-c", "user.name=Someone else", "-c", "user.email=someone@example.com"];

@@ -100,6 +100,18 @@ public sealed class CheckWorkerTests
         Assert.Equal(["home-desktop", "home-phone"], pictures.Select(picture => (string)picture!["name"]!));
         Assert.All(pictures, picture => Assert.True(Convert.FromBase64String((string)picture!["png"]!).AsSpan().StartsWith((byte[])[0x89, 0x50, 0x4E, 0x47])));
 
+        // The check's log was sent as it ran, with the worker's steps. This job is the test's own, so
+        // Dev flow does not know it, and what the worker sent is read whatever it answered.
+        var system = bench.Handler.Calls
+            .Where(call => call.Path == WorkerApi.LogPath(jobId))
+            .SelectMany(call => JsonNode.Parse(call.Body)!["lines"]!.AsArray())
+            .Where(line => (string)line!["kind"]! == "system")
+            .Select(line => (string)line!["text"]!)
+            .ToList();
+        Assert.Contains("Cloning Adamniels/Personal-platform", system);
+        Assert.Contains(system, line => line.StartsWith("Running the check: git rev-parse HEAD > ", StringComparison.Ordinal));
+        Assert.Contains("Taking pictures", system);
+
         // No agent ran, no push key was asked for, nothing was committed or pushed.
         Assert.Null(agent.Given);
         Assert.Equal(before, await Refs(bench));

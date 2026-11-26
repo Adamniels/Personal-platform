@@ -40,6 +40,7 @@ internal sealed class ReadJob(DevFlowClient devFlow, Guid workerId, JobTools too
             return;
         }
 
+        await using var sending = Sending(job);
         Log.Write($"Reading {toRead.Cards.Count} {(toRead.Cards.Count == 1 ? "card" : "cards")} of #{job.Card.Number} on {job.Branch}, job {job.JobId}.");
         var started = Time.GetTimestamp();
         AgentFailure? failure;
@@ -77,7 +78,7 @@ internal sealed class ReadJob(DevFlowClient devFlow, Guid workerId, JobTools too
         }
 
         // Nothing was pushed, so the result names no commit.
-        await Send(job, failure, result, null, null, Time.GetElapsedTime(started), stopping);
+        await Send(job, sending, failure, result, null, null, Time.GetElapsedTime(started), stopping);
     }
 
     /// <summary>Why the job is refused before anything runs, or null: a branch or base git could
@@ -118,8 +119,7 @@ internal sealed class ReadJob(DevFlowClient devFlow, Guid workerId, JobTools too
         Directory.CreateDirectory(Tools.Folders.Handover);
         RootsOwn(paths.Secret, RootOnly);
         RootsOwn(paths.Handover, RootWritesAgentReads);
-        var credential = new PushCredential(job.PushKey, job.Repository.CloneAddress);
-        await Root(paths, ["clone", "--bare", "--quiet", "--", job.Repository.CloneAddress.OriginalString, paths.Repository], FailureSide.OutsideCard, "The repository could not be fetched", stopping, credential, inSecret: true);
+        await CloneRepository(job, paths, stopping);
         if (await Commit(paths, job.Branch, stopping) is not { } head)
         {
             // Gone since it was handed out, or never made: another try reads it again.
