@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 
 namespace DevFlow.Worker.Agents;
@@ -11,7 +12,11 @@ namespace DevFlow.Worker.Agents;
 /// standard error's each with its stream named, without its line ending; null for none. Called
 /// from the reader of each stream, so from two threads at once, and the outcome holds all of both
 /// either way.</param>
-internal sealed record ProcessSpec(string FileName, IReadOnlyList<string> Arguments, string WorkingDirectory, IReadOnlyDictionary<string, string> Environment, bool Bytes = false, Action<ProcessStream, string>? Lines = null);
+/// <param name="Stop">Cancelled when the owner stopped the run the program is part of: the program
+/// and everything it started get <c>SIGTERM</c>, and <c>SIGKILL</c> after
+/// <see cref="SystemProcessStarter.StopGrace"/> whatever of them still runs, and the outcome says it
+/// was stopped. Unlike the cancellation token, which ends it at once and throws.</param>
+internal sealed record ProcessSpec(string FileName, IReadOnlyList<string> Arguments, string WorkingDirectory, IReadOnlyDictionary<string, string> Environment, bool Bytes = false, Action<ProcessStream, string>? Lines = null, CancellationToken Stop = default);
 
 /// <summary>Which of a program's two output streams a line came from.</summary>
 internal enum ProcessStream
@@ -22,7 +27,9 @@ internal enum ProcessStream
 
 /// <summary>How a program ended, and what it wrote.</summary>
 /// <param name="TimedOut">Whether it ran past its time limit and was ended.</param>
-internal sealed record ProcessOutcome(int ExitCode, string Stdout, string Stderr, bool TimedOut);
+/// <param name="Stopped">Whether the owner stopped it, by its spec's <see cref="ProcessSpec.Stop"/>,
+/// before it ended on its own; never also <paramref name="TimedOut"/>.</param>
+internal sealed record ProcessOutcome(int ExitCode, string Stdout, string Stderr, bool TimedOut, bool Stopped = false);
 
 /// <summary>Starts a program and waits for it, at most its time limit. The seam
 /// <see cref="ClaudeCodeAgent"/>'s tests replace.</summary>
@@ -36,7 +43,11 @@ internal interface IProcessStarter
 /// variable the worker holds, such as an <c>ANTHROPIC_API_KEY</c>, never reaches the program.
 /// Standard input is closed at once. Both output streams are read as they are written, so a spec's
 /// line sink has each line while the program runs. Past the time limit the process and everything
-/// it started are ended, and the outcome says so.
+/// it started are ended, and the outcome says so. Stopped by the owner, through the spec's
+/// <see cref="ProcessSpec.Stop"/>, they are ended gently: <c>SIGTERM</c> to the process and every
+/// process it started, as <see cref="ProcessTable"/> reads them then, and <c>SIGKILL</c>, after
+/// <see cref="StopGrace"/>, to each of those still running and whatever it started since; the
+/// outcome says it was stopped.
 ///
 /// With <paramref name="runAs"/>, the program runs as that user through <c>setpriv</c>, from
 /// util-linux, which keeps the environment as given; the worker runs as root and Claude Code
@@ -45,6 +56,14 @@ internal interface IProcessStarter
 /// </summary>
 internal sealed class SystemProcessStarter(string? runAs, TimeProvider time) : IProcessStarter
 {
+    /// <summary>How long a stopped program and what it started have after <c>SIGTERM</c> before
+    /// <c>SIGKILL</c>.</summary>
+    public static readonly TimeSpan StopGrace = TimeSpan.FromSeconds(10);
+
+    /// <summary>How often, within <see cref="StopGrace"/>, the worker looks whether a stopped
+    /// program has ended.</summary>
+    private static readonly TimeSpan StopPoll = TimeSpan.FromMilliseconds(100);
+
     public async Task<ProcessOutcome> Run(ProcessSpec spec, TimeSpan timeLimit, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(spec);
@@ -84,11 +103,18 @@ internal sealed class SystemProcessStarter(string? runAs, TimeProvider time) : I
         var stderr = Read(process.StandardError, ProcessStream.Stderr, spec.Lines);
 
         using var limit = new CancellationTokenSource(timeLimit, time);
-        using var either = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, limit.Token);
+        using var either = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, limit.Token, spec.Stop);
         var timedOut = false;
+        var stopped = false;
         try
         {
             await process.WaitForExitAsync(either.Token);
+        }
+        catch (OperationCanceledException) when (spec.Stop.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            // The owner's stop, which wins over a time limit reached at the same moment.
+            await EndGently(process);
+            stopped = true;
         }
         catch (OperationCanceledException)
         {
@@ -98,7 +124,47 @@ internal sealed class SystemProcessStarter(string? runAs, TimeProvider time) : I
             timedOut = true;
         }
 
-        return new ProcessOutcome(process.ExitCode, await stdout, await stderr, timedOut);
+        return new ProcessOutcome(process.ExitCode, await stdout, await stderr, timedOut, stopped);
+    }
+
+    /// <summary>
+    /// Ends <paramref name="process"/> as a stop does: <c>SIGTERM</c> to it and every process it
+    /// started; then, as soon as none of them runs or once <see cref="StopGrace"/> has passed,
+    /// <c>SIGKILL</c> to each still running and whatever it started meanwhile, and the process
+    /// waited for. Signalled as the worker itself, so a process that runs as the agent is reached.
+    /// Without <c>ps</c> to read the processes by, the process tree is killed at once, as at a time
+    /// limit.
+    /// </summary>
+    private async Task EndGently(Process process)
+    {
+        try
+        {
+            var signalled = (await ProcessTable.Read()).TreeOf([process.Id]);
+            await ProcessTable.Signal("TERM", signalled);
+            var until = time.GetUtcNow() + StopGrace;
+            var table = await ProcessTable.Read();
+            while (signalled.Any(table.Lives) && time.GetUtcNow() < until)
+            {
+                await Task.Delay(StopPoll, time);
+                table = await ProcessTable.Read();
+            }
+
+            var left = table.TreeOf(signalled.Where(table.Lives));
+            if (left.Count > 0)
+            {
+                await ProcessTable.Signal("KILL", left);
+            }
+        }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+        }
+
+        if (!process.HasExited)
+        {
+            process.Kill(entireProcessTree: true);
+        }
+
+        await process.WaitForExitAsync(CancellationToken.None);
     }
 
     /// <summary>
@@ -126,6 +192,107 @@ internal sealed class SystemProcessStarter(string? runAs, TimeProvider time) : I
         }
 
         return whole.ToString();
+    }
+}
+
+/// <summary>
+/// The machine's processes as <c>ps</c> lists them at one moment, each with its parent and whether
+/// it is a zombie, which has ended and only waits to be reaped: the worker runs as the container's
+/// first process and reaps no process it did not start, so an orphan that ended stays listed so.
+/// The same <c>ps</c> and <c>kill</c> run on Linux, in the image, from procps, and on the machines
+/// the tests run on. A process id read here may be reused by the time it is signalled; within a
+/// stop's 10 seconds, in a container whose ids only grow, that is not expected.
+/// </summary>
+internal sealed class ProcessTable
+{
+    private readonly Dictionary<int, (int Parent, bool Zombie)> _processes;
+
+    private ProcessTable(Dictionary<int, (int Parent, bool Zombie)> processes) => _processes = processes;
+
+    /// <summary>The processes running now, by <c>ps -A -o pid=,ppid=,stat=</c>.</summary>
+    public static async Task<ProcessTable> Read()
+    {
+        var ps = new ProcessStartInfo("ps") { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var argument in new[] { "-A", "-o", "pid=,ppid=,stat=" })
+        {
+            ps.ArgumentList.Add(argument);
+        }
+
+        using var running = Process.Start(ps) ?? throw new InvalidOperationException("ps did not start");
+        var errors = running.StandardError.ReadToEndAsync(CancellationToken.None);
+        var output = await running.StandardOutput.ReadToEndAsync(CancellationToken.None);
+        await running.WaitForExitAsync(CancellationToken.None);
+        await errors;
+        if (running.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"ps exited with {running.ExitCode}");
+        }
+
+        var processes = new Dictionary<int, (int Parent, bool Zombie)>();
+        foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var fields = line.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (fields.Length >= 3
+                && int.TryParse(fields[0], NumberStyles.None, CultureInfo.InvariantCulture, out var pid)
+                && int.TryParse(fields[1], NumberStyles.None, CultureInfo.InvariantCulture, out var parent))
+            {
+                processes[pid] = (parent, fields[2].StartsWith('Z'));
+            }
+        }
+
+        return new ProcessTable(processes);
+    }
+
+    /// <summary>Whether the process runs: it is listed and is not a zombie.</summary>
+    public bool Lives(int pid) => _processes.TryGetValue(pid, out var process) && !process.Zombie;
+
+    /// <summary>Each of <paramref name="roots"/> that runs and every running process below it, by
+    /// parent, each once.</summary>
+    public IReadOnlyList<int> TreeOf(IEnumerable<int> roots)
+    {
+        var children = _processes.Where(pair => !pair.Value.Zombie).ToLookup(pair => pair.Value.Parent, pair => pair.Key);
+        var tree = new List<int>();
+        var seen = new HashSet<int>();
+        var next = new Queue<int>(roots.Where(Lives));
+        while (next.TryDequeue(out var pid))
+        {
+            if (!seen.Add(pid))
+            {
+                continue;
+            }
+
+            tree.Add(pid);
+            foreach (var child in children[pid])
+            {
+                next.Enqueue(child);
+            }
+        }
+
+        return tree;
+    }
+
+    /// <summary><c>kill -s &lt;signal&gt;</c> to each of <paramref name="pids"/>, as the worker; one
+    /// that has ended meanwhile is passed over.</summary>
+    public static async Task Signal(string signal, IReadOnlyCollection<int> pids)
+    {
+        if (pids.Count == 0)
+        {
+            return;
+        }
+
+        var kill = new ProcessStartInfo("kill") { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+        kill.ArgumentList.Add("-s");
+        kill.ArgumentList.Add(signal);
+        foreach (var pid in pids)
+        {
+            kill.ArgumentList.Add(pid.ToString(CultureInfo.InvariantCulture));
+        }
+
+        using var running = Process.Start(kill) ?? throw new InvalidOperationException("kill did not start");
+        var errors = running.StandardError.ReadToEndAsync(CancellationToken.None);
+        await running.StandardOutput.ReadToEndAsync(CancellationToken.None);
+        await running.WaitForExitAsync(CancellationToken.None);
+        await errors;
     }
 }
 

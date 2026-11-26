@@ -42,8 +42,9 @@ internal interface IBackgroundProcess : IAsyncDisposable
 /// </summary>
 internal sealed class SystemBackgroundStarter(string? runAs, TimeProvider time) : IBackgroundStarter
 {
-    /// <summary>How long the group has after <c>SIGTERM</c> before <c>SIGKILL</c>.</summary>
-    public static readonly TimeSpan Grace = TimeSpan.FromSeconds(5);
+    /// <summary>How long the group has after <c>SIGTERM</c> before <c>SIGKILL</c>: a stop's, the
+    /// same whether the pictures were taken or the owner stopped the run.</summary>
+    public static readonly TimeSpan Grace = SystemProcessStarter.StopGrace;
 
     /// <summary>How much of what it writes is kept, the last characters.</summary>
     public const int KeptCharacters = 16 * 1024;

@@ -315,6 +315,101 @@ public sealed class BuildJobTests
         Assert.True(condition(), "it never happened");
     }
 
+    [Fact]
+    public async Task AStoppedBuildPushesWhatItDid()
+    {
+        await using (var bench = await Bench.Start(check: $"touch '{Bench.Out}'"))
+        {
+            // The agent commits once, leaves more uncommitted, and is stopped by the owner while it
+            // works: it ends as Claude Code ends on SIGTERM, with no report.
+            string? committed = null;
+            var agent = new ScriptedAgent(
+                async (run, _) =>
+                {
+                    committed = await ScriptedAgent.Commit(run, "greeting.txt", "Hello\n", "Add the greeting");
+                    await ScriptedAgent.Write(run, "notes/half.txt", "half done\n");
+                    await bench.StopTheRun();
+                    await bench.MoveUntil(() => run.Stop.IsCancellationRequested);
+                },
+                () => AgentResult.Stopped(new JsonObject { ["usage"] = new JsonObject { ["input_tokens"] = 7, ["output_tokens"] = 3 } }, "", "oauth_token"));
+
+            await bench.RunJob(agent);
+
+            // What the copy held is committed on top, as the app's bot, and pushed; the check never ran.
+            var head = await bench.RemoteHead();
+            Assert.NotNull(head);
+            Assert.NotEqual(committed, head);
+            Assert.Equal(committed, await Bench.Git(bench.Remote, "rev-parse", $"{head}^"));
+            Assert.Equal($"{BuildJob.StoppedWork}|{FakeCodeHost.AppLogin}", await Bench.Git(bench.Remote, "log", "-1", "--format=%s|%an", head!));
+            Assert.Equal("notes/half.txt", await Bench.Git(bench.Remote, "show", "--format=", "--name-only", head!));
+            Assert.False(File.Exists(bench.OutFile));
+
+            // The result says stopped, with the commit, the usage so far, and no report or check.
+            var sent = bench.SentResult();
+            Assert.Equal("stopped", (string)sent["outcome"]!);
+            Assert.Equal(head, (string)sent["head_commit"]!);
+            Assert.Null(sent["report"]);
+            Assert.Null(sent["check"]);
+            Assert.Null(sent["failure"]);
+            Assert.Equal(7, (int)sent["usage"]!["usage"]!["input_tokens"]!);
+            Assert.Contains("Stopped by the owner", bench.Logged("system"));
+
+            var recorded = await bench.Run();
+            Assert.Equal("stopped_by_owner", recorded.Result);
+            Assert.Equal(head, recorded.HeadCommit);
+            Assert.Equal("stopped", (await bench.Jobs.Card(1)).State);
+        }
+
+        // An agent stopped before it changed anything leaves the branch with nothing beyond its
+        // base: nothing is pushed, and the result names no commit.
+        await using (var bench = await Bench.Start())
+        {
+            var agent = new ScriptedAgent(
+                async (run, _) =>
+                {
+                    await bench.StopTheRun();
+                    await bench.MoveUntil(() => run.Stop.IsCancellationRequested);
+                },
+                () => AgentResult.Stopped([], "", "oauth_token"));
+
+            await bench.RunJob(agent);
+
+            Assert.Null(await bench.RemoteHead());
+            var sent = bench.SentResult();
+            Assert.Equal("stopped", (string)sent["outcome"]!);
+            Assert.Null(sent["head_commit"]);
+            Assert.Equal("stopped_by_owner", (await bench.Run()).Result);
+        }
+    }
+
+    [Fact]
+    public async Task AStoppedCheckIsEndedToo()
+    {
+        // A check that would run for a minute, stopped once it has begun.
+        await using var bench = await Bench.Start(check: $"touch '{Bench.Out}'; sleep 60; echo finished");
+        string? committed = null;
+        var agent = new ScriptedAgent(async (run, _) => committed = await ScriptedAgent.Commit(run, "greeting.txt", "Hello\n", "Add the greeting"));
+        var job = await bench.NextJob();
+        var started = Stopwatch.StartNew();
+
+        var running = bench.Build(agent).Run(job, Ct);
+        await Until(() => File.Exists(bench.OutFile) || running.IsCompleted);
+        Assert.False(running.IsCompleted);
+        await bench.StopTheRun();
+        await bench.MoveUntil(() => running.IsCompleted);
+        await running;
+
+        // The check was ended well before its minute, and the agent's commit pushed.
+        Assert.True(started.Elapsed < TimeSpan.FromSeconds(40), $"the check took {started.Elapsed}");
+        Assert.Equal(committed, await bench.RemoteHead());
+        var sent = bench.SentResult();
+        Assert.Equal("stopped", (string)sent["outcome"]!);
+        Assert.Equal(committed, (string)sent["head_commit"]!);
+        Assert.Null(sent["check"]);
+        Assert.DoesNotContain("finished", bench.Logged("check"));
+        Assert.Equal("stopped_by_owner", (await bench.Run()).Result);
+    }
+
     private static async Task<int> WaitForPid(string pidFile)
     {
         for (var i = 0; i < 200; i++)

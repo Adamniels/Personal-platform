@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 using DevFlow.Protocol;
 using DevFlow.Worker.Agents;
 
@@ -22,8 +24,10 @@ namespace DevFlow.Worker;
 /// dropped, and the worker's own log says why, as it says when a post fails, never the job's.</item>
 /// <item><see cref="Last"/> sends what is left before the result, and the result is sent whatever it
 /// answered; the heartbeat goes on until the sender is disposed, once the result is sent.</item>
+/// <item>An answer with <c>stop</c>, the owner having stopped the run, writes the system line
+/// <see cref="AgentResult.StoppedReason"/> once and cancels <see cref="Stopped"/>, which the job
+/// reads to end what runs; the log goes on until the result is sent.</item>
 /// </list>
-/// The answer's <c>stop</c> is read by "Stop now reaches the worker", #445; until then it is not.
 /// Time is the <see cref="TimeProvider"/> given, so tests move it: a timer of one
 /// <see cref="Tick"/> decides at each tick whether a post is due, so a moved clock decides exactly.
 /// The log never holds the job up: adding a line only queues it.
@@ -50,6 +54,10 @@ internal sealed class RunLogSender : IRunLog, IAsyncDisposable
     private readonly TimeProvider _time;
     private readonly WorkerLog _log;
     private readonly CancellationTokenSource _stop = new();
+
+    /// <summary>Cancelled once Dev flow answered a post with stop. Never disposed, so a job reads it
+    /// whenever it likes; it holds no timer.</summary>
+    private readonly CancellationTokenSource _stopped = new();
     private readonly Lock _lock = new();
 
     /// <summary>Lines not yet taken by Dev flow, oldest first.</summary>
@@ -109,6 +117,10 @@ internal sealed class RunLogSender : IRunLog, IAsyncDisposable
         sender._timer = time.CreateTimer(static state => ((RunLogSender)state!).OnTick(), sender, Tick, Tick);
         return sender;
     }
+
+    /// <summary>Cancelled once Dev flow answered one of the log's posts with <c>stop</c>: the
+    /// owner stopped the run.</summary>
+    public CancellationToken Stopped => _stopped.Token;
 
     public void Add(RunLineKind kind, string text)
     {
@@ -288,6 +300,7 @@ internal sealed class RunLogSender : IRunLog, IAsyncDisposable
 
         string? say = null;
         var taken = answer.Kind is AnswerKind.Answered or AnswerKind.Invalid;
+        var stop = answer.Kind == AnswerKind.Answered && AsksToStop(answer);
         lock (_lock)
         {
             _posting = null;
@@ -334,7 +347,37 @@ internal sealed class RunLogSender : IRunLog, IAsyncDisposable
             _log.Note(say);
         }
 
+        if (stop)
+        {
+            // Said in the job's log, then the job told; once, whatever answers stop after.
+            lock (_lock)
+            {
+                if (_stopped.IsCancellationRequested)
+                {
+                    return taken;
+                }
+            }
+
+            _log.Write(AgentResult.StoppedReason);
+            _stopped.Cancel();
+        }
+
         return taken;
+    }
+
+    /// <summary>Whether Dev flow's answer to a post says to stop; an answer it cannot read does
+    /// not.</summary>
+    private static bool AsksToStop(Answer answer)
+    {
+        try
+        {
+            return answer.Body.ValueKind == JsonValueKind.Object
+                && answer.Body.Deserialize<LogAnswer>(WorkerApi.Json) is { Stop: true };
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     private static string Kind(RunLineKind kind) => kind switch

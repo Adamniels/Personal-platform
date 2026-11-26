@@ -42,6 +42,10 @@ internal sealed partial class BuildJob
             {
                 (check, screenshots, pictures) = await Checked(job, toCheck, paths, stopping);
             }
+            catch (StoppedByOwner)
+            {
+                failure = StoppedFailure;
+            }
             catch (StepFailed failed)
             {
                 Log.Write($"The job ended: {failed.Message}.");
@@ -96,8 +100,17 @@ internal sealed partial class BuildJob
             return (check, null, null);
         }
 
-        var (screenshots, pictures) = await WhileSeen(job, () => AddressPictures(job, paths, toCheck.Commit, stopping), stopping);
-        return (check, screenshots, pictures);
+        // A stop while the address is taken ends the project's start, and the check is stopped.
+        using var taking = CancellationTokenSource.CreateLinkedTokenSource(stopping, Stop);
+        try
+        {
+            var (screenshots, pictures) = await WhileSeen(job, () => AddressPictures(job, paths, toCheck.Commit, taking.Token), stopping);
+            return (check, screenshots, pictures);
+        }
+        catch (OperationCanceledException) when (Stop.IsCancellationRequested && !stopping.IsCancellationRequested)
+        {
+            throw new StoppedByOwner();
+        }
     }
 
     /// <summary>
