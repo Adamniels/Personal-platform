@@ -148,7 +148,8 @@ internal sealed partial class BuildJob
 
         await Agent("mkdir", [paths.Pictures], paths.Work, FailureSide.OutsideCard, "the folder for the pictures could not be made", stopping);
         Log.Write($"Starting the project at {head} for its pictures.");
-        var project = await Tools.Pages.Starter.Start(new ProcessSpec("sh", ["-c", job.Start], paths.Pages, Tools.User.WithValues(job.Values, ("DEVFLOW", "1"))), stopping);
+        // What the start prints goes to the job's log as it comes, as the check's does.
+        var project = await Tools.Pages.Starter.Start(new ProcessSpec("sh", ["-c", job.Start], paths.Pages, Tools.User.WithValues(job.Values, ("DEVFLOW", "1")), Lines: CheckLines()), stopping);
         try
         {
             await WaitUp(job.Url, project, stopping);

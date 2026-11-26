@@ -744,8 +744,9 @@ stream gives the usage limit's reset exactly, as a `rate_limit_event`, where the
 as text for people; the text stays the second way, for a run whose stream has no event that stopped
 it. Each line is scrubbed of the token and the job's values before it goes anywhere, as the result
 is, since a tool's answer is the likeliest place for a value the project's code printed. The
-lines are only kept in memory by this slice; the next slices of the feature send them to Dev flow
-as the run's heartbeat and show them.
+worker sends them to Dev flow as the run goes, with the check's output and its own steps, and the
+posts are the run's heartbeat, see "A run is lost when its worker goes quiet" under "Handing out
+work"; the pages that show them are the feature's later slices.
 
 **A build job is one workbench and two users**, as the feature's decisions have it: root, the
 worker, holds the push key and does everything that talks to the code host, from a bare repository
@@ -788,8 +789,8 @@ the push, rather than overwritten.
 **A worker running a check stays heard.** A run is lost once its worker has sent nothing for 2
 minutes, see "A run is lost when its worker goes quiet" under "Handing out work", and the check can
 take 30. So the worker keeps posting to the run's log while the check runs, its output as `check`
-lines and a post with none every 15 seconds when it is quiet, which "The worker sends its log as it
-runs", #444, builds; the route marks the worker seen as every post does. Saying `progress`
+lines and a post with none every 15 seconds when it is quiet, see "The job's log, sent as it runs"
+under "The worker" in `devflow/README.md`; the route marks the worker seen as every post does. Saying `progress`
 `checking` again every 5 minutes, as the worker does now, no longer keeps a run, since 5 minutes is
 past the 2.
 

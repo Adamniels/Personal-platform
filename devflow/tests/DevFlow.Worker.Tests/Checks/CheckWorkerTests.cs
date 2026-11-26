@@ -111,6 +111,13 @@ public sealed class CheckWorkerTests
         Assert.Contains("Cloning Adamniels/Personal-platform", system);
         Assert.Contains(system, line => line.StartsWith("Running the check: git rev-parse HEAD > ", StringComparison.Ordinal));
         Assert.Contains("Taking pictures", system);
+        // And the check's output, as it was written.
+        var checkLines = bench.Handler.Calls
+            .Where(call => call.Path == WorkerApi.LogPath(jobId))
+            .SelectMany(call => JsonNode.Parse(call.Body)!["lines"]!.AsArray())
+            .Where(line => (string)line!["kind"]! == "check")
+            .Select(line => (string)line!["text"]!);
+        Assert.Equal(["checked"], checkLines);
 
         // No agent ran, no push key was asked for, nothing was committed or pushed.
         Assert.Null(agent.Given);

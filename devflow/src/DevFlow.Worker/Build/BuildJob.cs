@@ -406,8 +406,9 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
     }
 
     /// <summary>The project's check, as <c>agent</c>, on a new clone of the head commit, with an
-    /// environment built from nothing and <c>CI=true</c>, for at most 30 minutes: its exit code and
-    /// the last 200 lines of its output, standard error with it in the order written.</summary>
+    /// environment built from nothing and <c>CI=true</c>, for at most 30 minutes, each line of its
+    /// output a check line of the job's log as it is written: its exit code and the last 200 lines
+    /// of its output, standard error with it in the order written.</summary>
     private async Task<CheckResult> Check(Job job, JobPaths paths, CancellationToken stopping)
     {
         await CloneForAgent(job, paths, [$"refs/heads/{job.Branch}"], paths.Check, [], "The clean copy for the check could not be made", stopping);
@@ -415,7 +416,7 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
         var check = await WhileSeen(
             job,
             () => Tools.AsAgent.Run(
-                new ProcessSpec("sh", ["-c", $"exec 2>&1\n{job.Check}"], paths.Check, Tools.User.WithValues(job.Values, ("CI", "true"))),
+                new ProcessSpec("sh", ["-c", $"exec 2>&1\n{job.Check}"], paths.Check, Tools.User.WithValues(job.Values, ("CI", "true")), Lines: CheckLines()),
                 CheckLimit,
                 stopping),
             stopping);

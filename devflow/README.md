@@ -2528,10 +2528,44 @@ cut never leaves part of one. It also keeps the usage so far, the sum of each as
 `output_tokens`: Claude Code sends a message of several blocks as one event per block, each with
 the message's `id` and its whole `usage`, so a message counts once. The result's usage stays the
 `result` event's. Lines and the usage so far go to the run's `IRunLog`, on `AgentRun`, with
-`Add(kind, text)` and `Used(usage)`; the worker gives each run a `MemoryRunLog`, which stamps a line
-with the worker's clock as it is added, that is when its event was read, and keeps it in memory.
-Sending it to Dev flow is "The worker sends its log as it runs", #444. `FakeAgent` writes a line
-of text, a `tool` line for each change and a last line to it.
+`Add(kind, text)` and `Used(usage)`; the worker gives each run its job's `RunLogSender`, below,
+which stamps a line with the worker's clock as it is added, that is when its event was read.
+`FakeAgent` writes a line of text, a `tool` line for each change and a last line to it.
+
+**The job's log, sent as it runs.** Every job, a build, a fix, a conflict, a setup, a check, a
+review and a reading, has a `RunLogSender`, in `src/DevFlow.Worker/`, from the moment it is taken,
+once its job reads as one this worker runs, until its result is sent. It posts to the log route,
+see "The log" under "Jobs", with `{worker_id, lines, usage}`:
+
+- **What goes in it.** The agent's lines and usage, above. Each line of the check's output and of
+  the project's start, standard output's and standard error's as they are written, as a `check`
+  line, through the spec's line sink, which `SystemProcessStarter` and `SystemBackgroundStarter`
+  both hand lines to by one `LineSplitter`; the result's check output is still the last 200 lines,
+  as before. And a `system` line for each of the worker's own steps, "Cloning <owner>/<name>",
+  "Starting the agent on <model>", "Running the check: <command>", "Pushing <branch>" and "Taking
+  pictures", and for every other line the worker writes to its own log while the job runs: while
+  a sender is the job's, `WorkerLog` adds each line it writes to it. The sender's own lines, about
+  a post Dev flow did not take, go to the worker's log alone.
+- **Each line** has the job's Claude token replaced by `[redacted]` and the job's values by
+  `ValueScrub` before it is kept, then is cut to 4,000 characters by `LogLine.Cut`, the cut Dev flow
+  makes too, and numbered: `seq` from 1 per job, only growing. An empty line is no line, since Dev
+  flow takes text of one character or more.
+- **When.** A timer looks every second. A post goes 2 seconds after the last when there is
+  something new, lines or a changed usage, holding at most 500 lines, oldest first, so a backlog
+  goes 500 every 2 seconds; with nothing new, a post with no lines goes 15 seconds after the last,
+  the run's heartbeat. One post is on its way at a time. `usage` is the usage so far when it changed
+  since the last post Dev flow took, and null otherwise.
+- **Dev flow away.** A post Dev flow did not take, no answer, a timeout or any answer but `200` or
+  `422`, is sent again on the next, with the same lines and `seq`s, which Dev flow takes once.
+  Unsent lines are kept in memory, at most 5,000; past that the oldest are dropped, and one
+  `system` line, "<n> lines were not sent", takes the place of the last one dropped. A `422` breaks
+  a rule and would on every try, so its lines are dropped, and the worker's log says why.
+- **Before the result**, `Last` sends what is left, post after post while Dev flow takes them; the
+  first that fails ends it and the result is sent anyway, so the log never holds the result up. The
+  heartbeat goes on while the result is sent, which can take 10 minutes while Dev flow is away, and
+  ends with it.
+- **The answer's `stop`** is read by "Stop now reaches the worker", #445; until then the worker
+  ignores it.
 
 **When a run succeeds**: only when every one of these holds: exit `0`; the stream has a `result`
 event; `is_error` is false; `terminal_reason` is `completed`; `structured_output` is present and an
@@ -2618,7 +2652,8 @@ and `/work/<job>/`, the agent's, where root writes nothing:
    force, so a history the agent rewrote is refused, a failure in the card. The copy's side,
    `git-upload-pack`, runs as `agent` with its environment reset, through `--upload-pack`.
 7. **The check**, when the agent succeeded: the worker sends `progress` `checking`, and again
-   every 5 minutes while the check runs, so Dev flow keeps seeing it; root bundles the fetched
+   every 5 minutes while the check runs, so Dev flow keeps seeing it; each line of its output goes
+   to the job's log as it is written, see "The job's log, sent as it runs"; root bundles the fetched
    head into the handover folder, `check.bundle`, the agent clones it into `/work/<job>/check`, and
    the job's `check` runs there as `agent`, `sh -c` with standard error joined to standard output,
    in an environment of the project's values the job carried, then
@@ -2631,8 +2666,9 @@ and `/work/<job>/`, the agent's, where root writes nothing:
 9. **The pictures**, when the agent succeeded, the check exited 0 and the push went through: the
    project is started from a clean copy of the pushed commit and the report's pages are taken, see
    "Screenshots". The worker says `progress` `checking` every 5 minutes meanwhile, as during the
-   check. Nothing that happens there fails the job.
-10. **The result** is sent, see "Jobs": the agent's report on a success, or the failure; the check;
+   check, and what the project's start prints goes to the job's log as the check's output does.
+   Nothing that happens there fails the job.
+10. **The result** is sent, see "Jobs", after the job's log's last lines: the agent's report on a success, or the failure; the check;
    the head commit pushed; the auth method, usage and the last 200 lines of the agent's standard
    error; the duration; and the pictures' names and note, when they were tried. A push key or a
    result Dev flow is away for is asked again, 5 seconds doubling to 60, for at most 10 minutes.
@@ -3098,7 +3134,8 @@ to 4,000 characters, a longer one cut to 4,000 ending in "… (cut)". `usage` is
 token figures so far, all four, each a whole number, 0 or more. A field missing or breaking a rule is
 `422` naming it, a line's as `lines[<i>].<field>` for the first line that breaks one, and nothing is
 stored. It answers `200` with `{"stop": false}`; "Stop now reaches the worker", #445, sets `stop`
-for a run the owner marked to stop.
+for a run the owner marked to stop. What the worker puts in it, and when, is "The job's log, sent as
+it runs" under "The worker".
 
 Each line's text has every value of the project scrubbed from it, as a result's text has, made
 storable as a result is, and is then cut, and it is stored in `run_log_lines` under the run. A line

@@ -55,6 +55,12 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
         return RunLogSender.Start(Client, job.JobId, WorkerId, job.ClaudeToken ?? "", job.Values, Time, Log);
     }
 
+    /// <summary>Where a program's output goes as it is written, standard output's and standard
+    /// error's alike: each line a <see cref="RunLineKind.Check"/> line of the job's log, the check's
+    /// and the project's start's. None between jobs.</summary>
+    protected Action<ProcessStream, string>? CheckLines() =>
+        Log.Run is { } run ? (_, line) => run.Add(RunLineKind.Check, line) : null;
+
     /// <summary>
     /// Sends the job's result, after the last lines of its log, <paramref name="sending"/>, which
     /// never holds it up, trying again while Dev flow is away, for at most
