@@ -99,6 +99,13 @@ case "$*" in
     if [ -f "$D/open-prs" ]; then prs="$(cat "$D/open-prs")"; else prs=50; fi
     for n in $prs; do echo "$n $(head_for "$n") $(labels_for "$n")"; done ;;
   "pr list "*) if [ -f "$D/merged.json" ]; then cat "$D/merged.json"; else echo '[]'; fi ;;
+  # A slice's state is $D/issue-<n> (default OPEN); closing it logs "<n> <comment>" to closed.log and makes it
+  # CLOSED, unless $D/close-fail-once exists, which fails it once.
+  "issue view "*) if [ -f "$D/issue-$3" ]; then cat "$D/issue-$3"; else echo OPEN; fi ;;
+  "issue close "*)
+    if [ -e "$D/close-fail-once" ]; then rm -f "$D/close-fail-once"; exit 1; fi
+    n="$3" body=""; while [ $# -gt 0 ]; do [ "$1" = --comment ] && body="$2"; shift; done
+    echo "$n $body" >> "$D/closed.log"; echo CLOSED > "$D/issue-$n" ;;
   *) echo "unexpected gh call: $*" >&2; exit 9 ;;
 esac
 FAKE
@@ -186,7 +193,14 @@ cat > "$tmp/scripts/verdict.sh" <<'FAKE'
 if [ -f "$D/verdict-$1" ]; then cat "$D/verdict-$1"; elif [ -f "$D/verdict" ]; then cat "$D/verdict"
 else echo "${FAKE_VERDICT:-approve aaaa 0 2027-01-15T08:00:00Z}"; fi
 FAKE
+# next.sh --blocked: the lines in $D/blocked, "<slice> <blockers>", or nothing.
+cat > "$tmp/scripts/next.sh" <<'FAKE'
+#!/usr/bin/env bash
+[ "$1" = --blocked ] || exit 2
+[ ! -f "$D/blocked" ] || cat "$D/blocked"
+FAKE
 cp "$here/gh-guard.sh" "$tmp/scripts/gh-guard.sh"
+cp "$here/pr-slice.sh" "$tmp/scripts/pr-slice.sh"
 chmod +x "$tmp/bin/"* "$tmp/scripts/"*
 unset AGENT_GH_GUARD
 export PATH="$tmp/bin:$PATH" AGENT_SCRIPTS="$tmp/scripts" AGENT_SLEEP="$tmp/bin/fakesleep" TZ=UTC
@@ -684,6 +698,41 @@ check "idle sleeps the poll interval" $([ "$(sleeps)" = 15 ]; echo $?)
 
 setup; pending IDLE STOP; runner
 check "idle without a merged slice only logs" $(no_file "$D/comments.log" && grep -q 'idle' "$AGENT_HOME/agent-logs/runner.log"; echo $?)
+
+# --- A merged slice is closed (#472) ----------------------------------------------------------------------------
+# GitHub did not link #471 to #442, so the owner's merge closed nothing and #443 onwards waited on it for ever.
+ref() { printf '{"number":%s,"repository":{"name":"Personal-platform","owner":{"login":"Adamniels"}}}' "$1"; }
+setup
+printf '%s' "[{\"number\":70,\"headRefName\":\"44-a\",\"body\":\"Closes #44\",\"closingIssuesReferences\":[]},
+{\"number\":71,\"headRefName\":\"45-b\",\"body\":\"Closes #45\",\"closingIssuesReferences\":[$(ref 45)]},
+{\"number\":72,\"headRefName\":\"46-c\",\"body\":\"Closes #46\",\"closingIssuesReferences\":[]},
+{\"number\":73,\"headRefName\":\"47-d\",\"body\":\"Closes #48\",\"closingIssuesReferences\":[]}]" > "$D/merged.json"
+echo CLOSED > "$D/issue-46"
+pending IDLE IDLE STOP; runner
+check "a merged slice GitHub did not link and left open is closed, with why, once" \
+  $([ "$(lines "$D/closed.log")" = 1 ] && grep -qx "44 Closed by the runner: its pull request #70 is merged, and GitHub did not link the two." "$D/closed.log"; echo $?)
+check "the slice the runner closes is moved to Done" $(grep -qx "status 44 Done" "$D/board.log"; echo $?)
+check "a slice GitHub linked is left to GitHub, unread" $(! grep -q "issue view 45" "$D/gh.log"; echo $?)
+check "a slice already closed is left alone, and read once" \
+  $([ "$(grep -c "issue view 46" "$D/gh.log")" = 1 ] && ! grep -q '^46 ' "$D/closed.log"; echo $?)
+check "a pull request whose body closes another issue than its branch's closes nothing" \
+  $(! grep -q "issue view 4[78]" "$D/gh.log"; echo $?)
+check "every merged pull request is settled once" \
+  $([ "$(sort -n "$AGENT_HOME/agent-logs/settled-prs" | tr '\n' ' ')" = "70 71 72 73 " ]; echo $?)
+
+setup
+printf '%s' '[{"number":70,"headRefName":"44-a","body":"Closes #44","closingIssuesReferences":[]}]' > "$D/merged.json"
+: > "$D/close-fail-once"; pending IDLE IDLE STOP; runner
+check "a failed close is tried again the next loop, without a pause" \
+  $([ "$(lines "$D/closed.log")" = 1 ] && no_file "$AGENT_HOME/agent-logs/pause" && grep -q "could not close #44" "$AGENT_HOME/agent-logs/runner.log"; echo $?)
+
+setup
+printf '%s' '[{"number":70,"headRefName":"44-a","body":"Closes #44","closingIssuesReferences":[]}]' > "$D/merged.json"
+export FAKE_BOARD_EXIT=1; pending IDLE IDLE STOP; runner; unset FAKE_BOARD_EXIT
+# Project 5's "Item closed → Done" workflow moves a closed slice too, so a failed move only waits for that.
+check "a failed move to Done is logged, the slice is not closed twice, and it is settled the next loop" \
+  $([ "$(lines "$D/closed.log")" = 1 ] && grep -q "could not move it to Done" "$AGENT_HOME/agent-logs/runner.log" \
+     && grep -qx 70 "$AGENT_HOME/agent-logs/settled-prs"; echo $?)
 
 # --- review-ok, the commit status the ruleset requires ----------------------------------------------------------
 APPROVE="approve aaaa 0 2027-01-15T08:00:00Z"
