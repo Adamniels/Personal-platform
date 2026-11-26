@@ -491,8 +491,9 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
     public Task<CodeHostResult<IReadOnlyList<CodeHost.Repository>>> Repositories(Guid userId, string userToken, long installation, CancellationToken cancellationToken) =>
         inner.Repositories(userId, userToken, installation, cancellationToken);
 
-    /// <summary>How many writes, merges and comments, were asked of the code host.</summary>
-    public int Writes => Calls.Count(call => call.Operation is "Merge" or "Comment");
+    /// <summary>How many writes, merges, comments and labels taken off, were asked of the code host
+    /// as a person.</summary>
+    public int Writes => Calls.Count(call => call.Operation is "Merge" or "Comment" or "Unlabel");
 
     /// <summary>The token each write was asked with, in the order asked.</summary>
     public IReadOnlyList<UserAccessToken> WriteTokens => [.. _writeTokens];
@@ -550,6 +551,13 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
     {
         Record("AddLabel", userId, repository, $"{number} {label}");
         return inner.AddLabel(userId, token, repository, number, label, cancellationToken);
+    }
+
+    public Task<UnlabelResult> Unlabel(Guid userId, UserAccessToken token, CodeHost.Repository repository, int number, string label, CancellationToken cancellationToken)
+    {
+        _writeTokens.Enqueue(token);
+        Record("Unlabel", userId, repository, $"{number} {label}");
+        return inner.Unlabel(userId, token, repository, number, label, cancellationToken);
     }
 
     public Task<WriteResult<IReadOnlyList<string>>> RemoveLabel(Guid userId, AppWriteToken token, CodeHost.Repository repository, int number, string label, CancellationToken cancellationToken)

@@ -149,6 +149,11 @@ public interface ICodeHost
     /// as the app.</summary>
     Task<CommentResult> Comment(Guid userId, UserAccessToken token, Repository repository, int number, string body, CancellationToken cancellationToken);
 
+    /// <summary>Takes the label off the issue with the number, as the person whose token
+    /// <paramref name="token"/> is, so the issue's timeline shows them taking it off. Never as the
+    /// app. Refused with <c>404</c> when the issue does not carry it.</summary>
+    Task<UnlabelResult> Unlabel(Guid userId, UserAccessToken token, Repository repository, int number, string label, CancellationToken cancellationToken);
+
     /// <summary>
     /// A new key for the app to write to <paramref name="repository"/> for
     /// <paramref name="purpose"/> alone, never kept by the code host: each call makes its own, so

@@ -76,3 +76,22 @@ public abstract record CommentResult
     /// <summary>The host did not answer, so whether it was posted is not known.</summary>
     public sealed record Unavailable(DateTimeOffset? RetryAt) : CommentResult;
 }
+
+/// <summary>What taking a label off an issue as a person answers. A closed set.</summary>
+public abstract record UnlabelResult
+{
+    private UnlabelResult()
+    {
+    }
+
+    /// <summary>The label is off, taken off by the person.</summary>
+    public sealed record Removed : UnlabelResult;
+
+    /// <summary>The host refused it, with its HTTP <paramref name="Status"/> and its own words,
+    /// data, or null when it gave none. <c>404</c> is what the host answers for a label the issue
+    /// does not carry.</summary>
+    public sealed record Refused(int Status, string? Message) : UnlabelResult;
+
+    /// <summary>The host did not answer, so whether it is off is not known.</summary>
+    public sealed record Unavailable(DateTimeOffset? RetryAt) : UnlabelResult;
+}

@@ -238,6 +238,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/projects/{id}/cards/{number}/drop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Drop a card the caller stopped, taking its pick-up label off as them
+         * @description Takes the project's pick-up label off the card's issue as the caller's linked GitHub account, never as the app, and leaves the card ignored, "Dropped by you", its branch, any pull request and its issue otherwise as they were. A read of the project keeps it so while the label is off; putting the label back picks it up again, as any card. In order: 404 for a project or card the caller does not have; 409 when the card is not stopped by the caller; 409 when it is a card of a feature, whose pick-up label is its feature's; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once the label is off, or GitHub says the issue does not carry it, and the card is dropped. 409 when GitHub refuses, with its reason; 503 when GitHub did not answer, with nothing changed in Dev flow. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["dropCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/projects/{id}/cards/{number}/merge": {
         parameters: {
             query?: never;
@@ -2671,6 +2691,61 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    dropCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -115,6 +115,9 @@ internal sealed class ScrubbingCodeHost(ICodeHost inner, ProjectValues values) :
     public Task<WriteResult<IReadOnlyList<string>>> AddLabel(Guid userId, AppWriteToken token, Repository repository, int number, string label, CancellationToken cancellationToken) =>
         inner.AddLabel(userId, token, repository, number, label, cancellationToken);
 
+    public Task<UnlabelResult> Unlabel(Guid userId, UserAccessToken token, Repository repository, int number, string label, CancellationToken cancellationToken) =>
+        inner.Unlabel(userId, token, repository, number, label, cancellationToken);
+
     public Task<WriteResult<IReadOnlyList<string>>> RemoveLabel(Guid userId, AppWriteToken token, Repository repository, int number, string label, CancellationToken cancellationToken) =>
         inner.RemoveLabel(userId, token, repository, number, label, cancellationToken);
 

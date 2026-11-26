@@ -10,10 +10,10 @@ namespace DevFlow.CodeHost;
 /// purpose. <c>GET /devflow/api/fake/writes</c> lists them, so a test asserts who wrote. The fields
 /// after <paramref name="By"/> are left out of the JSON when null, so a person's write reads as it
 /// always has.</summary>
-/// <param name="Kind"><c>merge</c> or <c>comment</c>, by a person or the app; or, by the app
-/// alone, <c>pull_request</c>, <c>issue</c>, <c>issue_closed</c>, <c>issue_opened</c>,
-/// <c>pull_request_edited</c>, <c>label_added</c>, <c>label_removed</c>, <c>branch</c> or
-/// <c>branch_merge</c>, a branch brought into another.</param>
+/// <param name="Kind"><c>merge</c>, <c>comment</c> or <c>label_removed</c>, by a person or the app;
+/// or, by the app alone, <c>pull_request</c>, <c>issue</c>, <c>issue_closed</c>, <c>issue_opened</c>,
+/// <c>pull_request_edited</c>, <c>label_added</c>, <c>branch</c> or <c>branch_merge</c>, a branch
+/// brought into another.</param>
 /// <param name="Repository">The repository's id.</param>
 /// <param name="Number">The issue's or pull request's number, the new one for what was
 /// opened; 0 for a branch made.</param>
@@ -51,9 +51,10 @@ public sealed record FakeWrite(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Branch = null);
 
 /// <summary>
-/// The fake's writes, <see cref="ICodeHost.Merge"/> and <see cref="ICodeHost.Comment"/>, answered
-/// as GitHub answers them and kept in the account's world: a merged pull request is merged there,
-/// and a comment is in its conversation by the person, so the next read sees both. Each takes only
+/// The fake's writes as a person, <see cref="ICodeHost.Merge"/>, <see cref="ICodeHost.Comment"/>
+/// and <see cref="ICodeHost.Unlabel"/>, answered as GitHub answers them and kept in the account's
+/// world: a merged pull request is merged there, a comment is in its conversation by the person,
+/// and a label taken off is off with the person on its timeline, so the next read sees each. Each takes only
 /// the account's current access token, from its sign in, and is refused as GitHub refuses a token
 /// it does not take otherwise. Every write taken is recorded, see <see cref="Writes"/>. See "The
 /// fake" in devflow/README.md.
@@ -169,6 +170,56 @@ public sealed partial class FakeCodeHost
                     Writes = [.. account.Writes, new FakeWrite("comment", repository.Id, number, null, null, body, person.Login)],
                 };
                 result = new CommentResult.Posted(comment.Id);
+            }
+
+            return Task.FromResult(result);
+        }
+    }
+
+    /// <summary>Refused with <c>404</c> for a repository the world does not hold or a number with no
+    /// issue, and with <see cref="LabelMissing"/> for a label the issue does not carry; otherwise
+    /// the label is taken off, by the person, on the issue's timeline, and recorded as
+    /// <c>label_removed</c> by them.</summary>
+    public Task<UnlabelResult> Unlabel(Guid userId, UserAccessToken token, Repository repository, int number, string label, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(token);
+        ArgumentNullException.ThrowIfNull(repository);
+        ArgumentException.ThrowIfNullOrEmpty(label);
+        lock (_changing)
+        {
+            var account = Of(userId);
+            UnlabelResult result;
+            if (account.Unavailable)
+            {
+                result = new UnlabelResult.Unavailable(RetryAt: null);
+            }
+            else if (ActingAs(userId, token.Value) is not { } person)
+            {
+                result = new UnlabelResult.Refused(StatusCodes.Status401Unauthorized, BadCredentials);
+            }
+            else if (Find(account.World, repository) is not { } found
+                || found.Issues.FirstOrDefault(issue => issue.Number == number) is not { } issue)
+            {
+                result = new UnlabelResult.Refused(StatusCodes.Status404NotFound, NotFoundMessage);
+            }
+            else if (!issue.Labels.Contains(label, StringComparer.Ordinal))
+            {
+                result = new UnlabelResult.Refused(StatusCodes.Status404NotFound, LabelMissing);
+            }
+            else
+            {
+                var changed = found with
+                {
+                    Issues = [.. found.Issues.Select(each => each.Number == number
+                        ? Relabelled(each, [.. each.Labels.Where(kept => kept != label)], label, add: false, person.Login)
+                        : each)],
+                };
+                _accounts[userId] = account with
+                {
+                    World = WithRepository(account.World, repository, changed),
+                    Writes = [.. account.Writes, new FakeWrite("label_removed", repository.Id, number, null, null, null, person.Login, Label: label)],
+                };
+                result = new UnlabelResult.Removed();
             }
 
             return Task.FromResult(result);
