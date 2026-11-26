@@ -233,27 +233,20 @@ public sealed class ResultTests
         var (jobs, id, _) = await Handed();
         await using var _jobs = jobs;
 
-        // 99 minutes on, with the worker gone: not yet.
-        jobs.Routes.Time.Advance(TimeSpan.FromMinutes(99));
+        // 1 minute 59 seconds on, with nothing sent: not yet.
+        jobs.Routes.Time.Advance(TimeSpan.FromSeconds(119));
         Assert.Equal(ReadResult.Read, await jobs.Routes.Read(jobs.Project, Jobs.User));
         Assert.Equal("building", (await jobs.Card(1)).State);
 
-        // 100 minutes, its job's 90 and the margin, with the worker seen 5 minutes ago: it is still
-        // there, so not lost.
-        jobs.Routes.Time.Advance(TimeSpan.FromMinutes(1));
-        await jobs.Routes.Door.InUserTransaction(Jobs.User, transaction => Dapper.SqlMapper.ExecuteAsync(
-            transaction.Connection!, "UPDATE workers SET last_seen_at = @at", new { at = jobs.Routes.Time.GetUtcNow().AddMinutes(-5) }, transaction), Jobs.Ct);
-        Assert.Equal(ReadResult.Read, await jobs.Routes.Read(jobs.Project, Jobs.User));
-        Assert.Equal("building", (await jobs.Card(1)).State);
-
-        // Not seen for 10 minutes: lost, and the card is queued again, nothing against it.
-        jobs.Routes.Time.Advance(TimeSpan.FromMinutes(5));
+        // 2 minutes without a word from its worker: lost, and the card is queued again, nothing
+        // against it. When a run is lost is LostRunTests'.
+        jobs.Routes.Time.Advance(TimeSpan.FromSeconds(1));
         Assert.Equal(ReadResult.Read, await jobs.Routes.Read(jobs.Project, Jobs.User));
         var card = await jobs.Card(1);
         Assert.Equal("queued", card.State);
         var run = Assert.Single(await jobs.Runs());
         Assert.Equal("lost", run.Result);
-        Assert.Equal("No result came back, and its worker was not seen for 10 minutes", run.Reason);
+        Assert.Equal("Its worker sent nothing for 2 minutes", run.Reason);
         Assert.NotNull(run.FinishedAt);
 
         // A result that comes back after is for a finished job.
