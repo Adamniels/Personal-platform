@@ -258,6 +258,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/projects/{id}/cards/{number}/run-again": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run a card the caller stopped again
+         * @description Puts a card the caller stopped back where the run they stopped started from: a build's in queued, a review's in reviewing, a fix's in fixing in the same round, with the reason that state has. Nothing counts against it: its failures in a row and its fix rounds are as they were. In order: 404 for a project or card the caller does not have; 409 when the card is not stopped by the caller, one Dev flow stopped included, which their comment runs again. 204 once it is back. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["runCardAgain"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/projects/{id}/cards/{number}/screenshots/{name}": {
         parameters: {
             query?: never;
@@ -376,6 +396,26 @@ export interface paths {
          * @description Merges the feature's pull request into the default branch with a merge commit, as the caller's linked GitHub account and never as the app, only while its head is head_commit, the commit the page showed. In order: 404 for a project or feature the caller does not have; 422 without head_commit; 409 when the feature is not ready or waiting for the caller with its pull request; 409 when the project is stopped; 409 when CI has not passed on the feature's head, as the minute last read it; 409 when head_commit is not that head, after the project is read again; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once merged and the project read again, which makes the feature merged. 409 when GitHub says the head moved, after the project is read again, and when GitHub will not merge it or refuses, with its reason; 503 when GitHub did not answer. The review's verdict is not among the refusals: the confirmation says it. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         post: operations["mergeFeature"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/projects/{id}/features/{number}/run-again": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run a feature the caller stopped again
+         * @description Clears the hold the caller's stop of one of the feature's own runs, a review, a fix or a conflict, put on it, so its next job is handed out, and it says what its state says. In order: 404 for a project or feature the caller does not have; 409 when the feature is not held by the caller's stop. 204 once it is released. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["runFeatureAgain"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1359,6 +1399,7 @@ export interface components {
             rounds: components["schemas"]["CardRound"][];
             runs: components["schemas"]["CardRun"][];
             state: string;
+            stopped_by_owner: boolean;
             title: string;
             web_url: string;
         };
@@ -2707,6 +2748,52 @@ export interface operations {
             };
         };
     };
+    runCardAgain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     getCardScreenshot: {
         parameters: {
             query?: never;
@@ -3099,6 +3186,52 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    runFeatureAgain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

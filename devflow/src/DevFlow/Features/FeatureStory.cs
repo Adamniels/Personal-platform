@@ -112,6 +112,8 @@ public sealed record FeatureCard(
 /// now, which the page counts its rounds against.</param>
 /// <param name="DefaultBranch">The project's default branch, as its watch names it, which the page
 /// says the feature merges into; null before the default branch is watched.</param>
+/// <param name="StoppedByOwner">Whether the owner stopped one of its own runs, which holds it until
+/// he runs it again, see "Stops" in devflow/README.md.</param>
 public sealed record FeatureStoryView(
     int Number,
     string Repository,
@@ -130,7 +132,8 @@ public sealed record FeatureStoryView(
     IReadOnlyList<CardRound> Rounds,
     FeatureMergeOffer? Merge,
     int MostRounds,
-    string? DefaultBranch);
+    string? DefaultBranch,
+    bool StoppedByOwner);
 
 /// <summary>
 /// A feature's story, read from what Dev flow stored and never from the code host, through the
@@ -156,6 +159,7 @@ public static class FeatureStory
         var feature = await transaction.Connection!.QuerySingleOrDefaultAsync<FeatureRow>(new CommandDefinition(
             $"""
             SELECT f.id AS Id, f.number AS Number, f.title AS Title, f.web_url AS WebUrl, f.state AS State, f.reason AS Reason,
+                   f.stopped_by_owner_at IS NOT NULL AS StoppedByOwner,
                    CASE WHEN f.branch_base_commit IS NULL THEN NULL ELSE f.branch END AS Branch,
                    coalesce(b.last_commit, f.branch_base_commit) AS BranchCommit,
                    f.pull_request_number AS PullRequestNumber, f.pull_request_url AS PullRequestUrl, f.fix_round AS FixRounds,
@@ -267,7 +271,8 @@ public static class FeatureStory
                 cancellationToken),
             FeatureMergeOffers.Of(feature.MergeInto, feature.Head),
             (await Projects.RunSettings.Read(transaction, projectId, cancellationToken))?.FixRoundsFeature ?? Projects.RunSettings.Defaults.FixRoundsFeature,
-            feature.DefaultBranch);
+            feature.DefaultBranch,
+            feature.StoppedByOwner);
     }
 
     /// <summary>Each merge of the default branch Dev flow made cleanly on the feature's branch, by its
@@ -320,7 +325,7 @@ public static class FeatureStory
         string.Equals(one.Trim(), other.Trim(), StringComparison.OrdinalIgnoreCase);
 
     private sealed record FeatureRow(
-        Guid Id, int Number, string Title, string WebUrl, string State, string? Reason, string? Branch, string? BranchCommit, int? PullRequestNumber, string? PullRequestUrl, int FixRounds,
+        Guid Id, int Number, string Title, string WebUrl, string State, string? Reason, bool StoppedByOwner, string? Branch, string? BranchCommit, int? PullRequestNumber, string? PullRequestUrl, int FixRounds,
         string? MergeInto, string? Head, string Repository, string? DefaultBranch);
 
     private sealed record AnswerRow(Guid RunId, int Position, string Answer, DateTime AnsweredAt);

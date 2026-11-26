@@ -30,6 +30,7 @@ function story(overrides: Partial<FeatureStory> = {}): FeatureStory {
 		web_url: "https://github.com/Adamniels/Fodr/issues/38",
 		state: "building",
 		reason: null,
+		stopped_by_owner: false,
 		branch: { name: BRANCH, commit: COMMIT },
 		pull_request: null,
 		fix_rounds: 0,
