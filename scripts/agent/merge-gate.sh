@@ -22,8 +22,10 @@
 #   ci-ok failed                            a completed `ci-ok` run on the head commit concluded other than success
 #   verdict is not approve                  verdict.sh does not give approve
 #   verdict is not for the head commit      the verdict's sha is not the PR's head sha
-#   slice is not the branch's planned issue the PR does not close exactly one issue, in this repository, whose
-#                                           number starts the head branch name (`<n>-...`)
+#   slice is not the branch's planned issue pr-slice.sh finds no slice: the head branch starts with `<n>-` and
+#                                           GitHub links exactly issue <n> of this repository, or, when GitHub
+#                                           links none, the body closes exactly <n>. GitHub missed the link once,
+#                                           on #471, and the gate then refused a correct pull request
 #   slice is not open                       the slice issue is not open
 #   risk is not low                         the slice's `## Risk` section does not start with the word `low`
 #                                           (also printed when there is no planned slice to read)
@@ -42,10 +44,11 @@
 # Lines inside fenced code blocks are never headings. A fence opens with three or more ` or ~ and closes only on
 # a line of the same character, at least as long, with nothing after it but spaces.
 # When eligible it runs `gh pr merge <pr> --merge --match-head-commit <head sha>`, so a commit pushed after the
-# checks cannot slip in, and then `board.sh status <slice> Done`. verdict.sh and board.sh are looked up in
-# $AGENT_SCRIPTS (default: this script's directory) so tests can fake them.
+# checks cannot slip in; then, when GitHub did not link the slice and so will not close it, `gh issue close
+# <slice>` with a comment saying why; and then `board.sh status <slice> Done`. verdict.sh, board.sh and
+# pr-slice.sh are looked up in $AGENT_SCRIPTS (default: this script's directory) so tests can fake them.
 # Exit codes: 0 merged, 3 not eligible (reasons on stdout, nothing merged), 1 GitHub error, unreadable data,
-# failed merge (board untouched) or failed board update after the merge, 2 usage error.
+# failed merge (board untouched), or a failed close or board update after the merge, 2 usage error.
 set -euo pipefail
 
 OWNER="Adamniels"
@@ -71,24 +74,23 @@ fail() { echo "pr #$pr: $*" >&2; exit 1; }
 
 # Every read is a plain assignment or redirect with an explicit `|| fail`, so no failure reads as a condition.
 gh pr view "$pr" --repo "$OWNER/$REPO_NAME" \
-  --json state,headRefOid,headRefName,baseRefName,isDraft,isCrossRepository,author,changedFiles,labels,closingIssuesReferences \
+  --json state,headRefOid,headRefName,baseRefName,isDraft,isCrossRepository,author,changedFiles,labels,closingIssuesReferences,body \
   > "$tmp/pr.json" || fail "could not read the pull request"
-# One field per line, so an empty value cannot shift the others. The slice is "-" unless the PR closes exactly
-# one issue, in this repository, whose number is the head branch's leading `<n>-`.
-jq -r --arg owner "$OWNER" --arg repo "$REPO_NAME" --argjson labels "$LABELS" '
+# One field per line, so an empty value cannot shift the others.
+jq -r --argjson labels "$LABELS" '
   if (.headRefOid | type) != "string" or (.headRefName | type) != "string" or (.baseRefName | type) != "string"
      or (.isDraft | type) != "boolean" or (.isCrossRepository | type) != "boolean"
      or (.changedFiles | type) != "number" or (.labels | type) != "array"
      or (.closingIssuesReferences | type) != "array" or (.state | type) != "string"
   then error("unexpected pull request fields") else . end
-  | ((.headRefName | capture("^(?<n>[1-9][0-9]*)-").n) // "-") as $branch
-  | .closingIssuesReferences as $refs
   | .headRefOid, (.author.login // "-"), .baseRefName, .isDraft, .isCrossRepository, .changedFiles,
-    (if ($refs | length) == 1 and $refs[0].repository.owner.login == $owner and $refs[0].repository.name == $repo
-        and ($refs[0].number | tostring) == $branch then $branch else "-" end),
     any(.labels[]; .name as $n | $labels | index($n) != null), .state' "$tmp/pr.json" > "$tmp/fields" || fail "could not read the pull request"
-{ read -r sha; read -r author; read -r base; read -r draft; read -r cross; read -r changed; read -r slice
+{ read -r sha; read -r author; read -r base; read -r draft; read -r cross; read -r changed
   read -r labelled; read -r state; } < "$tmp/fields" || fail "could not read the pull request"
+# The slice, by the rule the runner shares: "<n> linked", "<n> body" when GitHub missed the link and so will close
+# nothing, or "-".
+link="$(bash "$scripts/pr-slice.sh" < "$tmp/pr.json")" || fail "could not read the pull request"
+slice="${link%% *}" how="${link#* }"
 # Already merged: the one reason, alone, before anything else is read. Only GitHub's own word for it counts, so a
 # closed, unmerged pull request goes on to the conditions and fails at the merge like any other.
 if [ "$state" = MERGED ]; then
@@ -192,4 +194,10 @@ fi
 
 gh pr merge "$pr" --merge --match-head-commit "$sha" --repo "$OWNER/$REPO_NAME" || fail "the merge failed"
 echo "merged #$pr"
+if [ "$how" = body ]; then
+  gh issue close "$slice" --repo "$OWNER/$REPO_NAME" --reason completed \
+    --comment "Closed by the merge gate: its pull request #$pr is merged, and GitHub did not link the two." \
+    > /dev/null || fail "merged, but closing slice #$slice failed"
+  echo "closed #$slice"
+fi
 bash "$scripts/board.sh" status "$slice" Done || fail "merged, but moving slice #$slice to Done failed"

@@ -40,6 +40,8 @@ case "$*" in
     case " $* " in *" --paginate "*) [ ! -f "$FAKE_DATA/issue-$n-2.json" ] || serve "$FAKE_DATA/issue-$n-2.json" ;; esac ;;
   "pr merge "*)
     if [ "${FAKE_MERGE_FAILS:-0}" = 1 ]; then echo "Pull request is not mergeable" >&2; exit 1; fi ;;
+  "issue close "*)
+    if [ "${FAKE_CLOSE_FAILS:-0}" = 1 ]; then echo "HTTP 502: Bad Gateway" >&2; exit 1; fi ;;
   *) echo "unexpected gh call: $*" >&2; exit 9 ;;
 esac
 FAKE
@@ -49,6 +51,7 @@ echo "board.sh $*" >> "$FAKE_GH_LOG"
 echo "#$2: $3"
 FAKE
 ln -s "$here/verdict.sh" "$tmp/scripts/verdict.sh"
+ln -s "$here/pr-slice.sh" "$tmp/scripts/pr-slice.sh"
 chmod +x "$tmp/bin/gh" "$tmp/scripts/board.sh"
 export PATH="$tmp/bin:$PATH" FAKE_GH_LOG="$tmp/log" FAKE_DATA="$tmp/data" AGENT_SCRIPTS="$tmp/scripts"
 # Never reach the real, logged-in gh: if the fake is not first on PATH, stop before any test runs.
@@ -63,10 +66,12 @@ HEAD=1111111111111111111111111111111111111111
 OLD=2222222222222222222222222222222222222222
 SLICE=11
 
-# pr [labels, comma separated] [slice, empty for none]: bot PR 7 into main, head $HEAD on branch "11-copy-change".
+# pr [labels, comma separated] [slice, empty for none]: bot PR 7 into main, head $HEAD on branch "11-copy-change",
+# linked by GitHub to the slice, whose body says "Closes #<slice>" (or closes nothing, without a slice).
 pr() {
   jq -n -c --arg sha "$HEAD" --arg labels "${1:-}" --arg slice "${2-$SLICE}" \
     '{number: 7, state: "OPEN", headRefOid: $sha, headRefName: "11-copy-change", baseRefName: "main", isDraft: false,
+      body: (if $slice == "" then "## Summary\n\nNo issue." else "## Summary\n\nCloses #\($slice)\n\n## Tasks" end),
       isCrossRepository: false, author: {login: "mac-mini-agent"}, changedFiles: 1,
       labels: [$labels | split(",")[] | select(. != "") | {name: .}],
       closingIssuesReferences: [$slice | select(. != "") |
@@ -341,6 +346,36 @@ check "a closing issue in another repository is refused" $?
 good; edit pr.json '.closingIssuesReferences[0].repository.owner.login = "someone"'
 run 7; not_eligible "slice is not the branch's planned issue" "risk is not low"
 check "a closing issue under another owner is refused" $?
+good
+run 7; [ "$code" = 0 ] && ! grep -q '^issue close' "$FAKE_GH_LOG"
+check "a slice GitHub linked is merged and left for GitHub to close" $?
+
+# GitHub missed the link (#471, 2026-11-25): the body's "Closes #<n>" for the branch's number is the slice, and the
+# gate closes it after the merge, since GitHub will not.
+good; edit pr.json '.closingIssuesReferences = []'
+run 7
+[ "$code" = 0 ] && merged && grep -q "^issue close $SLICE --repo Adamniels/Personal-platform --reason completed --comment Closed by the merge gate: its pull request #7 is merged" "$FAKE_GH_LOG" \
+  && grep -qx "board.sh status $SLICE Done" "$FAKE_GH_LOG" && grep -qx "closed #$SLICE" <<<"$out"
+check "GitHub missed the link and the body closes the slice: merged, the slice closed and moved to Done" $?
+[ "$(grep -n 'pr merge' "$FAKE_GH_LOG" | cut -d: -f1)" -lt "$(grep -n '^issue close' "$FAKE_GH_LOG" | cut -d: -f1)" ] \
+  && [ "$(grep -n '^issue close' "$FAKE_GH_LOG" | cut -d: -f1)" -lt "$(grep -n 'board.sh' "$FAKE_GH_LOG" | cut -d: -f1)" ]
+check "the slice is closed after the merge and before the board" $?
+good; edit pr.json '.closingIssuesReferences = [] | .body = "Closes #12"'
+run 7; not_eligible "slice is not the branch's planned issue" "risk is not low"
+check "no link and a body closing another issue is refused" $?
+good; edit pr.json '.closingIssuesReferences = [] | .body = "Closes #11\nFixes #12"'
+run 7; not_eligible "slice is not the branch's planned issue" "risk is not low"
+check "no link and a body closing two issues is refused" $?
+good; edit pr.json '.closingIssuesReferences = [] | .body = "```\nCloses #11\n```"'
+run 7; not_eligible "slice is not the branch's planned issue" "risk is not low"
+check "no link and the keyword only inside a code fence is refused" $?
+good; edit pr.json '.closingIssuesReferences = []'; edit "issue-$SLICE.json" '.data.repository.issue.author.login = "mac-mini-agent"'
+run 7; not_eligible "risk record is not the owner's"
+check "a slice found by the body still needs the owner's risk record" $?
+good; edit pr.json '.closingIssuesReferences = []'; export FAKE_CLOSE_FAILS=1
+run 7; unset FAKE_CLOSE_FAILS
+[ "$code" = 1 ] && merged && ! grep -q 'board.sh' "$FAKE_GH_LOG" && grep -q "closing slice #$SLICE failed" <<<"$err"
+check "a failed close after the merge exits 1 and leaves the board" $?
 
 # The risk record must be the owner's: written by the owner and only ever edited by the owner.
 good; edit "issue-$SLICE.json" '.data.repository.issue.author.login = "mac-mini-agent"'
