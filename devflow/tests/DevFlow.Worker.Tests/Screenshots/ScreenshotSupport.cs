@@ -19,7 +19,8 @@ internal sealed class FakePageStarter : IBackgroundStarter
     /// <summary>The exit code the project answers, null while it runs.</summary>
     public int? ExitCode { get; set; }
 
-    /// <summary>What the project wrote.</summary>
+    /// <summary>What the project wrote, each line handed to the spec's line sink as it starts, as
+    /// a real program's would be.</summary>
     public string Output { get; set; } = "";
 
     public IReadOnlyList<FakeProject> Started
@@ -38,6 +39,14 @@ internal sealed class FakePageStarter : IBackgroundStarter
         if (OnStart is not null)
         {
             await OnStart(spec);
+        }
+
+        if (spec.Lines is { } sink)
+        {
+            foreach (var line in Output.Split('\n')[..^(Output.EndsWith('\n') ? 1 : 0)])
+            {
+                sink(ProcessStream.Stdout, line);
+            }
         }
 
         var project = new FakeProject(spec, this);

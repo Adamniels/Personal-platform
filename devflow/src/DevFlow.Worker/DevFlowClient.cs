@@ -76,6 +76,11 @@ internal sealed class DevFlowClient(HttpClient http)
     public Task<Answer> Progress(Guid jobId, ProgressRequest request, CancellationToken stopping) =>
         Post(WorkerApi.ProgressPath(jobId), request, stopping);
 
+    /// <summary>The job's log lines and its heartbeat, answered with a <see cref="LogAnswer"/> in the
+    /// answer's body.</summary>
+    public Task<Answer> Log(Guid jobId, LogRequest request, CancellationToken stopping) =>
+        Post(WorkerApi.LogPath(jobId), request, stopping);
+
     public Task<Answer> Result(Guid jobId, ResultRequest request, CancellationToken stopping) =>
         Post(WorkerApi.ResultPath(jobId), request, stopping);
 

@@ -84,6 +84,10 @@ public sealed class BuildPartsTests
         Assert.Equal("failed", (string)result["outcome"]!);
         Assert.False((bool)result["failure"]!["in_card"]!);
         Assert.Contains("model", (string)result["failure"]!["reason"]!, StringComparison.Ordinal);
+
+        // A job refused before anything runs has its log too, and says why in it.
+        var logged = devFlow.Logs.SelectMany(call => JsonNode.Parse(call.Body)!["lines"]!.AsArray()).Select(line => (string)line!["text"]!).ToList();
+        Assert.Contains(logged, line => line.StartsWith("Refused: ", StringComparison.Ordinal) && line.Contains("model", StringComparison.Ordinal));
     }
 
     [Fact]

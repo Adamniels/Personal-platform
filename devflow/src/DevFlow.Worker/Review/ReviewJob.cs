@@ -62,6 +62,7 @@ internal sealed partial class ReviewJob(DevFlowClient devFlow, Guid workerId, Jo
             return;
         }
 
+        await using var sending = Sending(job);
         Log.Write(job.Kind == Job.FeatureReview
             ? $"Reviewing {commit} of feature #{job.Card.Number} on {job.Branch}, job {job.JobId}."
             : $"Reviewing {commit} of card #{job.Card.Number} on {job.Branch}, job {job.JobId}.");
@@ -102,7 +103,7 @@ internal sealed partial class ReviewJob(DevFlowClient devFlow, Guid workerId, Jo
 
         // The commit reviewed is the worker's: the one it checked out, named only when the review
         // ran on it.
-        await Send(job, failure, result, null, failure is null ? commit : null, Time.GetElapsedTime(started), stopping);
+        await Send(job, sending, failure, result, null, failure is null ? commit : null, Time.GetElapsedTime(started), stopping);
     }
 
     /// <summary>Why the job is refused before anything runs, or null: a branch or base git could
@@ -151,8 +152,7 @@ internal sealed partial class ReviewJob(DevFlowClient devFlow, Guid workerId, Jo
         Directory.CreateDirectory(Tools.Folders.Handover);
         RootsOwn(paths.Secret, RootOnly);
         RootsOwn(paths.Handover, RootWritesAgentReads);
-        var credential = new PushCredential(job.PushKey, job.Repository.CloneAddress);
-        await Root(paths, ["clone", "--bare", "--quiet", "--", job.Repository.CloneAddress.OriginalString, paths.Repository], FailureSide.OutsideCard, "The repository could not be fetched", stopping, credential, inSecret: true);
+        await CloneRepository(job, paths, stopping);
 
         var found = await Git.AsRoot(paths, ["rev-parse", "--verify", "--quiet", $"{commit}^{{commit}}"], stopping);
         if (found.ExitCode != 0 || found.Stdout.Trim() != commit)

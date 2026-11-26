@@ -103,74 +103,95 @@ internal sealed class SystemProcessStarter(string? runAs, TimeProvider time) : I
 
     /// <summary>
     /// The whole of <paramref name="reader"/>, exactly as written, read as it comes, with each line
-    /// handed to <paramref name="lines"/> once its end is read, without its <c>\n</c> or the
-    /// <c>\r</c> before it, and the last one when the stream ends without one. A sink that throws
-    /// is called no more, the stream is still read to its end, so the program never waits on a
-    /// full pipe, and the exception is thrown then.
+    /// handed to <paramref name="lines"/> by a <see cref="LineSplitter"/>. A sink that throws is
+    /// called no more, the stream is still read to its end, so the program never waits on a full
+    /// pipe, and the exception is thrown then.
     /// </summary>
     private static async Task<string> Read(StreamReader reader, ProcessStream stream, Action<ProcessStream, string>? lines)
     {
         var whole = new StringBuilder();
-        var line = new StringBuilder();
+        var splitter = lines is null ? null : new LineSplitter(stream, lines);
         var buffer = new char[8192];
-        Exception? failed = null;
-
-        void Hand()
-        {
-            if (lines is null || failed is not null)
-            {
-                return;
-            }
-
-            if (line.Length > 0 && line[^1] == '\r')
-            {
-                line.Length--;
-            }
-
-            try
-            {
-                lines(stream, line.ToString());
-            }
-            catch (Exception error)
-            {
-                failed = error;
-            }
-        }
-
         int read;
         while ((read = await reader.ReadAsync(buffer, CancellationToken.None)) > 0)
         {
             whole.Append(buffer, 0, read);
-            if (lines is null)
-            {
-                continue;
-            }
-
-            var start = 0;
-            for (var i = 0; i < read; i++)
-            {
-                if (buffer[i] == '\n')
-                {
-                    line.Append(buffer, start, i - start);
-                    Hand();
-                    line.Clear();
-                    start = i + 1;
-                }
-            }
-
-            line.Append(buffer, start, read - start);
+            splitter?.Append(buffer, read);
         }
 
-        if (line.Length > 0)
-        {
-            Hand();
-        }
-
-        if (failed is not null)
+        splitter?.End();
+        if (splitter?.Failed is { } failed)
         {
             throw new InvalidOperationException($"the line sink of the program's {stream} failed", failed);
         }
 
         return whole.ToString();
+    }
+}
+
+/// <summary>
+/// Hands each line of one of a program's streams to a sink, as its end is read: without its
+/// <c>\n</c> or the <c>\r</c> before it, and the last one, when the stream ends without one, at
+/// <see cref="End"/>. A sink that throws is called no more, and its exception is kept in
+/// <see cref="Failed"/>. Used by every starter that reads a program's output, so a line is cut the
+/// same way wherever it was written.
+/// </summary>
+internal sealed class LineSplitter(ProcessStream stream, Action<ProcessStream, string> lines)
+{
+    private readonly StringBuilder _line = new();
+
+    /// <summary>What the sink threw, which stopped it being called; null while it has not.</summary>
+    public Exception? Failed { get; private set; }
+
+    /// <summary>The next <paramref name="count"/> characters of the stream, from
+    /// <paramref name="buffer"/>.</summary>
+    public void Append(char[] buffer, int count)
+    {
+        ArgumentNullException.ThrowIfNull(buffer);
+        var start = 0;
+        for (var i = 0; i < count; i++)
+        {
+            if (buffer[i] == '\n')
+            {
+                _line.Append(buffer, start, i - start);
+                Hand();
+                _line.Clear();
+                start = i + 1;
+            }
+        }
+
+        _line.Append(buffer, start, count - start);
+    }
+
+    /// <summary>The stream has ended: its last line, when it had no line end.</summary>
+    public void End()
+    {
+        if (_line.Length > 0)
+        {
+            Hand();
+            _line.Clear();
+        }
+    }
+
+    private void Hand()
+    {
+        if (Failed is not null)
+        {
+            return;
+        }
+
+        if (_line.Length > 0 && _line[^1] == '\r')
+        {
+            _line.Length--;
+        }
+
+        try
+        {
+            lines(stream, _line.ToString());
+        }
+        catch (Exception error)
+        {
+            Failed = error;
+        }
     }
 }

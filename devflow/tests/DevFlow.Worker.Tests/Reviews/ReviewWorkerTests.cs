@@ -98,6 +98,10 @@ public sealed class ReviewWorkerTests
         Assert.Equal(head, (string)sent["head_commit"]!);
         Assert.Equal("changes", (string)sent["report"]!["verdict"]!);
         Assert.Null(sent["check"]);
+        // The review's log went to Dev flow as it ran, with the worker's steps.
+        var system = bench.Logged("system", jobId);
+        Assert.Contains("Cloning Adamniels/Personal-platform", system);
+        Assert.Contains($"Starting the agent on {given.Model}", system);
         // A changes verdict sends the card to its first fix round.
         Assert.Equal("fixing", (await bench.Jobs.Card(1)).State);
         Assert.Empty(Bench.Files(bench.Folders.Work));

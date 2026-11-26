@@ -71,6 +71,7 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
             return;
         }
 
+        await using var sending = Sending(job);
         Log.Write(job.Kind switch
         {
             Job.Setup when job.ToFix is not null => $"Fixing the project's setup on {job.Branch}, job {job.JobId}.",
@@ -114,7 +115,7 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
             }
         }
 
-        await Send(job, outcome.Failure, outcome.Agent, outcome.Check, outcome.Head, Time.GetElapsedTime(started), stopping, outcome.Screenshots, outcome.RemergeDiff);
+        await Send(job, sending, outcome.Failure, outcome.Agent, outcome.Check, outcome.Head, Time.GetElapsedTime(started), stopping, outcome.Screenshots, outcome.RemergeDiff);
     }
 
     /// <summary>Why the job is refused before anything runs, or null. A job onto the default
@@ -311,8 +312,7 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
         Directory.CreateDirectory(Tools.Folders.Handover);
         RootsOwn(paths.Secret, RootOnly);
         RootsOwn(paths.Handover, RootWritesAgentReads);
-        var credential = new PushCredential(job.PushKey, job.Repository.CloneAddress);
-        await Root(paths, ["clone", "--bare", "--quiet", "--", job.Repository.CloneAddress.OriginalString, paths.Repository], FailureSide.OutsideCard, "The repository could not be fetched", stopping, credential, inSecret: true);
+        await CloneRepository(job, paths, stopping);
 
         var baseCommit = await Commit(paths, job.Base, stopping)
             ?? throw new StepFailed(FailureSide.OutsideCard, $"The base branch {job.Base} has no commit");
@@ -406,16 +406,17 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
     }
 
     /// <summary>The project's check, as <c>agent</c>, on a new clone of the head commit, with an
-    /// environment built from nothing and <c>CI=true</c>, for at most 30 minutes: its exit code and
-    /// the last 200 lines of its output, standard error with it in the order written.</summary>
+    /// environment built from nothing and <c>CI=true</c>, for at most 30 minutes, each line of its
+    /// output a check line of the job's log as it is written: its exit code and the last 200 lines
+    /// of its output, standard error with it in the order written.</summary>
     private async Task<CheckResult> Check(Job job, JobPaths paths, CancellationToken stopping)
     {
         await CloneForAgent(job, paths, [$"refs/heads/{job.Branch}"], paths.Check, [], "The clean copy for the check could not be made", stopping);
-        Log.Write("Running the check.");
+        Log.Write($"Running the check: {job.Check}");
         var check = await WhileSeen(
             job,
             () => Tools.AsAgent.Run(
-                new ProcessSpec("sh", ["-c", $"exec 2>&1\n{job.Check}"], paths.Check, Tools.User.WithValues(job.Values, ("CI", "true"))),
+                new ProcessSpec("sh", ["-c", $"exec 2>&1\n{job.Check}"], paths.Check, Tools.User.WithValues(job.Values, ("CI", "true")), Lines: CheckLines()),
                 CheckLimit,
                 stopping),
             stopping);
@@ -441,6 +442,7 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
             return new AgentFailure(FailureSide.OutsideCard, $"Dev flow gave no fresh push key ({answered}), so nothing was pushed");
         }
 
+        Log.Write($"Pushing {job.Branch}");
         var push = await Git.AsRoot(paths, ["push", "--quiet", "--porcelain", "origin", $"{head}:refs/heads/{job.Branch}"], stopping, credential);
         if (push.ExitCode != 0)
         {

@@ -230,6 +230,61 @@ public sealed class BuildJobTests
         Assert.Equal("checking", (await bench.Jobs.Card(1)).State);
     }
 
+    [Fact]
+    public async Task TheCheckIsLoggedAsItRuns()
+    {
+        // The check writes two lines, one on each stream, and waits for the test before its third.
+        await using var bench = await Bench.Start(check: $"echo one; echo two >&2; while [ ! -f '{Bench.Out}' ]; do sleep 0.05; done; echo three");
+        var agent = new ScriptedAgent(async (run, _) => await ScriptedAgent.Commit(run, "greeting.txt", "Hello\n", "Add the greeting"));
+        var job = await bench.NextJob();
+
+        var running = bench.Build(agent).Run(job, Ct);
+
+        // While the check still runs, its lines reach Dev flow as check lines, on the log's own beat.
+        for (var i = 0; i < 400 && !bench.Logged("check").Contains("two"); i++)
+        {
+            bench.Clock.Advance(RunLogSender.Every);
+            await Task.Delay(25, Ct);
+        }
+
+        Assert.Equal(["one", "two"], bench.Logged("check"));
+        Assert.False(running.IsCompleted);
+        await File.WriteAllTextAsync(bench.OutFile, "", Ct);
+        await running;
+
+        Assert.Equal(["one", "two", "three"], bench.Logged("check"));
+        // The result's check output is as before: the output's last lines, both streams together.
+        Assert.Equal("one\ntwo\nthree\n", (string)bench.SentResult()["check"]!["output"]!);
+    }
+
+    [Fact]
+    public async Task TheWorkersStepsAreLogged()
+    {
+        await using var bench = await Bench.Start(check: "test -f greeting.txt");
+        var agent = new ScriptedAgent(async (run, _) => await ScriptedAgent.Commit(run, "greeting.txt", "Hello\n", "Add the greeting"));
+
+        var job = await bench.RunJob(agent);
+
+        var steps = new[]
+        {
+            "Cloning Adamniels/Personal-platform",
+            $"Starting the agent on {job.GetProperty("model").GetString()}",
+            "Running the check: test -f greeting.txt",
+            $"Pushing {Bench.Branch}",
+        };
+        var system = bench.Logged("system");
+        Assert.All(steps, step => Assert.Contains(step, system));
+        Assert.Equal(steps, system.Where(steps.Contains));
+        // The worker's own log lines about the job go too.
+        Assert.Contains(system, line => line.StartsWith("Made devflow/1-add-the-greeting from main at ", StringComparison.Ordinal));
+
+        // Every line went before the result.
+        var calls = bench.Handler.Calls.ToList();
+        var result = calls.FindIndex(call => call.Path.EndsWith("/result", StringComparison.Ordinal));
+        Assert.True(result > 0);
+        Assert.All(calls.Skip(result + 1), call => Assert.False(call.Path.EndsWith("/log", StringComparison.Ordinal), "a log post after the result"));
+    }
+
     /// <summary>
     /// Moves the bench's clock five minutes on until the worker has said at least
     /// <paramref name="calls"/> times that the check runs. The clock may move before the worker has

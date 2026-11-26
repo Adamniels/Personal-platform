@@ -40,7 +40,8 @@ internal static class Support
 
 /// <summary>
 /// A fake clock that says each time something starts waiting on it, and for how long, so a test
-/// moves time only once the loop waits, and reads the waits it chose.
+/// moves time only once the loop waits, and reads the waits it chose. A timer that repeats, the
+/// job's log's tick, is no wait, and is not said.
 /// </summary>
 internal sealed class WatchedClock : FakeTimeProvider
 {
@@ -54,7 +55,11 @@ internal sealed class WatchedClock : FakeTimeProvider
     public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
     {
         var timer = base.CreateTimer(callback, state, dueTime, period);
-        _waits.Writer.TryWrite(dueTime);
+        if (period == Timeout.InfiniteTimeSpan)
+        {
+            _waits.Writer.TryWrite(dueTime);
+        }
+
         return timer;
     }
 
@@ -77,12 +82,15 @@ internal sealed record Call(string Path, string Body, string Answer);
 /// <summary>
 /// Dev flow played from a script: each call takes the next step, which must be for the path it
 /// names, and answers it or throws. Past the script, a call waits until the test ends, so the
-/// worker is never answered something the test did not say.
+/// worker is never answered something the test did not say. A post of a job's log is no step: it
+/// goes on beside the job whenever its clock says, so it is answered as Dev flow does, and kept
+/// apart in <see cref="Logs"/>.
 /// </summary>
 internal sealed class ScriptedDevFlow : HttpMessageHandler
 {
     private readonly Queue<(string Path, Func<HttpResponseMessage> Answer)> _steps = new();
     private readonly List<Call> _calls = [];
+    private readonly List<Call> _logs = [];
 
     public IReadOnlyList<Call> Calls
     {
@@ -91,6 +99,18 @@ internal sealed class ScriptedDevFlow : HttpMessageHandler
             lock (_calls)
             {
                 return [.. _calls];
+            }
+        }
+    }
+
+    /// <summary>The posts of a job's log, each answered 200.</summary>
+    public IReadOnlyList<Call> Logs
+    {
+        get
+        {
+            lock (_logs)
+            {
+                return [.. _logs];
             }
         }
     }
@@ -111,6 +131,16 @@ internal sealed class ScriptedDevFlow : HttpMessageHandler
     {
         var path = request.RequestUri!.AbsolutePath;
         var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken);
+        if (path.StartsWith(WorkerApi.Prefix + "/jobs/", StringComparison.Ordinal) && path.EndsWith("/log", StringComparison.Ordinal))
+        {
+            lock (_logs)
+            {
+                _logs.Add(new Call(path, body, "200"));
+            }
+
+            return Support.Status(HttpStatusCode.OK, """{"stop":false}""");
+        }
+
         Authorization = request.Headers.Authorization?.ToString();
         (string Path, Func<HttpResponseMessage> Answer) step;
         lock (_steps)
@@ -246,4 +276,59 @@ internal static class Recorded
     /// <summary>A run of <paramref name="case"/> as the process ends with it.</summary>
     public static ProcessOutcome Run(string @case, int exitCode, string stderr = "") =>
         new(exitCode, Stream(@case), stderr, TimedOut: false);
+}
+
+/// <summary>A line of a run's log, at the worker's clock when it was added.</summary>
+internal sealed record RunLine(DateTimeOffset At, RunLineKind Kind, string Text);
+
+/// <summary>
+/// A run's log kept in memory and written nowhere, so a test reads what an agent wrote to it. The
+/// worker's own is <see cref="RunLogSender"/>, which sends it to Dev flow.
+/// </summary>
+internal sealed class MemoryRunLog(TimeProvider time) : IRunLog
+{
+    private readonly Lock _lock = new();
+    private readonly List<RunLine> _lines = [];
+    private RunUsage _usage = RunUsage.Zero;
+
+    public void Add(RunLineKind kind, string text)
+    {
+        var line = new RunLine(time.GetUtcNow(), kind, text);
+        lock (_lock)
+        {
+            _lines.Add(line);
+        }
+    }
+
+    public void Used(RunUsage soFar)
+    {
+        lock (_lock)
+        {
+            _usage = soFar;
+        }
+    }
+
+    /// <summary>Every line so far, oldest first.</summary>
+    public IReadOnlyList<RunLine> Lines
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return [.. _lines];
+            }
+        }
+    }
+
+    /// <summary>The run's token figures as last told.</summary>
+    public RunUsage Usage
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _usage;
+            }
+        }
+    }
 }

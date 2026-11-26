@@ -189,6 +189,9 @@ public sealed class ScreenshotJobTests
             Assert.InRange(bench.Probe.Asks, 150, 200);
             Assert.Equal(1, Assert.Single(bench.Starter.Started).Ends);
             Assert.Empty(bench.Pictures);
+            // What the start printed went to the job's log as it came, as check lines; the
+            // project's check, true, printed nothing.
+            Assert.Equal(["> vite", "Error: Cannot find module 'vite'"], bench.Logged("check"));
 
             // The card is not stopped for it: the run succeeded, and the note is kept.
             Assert.Equal("succeeded", (await bench.Run()).Result);
@@ -255,6 +258,44 @@ public sealed class ScreenshotJobTests
         var (fileName, arguments) = SystemBackgroundStarter.Command("agent", project.Spec);
         Assert.Equal("setpriv", fileName);
         Assert.Equal(["--reuid", "agent", "--regid", "agent", "--init-groups", "--", "setsid", "--", "sh", "-c", Start], arguments);
+    }
+
+    [Fact]
+    public async Task TheProjectsOutputIsHandedLineByLine()
+    {
+        // setsid is util-linux's, in the image and on Linux; macOS has none.
+        Assert.SkipUnless(File.Exists("/usr/bin/setsid") || File.Exists("/bin/setsid"), "setsid is not on this machine; CI runs this on Linux");
+        var folder = Directory.CreateTempSubdirectory("devflow-lines-").FullName;
+        try
+        {
+            var lines = new List<(ProcessStream Stream, string Text)>();
+            var go = Path.Combine(folder, "go");
+            var starter = new SystemBackgroundStarter(null, TimeProvider.System);
+            var spec = new ProcessSpec("sh", ["-c", $"echo up; echo oops >&2; while [ ! -f {go} ]; do sleep 0.05; done; printf 'last'"], folder, new Dictionary<string, string> { ["PATH"] = "/usr/bin:/bin" }, Lines: (stream, text) =>
+            {
+                lock (lines)
+                {
+                    lines.Add((stream, text));
+                }
+            });
+            await using var project = await starter.Start(spec, Ct);
+
+            // Each line as it is written, while the project runs.
+            await Until(() => { lock (lines) { return lines.Count == 2; } });
+            Assert.Null(project.ExitCode);
+            Assert.Equal([(ProcessStream.Stdout, "up"), (ProcessStream.Stderr, "oops")], lines.OrderBy(line => line.Stream));
+
+            // And the last, with no line end, once it has ended and its streams close.
+            await File.WriteAllTextAsync(go, "", Ct);
+            await Until(() => project.ExitCode is not null);
+            await project.End();
+            Assert.Contains((ProcessStream.Stdout, "last"), lines);
+            Assert.Contains("up", project.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
     }
 
     [Fact]

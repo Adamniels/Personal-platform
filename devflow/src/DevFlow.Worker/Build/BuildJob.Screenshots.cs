@@ -138,6 +138,7 @@ internal sealed partial class BuildJob
     private async Task<(List<(string Name, byte[] Bytes)> Pictures, List<string> Failures)> Take(
         Job job, JobPaths paths, string head, IReadOnlyList<(string Name, string Path)> pages, CancellationToken stopping)
     {
+        Log.Write("Taking pictures");
         await CloneForAgent(job, paths, [$"refs/heads/{job.Branch}"], paths.Pages, [], "the clean copy for the pictures could not be made", stopping);
         var at = await Git.AsAgent(paths.Pages, ["rev-parse", "HEAD"], stopping);
         if (at.ExitCode != 0 || at.Stdout.Trim() != head)
@@ -147,7 +148,8 @@ internal sealed partial class BuildJob
 
         await Agent("mkdir", [paths.Pictures], paths.Work, FailureSide.OutsideCard, "the folder for the pictures could not be made", stopping);
         Log.Write($"Starting the project at {head} for its pictures.");
-        var project = await Tools.Pages.Starter.Start(new ProcessSpec("sh", ["-c", job.Start], paths.Pages, Tools.User.WithValues(job.Values, ("DEVFLOW", "1"))), stopping);
+        // What the start prints goes to the job's log as it comes, as the check's does.
+        var project = await Tools.Pages.Starter.Start(new ProcessSpec("sh", ["-c", job.Start], paths.Pages, Tools.User.WithValues(job.Values, ("DEVFLOW", "1")), Lines: CheckLines()), stopping);
         try
         {
             await WaitUp(job.Url, project, stopping);

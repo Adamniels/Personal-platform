@@ -23,6 +23,7 @@ internal sealed partial class BuildJob
     /// out again.</summary>
     private async Task RunCheck(Job job, JobCheck toCheck, CancellationToken stopping)
     {
+        await using var sending = Sending(job);
         Log.Write($"Checking version {toCheck.Version} of the project's setup at {toCheck.Commit} of {job.Branch}, job {job.JobId}.");
         var started = Time.GetTimestamp();
         AgentFailure? failure = null;
@@ -63,7 +64,7 @@ internal sealed partial class BuildJob
 
         // A check that ran succeeds whatever its exit code, which is the verdict; nothing is pushed,
         // so the result names no commit.
-        await Send(job, failure, null, failure is null ? check : null, null, Time.GetElapsedTime(started), stopping, failure is null ? screenshots : null, pictures: failure is null ? pictures : null);
+        await Send(job, sending, failure, null, failure is null ? check : null, null, Time.GetElapsedTime(started), stopping, failure is null ? screenshots : null, pictures: failure is null ? pictures : null);
     }
 
     /// <summary>Why the check job is refused before anything runs, or null: its branch and base
@@ -110,8 +111,7 @@ internal sealed partial class BuildJob
         Directory.CreateDirectory(Tools.Folders.Handover);
         RootsOwn(paths.Secret, RootOnly);
         RootsOwn(paths.Handover, RootWritesAgentReads);
-        var credential = new PushCredential(job.PushKey, job.Repository.CloneAddress);
-        await Root(paths, ["clone", "--bare", "--quiet", "--", job.Repository.CloneAddress.OriginalString, paths.Repository], FailureSide.OutsideCard, "The repository could not be fetched", stopping, credential, inSecret: true);
+        await CloneRepository(job, paths, stopping);
         if ((await Git.AsRoot(paths, ["rev-parse", "--verify", "--quiet", $"{commit}^{{commit}}"], stopping)).ExitCode != 0)
         {
             throw new StepFailed(FailureSide.OutsideCard, $"The commit {commit} is not in the repository, so it was not checked");

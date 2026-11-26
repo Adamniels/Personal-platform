@@ -36,7 +36,9 @@ internal interface IBackgroundProcess : IAsyncDisposable
 /// does, keeping the environment exactly as given. Ending it signals the group, with
 /// <c>kill -- -&lt;group&gt;</c>, so a server the start command left running in the background ends
 /// too, which ending the process tree by parent would miss once it was detached. Standard input is
-/// closed at once. See "Screenshots" in devflow/README.md.
+/// closed at once. Each line it writes goes to the spec's line sink as it is written, as
+/// <see cref="SystemProcessStarter"/> hands it; a sink that throws is called no more. See
+/// "Screenshots" in devflow/README.md.
 /// </summary>
 internal sealed class SystemBackgroundStarter(string? runAs, TimeProvider time) : IBackgroundStarter
 {
@@ -85,7 +87,7 @@ internal sealed class SystemBackgroundStarter(string? runAs, TimeProvider time) 
 
         var process = Process.Start(start) ?? throw new InvalidOperationException($"{spec.FileName} did not start");
         process.StandardInput.Close();
-        return Task.FromResult<IBackgroundProcess>(new Running(process, time));
+        return Task.FromResult<IBackgroundProcess>(new Running(process, time, spec.Lines));
     }
 
     /// <summary>
@@ -102,12 +104,14 @@ internal sealed class SystemBackgroundStarter(string? runAs, TimeProvider time) 
         private readonly int _group;
         private int _ended;
 
-        public Running(Process process, TimeProvider time)
+        public Running(Process process, TimeProvider time, Action<ProcessStream, string>? lines)
         {
             _process = process;
             _time = time;
             _group = process.Id;
-            _reading = Task.WhenAll(Read(process.StandardOutput), Read(process.StandardError));
+            _reading = Task.WhenAll(
+                Read(process.StandardOutput, lines is null ? null : new LineSplitter(ProcessStream.Stdout, lines)),
+                Read(process.StandardError, lines is null ? null : new LineSplitter(ProcessStream.Stderr, lines)));
         }
 
         public int? ExitCode => _process.HasExited ? _process.ExitCode : null;
@@ -186,7 +190,7 @@ internal sealed class SystemBackgroundStarter(string? runAs, TimeProvider time) 
             return running.ExitCode;
         }
 
-        private async Task Read(StreamReader reader)
+        private async Task Read(StreamReader reader, LineSplitter? lines)
         {
             var buffer = new char[4096];
             int read;
@@ -200,7 +204,11 @@ internal sealed class SystemBackgroundStarter(string? runAs, TimeProvider time) 
                         _output.Remove(0, _output.Length - KeptCharacters);
                     }
                 }
+
+                lines?.Append(buffer, read);
             }
+
+            lines?.End();
         }
     }
 }
