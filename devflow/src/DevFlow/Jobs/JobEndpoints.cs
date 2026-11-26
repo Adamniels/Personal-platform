@@ -113,27 +113,7 @@ public static partial class JobEndpoints
     {
         ArgumentNullException.ThrowIfNull(line);
         ArgumentNullException.ThrowIfNull(scrub);
-        return new RunLogLine(line.Seq!.Value, RunLogStore.Microseconds(line.At!.Value), line.Kind!, CutLine(Storable.Text(scrub.Scrub(line.Text!))));
-    }
-
-    /// <summary><paramref name="text"/>, or when it is longer than <see cref="LogLine.MostText"/> as
-    /// much of it as fits with <see cref="LogLine.CutMark"/> after, never splitting a surrogate
-    /// pair.</summary>
-    internal static string CutLine(string text)
-    {
-        ArgumentNullException.ThrowIfNull(text);
-        if (text.Length <= LogLine.MostText)
-        {
-            return text;
-        }
-
-        var keep = LogLine.MostText - LogLine.CutMark.Length;
-        if (char.IsHighSurrogate(text[keep - 1]))
-        {
-            keep--;
-        }
-
-        return string.Concat(text.AsSpan(0, keep), LogLine.CutMark);
+        return new RunLogLine(line.Seq!.Value, RunLogStore.Microseconds(line.At!.Value), line.Kind!, LogLine.Cut(Storable.Text(scrub.Scrub(line.Text!))));
     }
 
     /// <summary>Each field of <paramref name="request"/> that is missing or breaks a rule: the

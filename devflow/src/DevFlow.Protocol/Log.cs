@@ -30,6 +30,26 @@ public sealed record LogLine(long? Seq, DateTimeOffset? At, string? Kind, string
 
     /// <summary>What ends a text that was cut.</summary>
     public const string CutMark = "… (cut)";
+
+    /// <summary><paramref name="text"/>, or when it is longer than <see cref="MostText"/> as much
+    /// of it as fits with <see cref="CutMark"/> after, never splitting a surrogate pair. The one
+    /// cut the worker makes before it sends a line and Dev flow makes before it stores one.</summary>
+    public static string Cut(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        if (text.Length <= MostText)
+        {
+            return text;
+        }
+
+        var keep = MostText - CutMark.Length;
+        if (char.IsHighSurrogate(text[keep - 1]))
+        {
+            keep--;
+        }
+
+        return string.Concat(text.AsSpan(0, keep), CutMark);
+    }
 }
 
 /// <summary>The kinds a <see cref="LogLine"/> may be.</summary>
