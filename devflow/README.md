@@ -470,8 +470,8 @@ answer's `count` as a badge once it is more than none. Its parts, top to bottom:
   items of kind `waiting` not sent back; "Features ready for your review", Dev flow's features
   ready for review or waiting for the owner, see "Reviewing a feature", each with a secondary
   "Merge into <default>" while it is offered, see "Merging a feature"; "Stopped", Dev flow's stopped
-  projects, its projects that cannot run their cards, its stopped cards, then kind `stopped` not
-  sent back; "Setup", Dev flow's projects whose setup run waits or stopped, then those whose newest
+  projects, its projects that cannot run their cards, its stopped cards, the features the owner
+  stopped, then kind `stopped` not sent back; "Setup", Dev flow's projects whose setup run waits or stopped, then those whose newest
   check of their setup failed, see "Setting up a project"; "Refused", Dev flow's cards refused as
   too thin to build, see "Reading a card" under "Jobs"; "Decisions to look at", the issues Dev flow
   opened for decisions on cards it merged; and "Sent back, the runner has it", every item sent
@@ -490,7 +490,8 @@ answer's `count` as a badge once it is more than none. Its parts, top to bottom:
   item and Back returns to the item before it; a key that names no item shows the first. The key
   names exactly one item, one pattern per kind, `<project>` the item's `project_id`: a runner
   item's `id`; `card/<project>/<number>` for a waiting or a stopped card, since a card is in one
-  state at a time; `feature/<project>/<number>`; `questions/<project>/<number>` for a question
+  state at a time; `feature/<project>/<number>`; `stopped-feature/<project>/<number>` for a
+  feature the owner stopped; `questions/<project>/<number>` for a question
   card; `refused/<project>/<number>`; `decision/<id>`; `stopped/<project>` for a project stopped
   by a commit Dev flow did not put there; `failing/<project>` for a project that cannot run its
   cards; `setup-check/<project>` for a failed check of its setup; and `setup-run/<project>` for a
@@ -894,7 +895,7 @@ does. Its read side:
 The two that take a user's token read as that person, never as the app, so what they list is what
 the person may connect; the token comes from `UserTokens.For`, see "Linking GitHub".
 
-The owner's write side, both as the person and never as the app:
+The owner's write side, each as the person and never as the app:
 
 - `Merge(user, token, repository, number, commit)`: merges the pull request with a merge commit
   while its head is `commit`, answering a `MergeResult`: `Merged` with the merge commit's id, null
@@ -903,7 +904,11 @@ The owner's write side, both as the person and never as the app:
   or `Unavailable` when it did not answer;
 - `Comment(user, token, repository, number, body)`: writes `body`, exactly, in the pull request's
   conversation, answering a `CommentResult`: `Posted` with the comment's id, null when the host's
-  answer gives none, `Refused` with the status and words, or `Unavailable`.
+  answer gives none, `Refused` with the status and words, or `Unavailable`;
+- `Unlabel(user, token, repository, number, label)`: takes the label off the issue, so its
+  timeline shows the person taking it off, answering an `UnlabelResult`: `Removed`, `Refused` with
+  the status and words, `404` for a label the issue does not carry, or `Unavailable`. "Drop" is its
+  one caller, see "Acting from the page".
 
 Each takes a `UserAccessToken`, a type of its own, and nothing else that could authorise it. An
 installation's token is a string, so passing one to a write does not compile. The type's
@@ -992,6 +997,7 @@ can only read and what it does with GitHub's failures are "GitHub" in
 | `Activity` | `GET /repos/{owner}/{repo}/activity?ref={branch}&per_page=100`, newest first, following the `Link` header's cursor until the change `since` is reached; a change on another ref, a type the adapter does not know, or a commit id that is not 40 or 64 lowercase hex digits makes the whole answer unavailable |
 | `Merge` | `PUT /repos/{owner}/{repo}/pulls/{number}/merge` with `{"sha": "<commit>", "merge_method": "merge"}`, with the user's token: `200` merged, with the answer's `sha` as the merge commit, `409` head moved, `405` not mergeable, any other status refused with it |
 | `Comment` | `POST /repos/{owner}/{repo}/issues/{number}/comments` with `{"body": "<text>"}`, with the user's token: `201` posted, any other status refused with it |
+| `Unlabel` | `DELETE /repos/{owner}/{repo}/issues/{number}/labels/{name}`, the name escaped, with the user's token: `200` removed, any other status refused with it, `404` among them for a label the issue does not carry |
 | `ForWrite` | `POST /app/installations/{id}/access_tokens` with `repository_ids` and the purpose's `permissions`, as the app |
 | `CloneAddress` | `https://github.com/{owner}/{repo}.git`, with no request |
 | `OpenPullRequest` | `POST /repos/{owner}/{repo}/pulls` with `title`, `head`, `base` and `body`: `201` written |
@@ -1006,7 +1012,7 @@ it and GitHub's words.
 
 The two read with the user's token follow every page as the others do, and nothing of them is
 remembered for a conditional request, since an answer read with one person's token is never one to
-give another. The owner's two writes never ask for an installation token. No write is retried, and
+give another. The owner's three writes never ask for an installation token. No write is retried, and
 each keeps at most 500 characters of GitHub's `message` from a refusal.
 
 Signing a person in, in `GitHubCodeHost.SignIn.cs`, is GitHub's web flow exactly as GitHub
@@ -1217,7 +1223,8 @@ of what Dev flow is:
 - `GET /devflow/api/fake/writes` lists the writes the fake took for the caller, oldest first, each
   `{"kind": "merge", "repository": 1001, "number": 304, "commit": "<40 hex>", "method": "merge",
   "body": null, "by": "octo-owner"}`, or with `kind` `comment`, the `body`, and `commit` and
-  `method` null. A write by the app has `by` `devflow-fake[bot]` and a `purpose`, `post`, `merge`
+  `method` null, or `label_removed`, with `label`, a label the person took off an issue, which the
+  issue's timeline shows as theirs. A write by the app has `by` `devflow-fake[bot]` and a `purpose`, `post`, `merge`
   or `push`, and may be of `kind` `pull_request`, with `title`, `head`, `base`, its head commit and
   its body; `pull_request_edited`, with its new body; `issue`, with `title` and `body`;
   `label_added` or `label_removed`, with `label`; `branch`, a branch made with a push key, `number`
@@ -1425,7 +1432,13 @@ action, first in its row. Each kind:
   until a send succeeds, are as "Reading a card" under "Jobs" says.
 - A stopped card, `src/stopped-card.tsx`: `card #<n>`; when it stopped; why, on a `--danger-soft`
   inset; and "Comment to run again", the primary, which opens the comment box and its Send, which
-  is then the primary, and Open on GitHub.
+  is then the primary, and Open on GitHub. One the owner stopped is drawn otherwise, as "Stopped
+  by you" under "Stops" says: the `needs-you` status "Stopped by you", when he stopped it, no
+  inset and no comment box, "Run again", the primary, "Drop", for a card on its own, and Open on
+  GitHub.
+- A feature the owner stopped, `src/stopped-card.tsx`: `feature #<n>`; the `needs-you` status
+  "Stopped by you"; which of its runs he stopped and when; "Open the feature", an arrow link to its
+  page; and "Run again", the primary, with Open on GitHub.
 - A stopped project, `src/stopped.tsx`: the branch and the commit that landed; that Dev flow hands
   out no work until the owner resumes it; "What landed", the commit, what was done, by whom and
   when; and "I have looked, resume", the primary, and "Open the commit on GitHub".
@@ -1447,7 +1460,7 @@ action, first in its row. Each kind:
 **The routes**, under the `Api` policy and the origin check:
 
 - `GET /devflow/api/waiting` answers
-  `{"count", "needs_relink", "items": [...], "projects": [{"id", "owner", "name", "last_success_at", "stale", "failing"}], "own_items": [...], "cards": [...], "stopped_cards": [...], "refused_cards": [...], "failing_projects": [...], "decisions": [...], "features": [...], "question_cards": [...]}`.
+  `{"count", "needs_relink", "items": [...], "projects": [{"id", "owner", "name", "last_success_at", "stale", "failing"}], "own_items": [...], "cards": [...], "stopped_cards": [...], "stopped_features": [...], "refused_cards": [...], "failing_projects": [...], "decisions": [...], "features": [...], "question_cards": [...]}`.
   Each item is a stored row with its project's id and repository name: `id`, `project_id`,
   `project_name`, `number`, `kind`, `waiting` or `stopped`, `sent_back`, `title`, `web_url`,
   `slice_number`, null when the body closes none, `head_commit`, `can_merge`, `summary`, `reason`,
@@ -1459,15 +1472,19 @@ action, first in its row. Each kind:
   `-desktop` and `-phone`, and the names, the desktop one first; what each means is `RunnerItem` in
   `src/DevFlow/Runner/RunnerItem.cs`, and every text is plain text to show as text. `cards` are Dev
   flow's own cards whose pull requests wait for the owner, by project and number, see "The pull
-  request Dev flow opens". `stopped_cards` are its own cards that stopped and `failing_projects` its
-  projects that cannot run their cards, each by project, see "Stops". `refused_cards` are its cards
+  request Dev flow opens". `stopped_cards` are its own cards that stopped, each with
+  `stopped_by_owner`, true for one the owner stopped, and `feature_number`, its feature's or null,
+  `stopped_features` its features the owner's stop holds, each with its `state`, `reason` and
+  `stopped_at`, and `failing_projects` its projects that cannot run their cards, each by project,
+  see "Stops". `refused_cards` are its cards
   refused as too thin to build, by project and number, see "Reading a card" under "Jobs", and
   `question_cards` its cards that wait for the owner's answers to their reading's questions, by
   project and number, see the same. `decisions` are the issues Dev
   flow opened for decisions marked for the owner on cards it merged, see "The merge check", and
   `features` its features ready for the owner's review or waiting for him, see "Reviewing a
   feature". `count` is the items not sent
-  back, the own items, the cards, the stopped and refused cards, the failing projects, the decisions, the features and the
+  back, the own items, the cards, the stopped and refused cards, the stopped features, the failing
+  projects, the decisions, the features and the
   cards waiting for answers, plus one when
   `needs_relink`, the caller's link needing renewal. A project is
   `stale` when its last success was more than five minutes ago or it was never read, and `failing`
@@ -1651,7 +1668,8 @@ a project" under "What waits", and stores both in one transaction:
   started is updated, one that has started keeps its state unless it is now ignored, and one no
   longer listed is deleted, unless its run is under way, when it is marked `unlabelled`, or it is
   `done` with a pull request, when it is kept, since its pull request's `Closes` line closed its
-  issue as it merged and the card is its story.
+  issue as it merged and the card is its story, or the owner dropped it, see "Stopped by you"
+  under "Stops".
 - A card that has not started, `queued`, `needs_answers` or `refused`, that a trusted account edits
   or comments on after it was read is read again before it is handed out, and one waiting for the
   owner is queued for it; once it has started nothing reads it again. See "It is read again" under
@@ -1816,6 +1834,31 @@ verdict refuses nothing; the confirmation says it, see "Merging a feature".
 that merge, read from what Dev flow stored: `number`, `title`, `into`, the default branch,
 `pull_request`, `{"number", "url"}`, `head_commit`, `review`, `open_findings` and `unanswered`, see
 "Merging a feature". It refuses as the merge does, `404` and the three `409`s before the head's.
+
+**What the owner stopped**, a card or a feature one of whose runs he stopped, see "Stopped by you"
+under "Stops", is acted on by three routes in `OwnerStopEndpoints`, in `src/DevFlow/Stops/`, under
+the same policy and origin check, each `204` once done. None reads the project again: what it
+changes is Dev flow's own, and is shown at once.
+
+- **`POST /devflow/api/projects/{id}/cards/{number}/run-again`** puts a card he stopped back where
+  his stopped run started from, as `OwnerStops.RunCardAgain` does: `404` "No such card" for a
+  project or card the caller does not have, and `409` "This card was not stopped by you" for any
+  card not `stopped` with `stopped_by_owner`, one Dev flow stopped included, which his comment runs
+  again. It asks nothing of GitHub.
+- **`POST /devflow/api/projects/{id}/features/{number}/run-again`** clears the hold his stop put on
+  a feature: `404` "No such feature", and `409` "This feature was not stopped by you" while
+  `stopped_by_owner_at` is null. It asks nothing of GitHub.
+- **`POST /devflow/api/projects/{id}/cards/{number}/drop`** takes the project's pick-up label off a
+  card's issue as him, with his linked token and never as the app, through `ICodeHost.Unlabel`, in
+  this order: `404` "No such card"; `409` "This card was not stopped by you"; `409` "A card of a
+  feature is not dropped", since its feature's label picks it, not one of its own; the two `409`s
+  and the `503` for the link, as merging; then GitHub is asked. Off, or `404` from GitHub, which is
+  what it answers for a label the issue does not carry, as good as off as it is for the app's
+  attention label, the card is dropped and the answer is `204`. Any other refusal is `409` "GitHub
+  refused to take the label off", with its status and words; no answer `503`, with nothing changed
+  in Dev flow. The project is not read again here, since a read racing GitHub's list could still
+  find the label just taken off; how a later read keeps a dropped card is "Stopped by you" under
+  "Stops".
 
 Reading again goes through `ProjectRefresher` and waits for the read as the refresh route does, at
 most ten seconds, so the list the page reads next is current. After either, whatever it answered,
@@ -3578,7 +3621,9 @@ feature's page" in `docs/devflow-architecture.md`.
 **The route.** `GET /devflow/api/projects/{id}/features/{number}`, under the `Api` policy, answers
 a feature's whole story so far, read in one transaction through the door as the caller, never from
 GitHub: `number`, the parent's, `repository`, the project's as `owner/name`, `title` as last read,
-`web_url`, `state`, `reason`, null when there is nothing to say; `default_branch`, the branch the
+`web_url`, `state`, `reason`, null when there is nothing to say; `stopped_by_owner`, whether the
+owner's stop of one of its own runs holds it, which the page's header shows as "Stopped by you"
+with "Run again", see "Stops"; `default_branch`, the branch the
 project's watch of its default branch names, null before it is watched; `branch`, `{"name", "commit"}`, null before the branch is made, `commit` the one
 its watch recorded after the newest change it judged, `branch_watches.last_commit`, or the one it
 was made at before any, null for a watch that began before the column and has judged nothing
@@ -4716,9 +4761,31 @@ before this part, whose `stopped_at` is null, is never marked.
 
 **Stopped by you.** A card whose build, review or fix the owner stopped, see "Stopping a run" under
 "Jobs", is `stopped`, "Stopped by you", with `stopped_by_owner` and the kind and fix round of the
-run, so running it again knows where it goes back to; "Run again" and "Drop" are #446. It is not
-marked: `StopStore.Pending` leaves it out, so the app posts no comment and puts on no label. It
-counts as no failure and uses no round.
+run, so running it again knows where it goes back to. It is not marked: `StopStore.Pending` leaves
+it out, so the app posts no comment and puts on no label. It counts as no failure and uses no
+round. A feature whose own run he stopped, a review, a fix or a conflict, is held with
+`stopped_by_owner_at`, see "Stopping a run". What he does with either is `OwnerStops`, in
+`src/DevFlow/Stops/`, through the routes under "Acting from the page", each taking the project's
+lock first, as recording a run's result does:
+
+- **Run again** on such a card puts it back where its stopped run started from, as a lost run's card
+  goes back: a build's in `queued`, with no reason; a review's in `reviewing`, "Its pull request is open; the reviewer reads it next";
+  a fix's in `fixing` in the same round, its `fix_round` the stopped one, with that round's reason.
+  Its failures in a row, the commit they remember and its fix rounds are left as they were, and
+  `stopped_by_owner`, `stopped_kind` and `stopped_round` are cleared.
+- **Run again** on such a feature clears `stopped_by_owner_at`, so its next job is handed out and
+  its readiness decided again, and it says what its state says when a lost run leaves it there:
+  "To be reviewed as a whole", the fix round's waiting reason, or the conflict's; in any other
+  state, which a read moved it to while it was held, it keeps its reason unless that is "Stopped by
+  you".
+- **Drop**, only for a card on its own, takes the project's pick-up label off its issue as him, then
+  leaves the card `ignored`, "Dropped by you", with `dropped_at`, and its stop's columns cleared;
+  its branch, any pull request and its issue are otherwise as they were. A card of a feature is
+  refused, since its feature's label picks it. A read would delete a card it no longer finds, so
+  `CardStore.Store` keeps a dropped one as it is while its label is off. A read finding it labelled
+  again picks it afresh, as any card, deleting the old row first, but only a read that began after
+  `dropped_at`, which the read notes before it asks GitHub anything: one that began before the drop
+  may have read the label the drop took off.
 
 **Running it again.** Each read of a project reads a stopped card's issue, and its pull request
 when still open, for the owner's comments, as "The owner's comment" under "Fixing" reads them, by
@@ -4764,13 +4831,25 @@ how many runs failed since when and when Dev flow tries again; then each stopped
 titled with its title, the `failed` status "Stopped", its repository and number, "Why it stopped"
 with its reason, when it stopped, and in its footer "Comment to run again", which opens a box
 labelled "A comment runs it again." with Send, and "Open on GitHub", its issue, and no Merge, as
-the runner's stopped items. Without a usable link the button is disabled and says why.
+the runner's stopped items. Without a usable link the button is disabled and says why. A card the
+owner stopped, `stopped_by_owner`, says "Stopped by you" in place of "Stopped", "stopped by you" on
+its row, whose dot takes `--accent` rather than `--danger`, since it waits for his choice and
+nothing failed in it, and when he stopped it, with no reason and no comment box: "Run again", the
+primary, and, for a card on its own, a secondary "Drop", disabled without a usable link with the
+line saying why, which opens a destructive `Dialog`, "Drop #<number>? Dev flow takes its label off
+and leaves its branch.", and drops it only once confirmed. After the stopped cards come the
+features he stopped, `stopped_features`, each "Stopped by you", which of its runs he stopped and
+when, "Open the feature" and "Run again", the primary. Each action ends in a toast, "Running #<number>
+again" or "Dropped #<number>", or its refusal in the item, and the list read again. A feature's page
+shows the same line, "Stopped by you. None of its jobs is handed out until you run it again.", with
+"Run again", in its header in place of its reason, while `stopped_by_owner` is true.
 
 **The tables**, from `migrations/0021_stops.sql`: `cards` gains `in_card_failures`, 0 or 1,
 `failed_at_commit`, `stopped_at`, `stop_marked_at` and `attention_labelled`; `runs` gains
 `timed_out` and `resets_at`; and `project_waits`, guarded like every scoped table, a row while a
 project's failures outside its cards are counted: `project_id`, `user_id`, `failures`, the last
-`reason`, `wait_until` and `since`.
+`reason`, `wait_until` and `since`. From `migrations/0050_dropped_cards.sql`, `cards` gains
+`dropped_at`, null unless the owner dropped it, and only on an `ignored` card.
 
 ## Registering the GitHub App
 

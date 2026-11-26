@@ -137,7 +137,7 @@ features" in `High-level/docs/platform-architecture.md`.
   its pull request and sending the whole feature back, merging a feature, with when it is offered,
   its confirmation, and what follows a merge or a pull request closed without merging,
   stops, with what stops a card, its mark on GitHub, running it again on the owner's
-  comment and a project's wait after failures outside its cards, starting a worker, with the base
+  comment, running again or dropping what the owner stopped and a project's wait after failures outside its cards, starting a worker, with the base
   image, the format of `.devflow/`, the recipe route, the
   two commands, the memory rule and when a worker needs a rebuild, the worker program with its
   settings, its loop, its exit codes, the agent interface, when a run succeeds, a build job step by
