@@ -19,9 +19,9 @@ public sealed class StopTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Theory]
-    [InlineData("usage-limit-resets-today.json", "2027-01-15T15:00:00Z")]
-    [InlineData("usage-limit-resets-date.json", "2027-01-20T14:30:00Z")]
-    [InlineData("usage-limit.json", null)]
+    [InlineData("usage-limit-resets-today", "2027-01-15T15:00:00Z")]
+    [InlineData("usage-limit-resets-date", "2027-01-20T14:30:00Z")]
+    [InlineData("usage-limit", null)]
     public async Task AUsageLimitWaitsUntilItsReset(string answer, string? resets)
     {
         await using var bench = await Bench.Start();
@@ -31,7 +31,7 @@ public sealed class StopTests
         Assert.Equal(new DateOnly(2027, 1, 15), DateOnly.FromDateTime(now.UtcDateTime));
         Assert.True(now.Hour < 15, now.ToString("O", CultureInfo.InvariantCulture));
         bench.Clock.SetUtcNow(now);
-        var claude = new Answering(Recorded("auth-oauth-token.json", 0), Recorded(answer, 1));
+        var claude = new Answering(new ProcessOutcome(0, Recorded.Text("auth-oauth-token.json"), "", false), Recorded.Run(answer, 1));
         var agent = new ClaudeCodeAgent(claude, ClaudeCodeOptions.Default, new WorkerLog(TextWriter.Null, bench.Clock), bench.Clock);
 
         await bench.RunJob(agent);
@@ -75,9 +75,6 @@ public sealed class StopTests
         var expected = resets is null ? (DateTimeOffset?)null : DateTimeOffset.Parse(resets, CultureInfo.InvariantCulture);
         Assert.Equal(expected, UsageLimit.ResetsAt(message, now));
     }
-
-    private static ProcessOutcome Recorded(string file, int exitCode) =>
-        new(exitCode, File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Claude", file)), "", TimedOut: false);
 
     /// <summary>Answers Claude Code's login check and then its run, as recorded.</summary>
     private sealed class Answering(ProcessOutcome login, ProcessOutcome run) : IProcessStarter

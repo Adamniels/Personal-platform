@@ -188,11 +188,10 @@ public sealed class ReviewWorkerTests
         var rootBefore = bench.AsRoot.Started.Count;
 
         // Claude Code, as it answers a run that tried to write and was refused.
-        var answer = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Claude", "refused-write.json")))!;
-        answer["structured_output"] = Verdict();
+        var answer = Recorded.Stream("refused-write", result => result["structured_output"] = Verdict());
         var starter = new FakeStarter(
             new ProcessOutcome(0, """{"loggedIn": true, "authMethod": "oauth_token"}""", "", false),
-            new ProcessOutcome(0, answer.ToJsonString(), "", false));
+            new ProcessOutcome(0, answer, "", false));
         var agent = new ClaudeCodeAgent(starter, ClaudeCodeOptions.Default, new WorkerLog(TextWriter.Null, bench.Clock));
 
         await bench.Review(agent).Run(job, Ct);

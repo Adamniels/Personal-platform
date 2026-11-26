@@ -61,7 +61,7 @@ public sealed class WorkerValuesTests
     [Fact]
     public async Task ClaudeCodeRunsWithThem()
     {
-        var starter = new FakeStarter(Recorded("auth-oauth-token.json"), Recorded("success.json"));
+        var starter = new FakeStarter(new ProcessOutcome(0, Recorded.Text("auth-oauth-token.json"), "", false), Recorded.Run("success", 0));
         var agent = new ClaudeCodeAgent(starter, ClaudeCodeOptions.Default, new WorkerLog(Writer(out _), new WatchedClock()));
 
         var result = await agent.Run(
@@ -79,7 +79,4 @@ public sealed class WorkerValuesTests
         // Checking the login runs none of the project's code, and gets none.
         Assert.False(login.Environment.ContainsKey(Name));
     }
-
-    private static ProcessOutcome Recorded(string file) =>
-        new(0, File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Claude", file)), "", TimedOut: false);
 }

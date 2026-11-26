@@ -169,8 +169,8 @@ public sealed class GitSafetyTests
         // Claude Code itself, behind a starter that answers as it does, so its environment is the
         // one the real agent builds.
         var claude = new AnsweringStarter(
-            new ProcessOutcome(0, File.ReadAllText(Recorded("auth-oauth-token.json")), "", TimedOut: false),
-            new ProcessOutcome(0, File.ReadAllText(Recorded("success.json")), "", TimedOut: false),
+            new ProcessOutcome(0, Recorded.Text("auth-oauth-token.json"), "", TimedOut: false),
+            Recorded.Run("success", 0),
             async spec =>
             {
                 readable.AddRange(Bench.Files(bench.Folders.Work).Concat(Bench.Files(bench.Folders.Handover)).Where(file => Holds(file.Text)).Select(file => file.Path));
@@ -273,8 +273,6 @@ public sealed class GitSafetyTests
     /// <summary>Whether the text holds a push key, or a header carrying one.</summary>
     private static bool Holds(string text) =>
         text.Contains(KeyPrefix, StringComparison.Ordinal) || text.Contains(HeaderPrefix, StringComparison.Ordinal);
-
-    private static string Recorded(string file) => Path.Combine(AppContext.BaseDirectory, "Claude", file);
 
     /// <summary>Answers Claude Code's login check and then its run, as recorded, keeping each spec,
     /// and calls <paramref name="during"/> as the run starts, while the copy is the agent's.</summary>

@@ -187,7 +187,9 @@ internal static class Paths
 }
 
 /// <summary>Answers each start with the next outcome, and records what it was asked to start,
-/// so a test sees the arguments and the environment of every process without running one.</summary>
+/// so a test sees the arguments and the environment of every process without running one. A spec's
+/// line sink is handed the outcome's lines, standard output's first, as a real program's would
+/// be.</summary>
 internal sealed class FakeStarter(params ProcessOutcome[] outcomes) : IProcessStarter
 {
     private readonly Queue<ProcessOutcome> _outcomes = new(outcomes);
@@ -197,6 +199,51 @@ internal sealed class FakeStarter(params ProcessOutcome[] outcomes) : IProcessSt
     public Task<ProcessOutcome> Run(ProcessSpec spec, TimeSpan timeLimit, CancellationToken cancellationToken)
     {
         Started.Add((spec, timeLimit));
-        return Task.FromResult(_outcomes.Dequeue());
+        var outcome = _outcomes.Dequeue();
+        if (spec.Lines is { } sink)
+        {
+            foreach (var (stream, text) in new[] { (ProcessStream.Stdout, outcome.Stdout), (ProcessStream.Stderr, outcome.Stderr) })
+            {
+                foreach (var line in text.Split('\n')[..^(text.EndsWith('\n') ? 1 : 0)])
+                {
+                    sink(stream, line.TrimEnd('\r'));
+                }
+            }
+        }
+
+        return Task.FromResult(outcome);
     }
+}
+/// <summary>Claude Code's recorded answers in <c>Claude/</c>, and the streams of its runs in
+/// <c>Claude/stream/</c>; see <c>Claude/README.md</c>.</summary>
+internal static class Recorded
+{
+    /// <summary>The path of the recorded file <paramref name="name"/>.</summary>
+    public static string File(string name) => Path.Combine(AppContext.BaseDirectory, "Claude", name);
+
+    /// <summary>The text of the recorded file <paramref name="name"/>, such as the login check's
+    /// answer.</summary>
+    public static string Text(string name) => System.IO.File.ReadAllText(File(name));
+
+    /// <summary>What a run of <paramref name="case"/> prints with <c>--output-format stream-json
+    /// --verbose</c>, with its <c>result</c> event, its last line, changed by
+    /// <paramref name="change"/> when one is given.</summary>
+    public static string Stream(string @case, Action<System.Text.Json.Nodes.JsonObject>? change = null)
+    {
+        var text = Text(Path.Combine("stream", $"{@case}.jsonl"));
+        if (change is null)
+        {
+            return text;
+        }
+
+        var lines = text.TrimEnd('\n').Split('\n');
+        var result = System.Text.Json.Nodes.JsonNode.Parse(lines[^1])!.AsObject();
+        change(result);
+        lines[^1] = result.ToJsonString();
+        return string.Join('\n', lines) + "\n";
+    }
+
+    /// <summary>A run of <paramref name="case"/> as the process ends with it.</summary>
+    public static ProcessOutcome Run(string @case, int exitCode, string stderr = "") =>
+        new(exitCode, Stream(@case), stderr, TimedOut: false);
 }
