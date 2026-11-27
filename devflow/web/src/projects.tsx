@@ -167,6 +167,7 @@ function ProjectCard({ project, now }: { project: Project; now: number }) {
 	const { cards } = project.summary;
 	const total = cards.needs_you + cards.in_progress + cards.queued + cards.done;
 	const blocked = cannotRunYet(project.summary);
+	const paused = PAUSES.includes(project.summary.workers.held ?? "");
 	return (
 		<Card
 			className={styles.card}
@@ -185,6 +186,7 @@ function ProjectCard({ project, now }: { project: Project; now: number }) {
 			<div className={styles.body}>
 				<div className={styles.top}>
 					<p className={styles.hero}>{project.name}</p>
+					{paused ? <Badge>Paused</Badge> : null}
 					{blocked === null ? (
 						<p className={styles.key}>
 							<span className={styles.count}>{cards.needs_you}</span>
@@ -249,11 +251,15 @@ function Ticks({ needsYou, total }: { needsYou: number; total: number }) {
 	);
 }
 
+/** The holds that are a pause, which the owner made himself: the card says
+ * them with a badge, never a banner. */
+const PAUSES = ["paused", "all_paused"];
+
 /** Why a project cannot run a card yet, what the owner does next, and the
  * words of the one action that opens its page; null when it can. The first
  * that applies: no worker, since setting up runs on one too; setting up;
- * held, in the workers list's words; and six runs failed outside their
- * cards, in its words too. A registered project whose setup check failed is
+ * held, in the workers list's words, but for a pause, which the card's badge
+ * says; and six runs failed outside their cards, in its words too. A registered project whose setup check failed is
  * not here: it waits in Waiting for you. */
 function cannotRunYet(summary: Project["summary"]): {
 	message: string;
@@ -274,7 +280,7 @@ function cannotRunYet(summary: Project["summary"]): {
 			detail: "No card runs until it is set up.",
 			action: "Continue setting up",
 		};
-	if (workers.held !== null)
+	if (workers.held !== null && !PAUSES.includes(workers.held))
 		return {
 			message: `${heldNotice(workers.held)}.`,
 			action: "Open the project",

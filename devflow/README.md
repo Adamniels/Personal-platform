@@ -113,6 +113,10 @@ program that calls it: everything else the tabs will show arrives with later sli
   `GET /devflow/api/projects/{id}/runs/{run}/log`, a run's log a page at a time, and
   `POST /devflow/api/projects/{id}/runs/{run}/stop`, which marks a run to stop, see "Jobs". Without a
   valid token, `401` with an empty body.
+- `PUT /devflow/api/projects/{id}/paused` and `PUT /devflow/api/paused`, which pause or continue a
+  project and every project of the caller, `GET /devflow/api/paused`, whether everything is paused,
+  and `POST /devflow/api/projects/{id}/stop-now`, which pauses a project and stops every run of it
+  under way, see "Pausing" under "Jobs". Without a valid token, `401` with an empty body.
 - `GET /devflow`, `/devflow/running`, `/devflow/projects`, `/devflow/usage`, `/devflow/projects/{id}`, a project's page, and
   `/devflow/projects/{id}/cards/{number}`, a card's page, and
   `/devflow/projects/{id}/features/{number}`, a feature's page, with any query, the page:
@@ -156,6 +160,14 @@ attention style of "Needs you banner" in `design/DESIGN.md`, tokens only, and is
 is `src/banner.tsx`, the page's own component, since no other feature needs it, and it reads
 `GET /devflow/api/status` once as the page loads; before the answer, with `github`, or when the
 status cannot be read, it shows nothing.
+
+While everything is paused, see "Pausing" under "Jobs", every tab shows a strip under the page's
+heading, inside its header so the tabs keep their gap from it, in the same attention style: "Everything
+is paused. Nothing new starts in any project.", with a secondary "Continue everything" beside it,
+which continues every project but one paused on its own. It is `src/paused.tsx`, and reads
+`GET /devflow/api/paused` as the page loads and when the window regains focus, the one answer the
+switch on Running now reads too; before the answer, or when it cannot be read, it shows nothing.
+Paused is not an item on "Waiting for you": the owner did it himself.
 
 The Projects tab is a dashboard: Connections, then the projects. Connections is a region named
 "Connections", a wrapping row of two items, each `flex: 1 1 360px`, so on phone they stack at the
@@ -209,7 +221,9 @@ open feature's title with "<landed> / <total> landed"; and Worker, how many and 
 last was seen, "Running" within ten minutes and "Not seen" after, as the project's page says it.
 A project with no card yet has one row, "Cards", "None yet". A project with a card that needs the
 owner takes the accent border. A project is disconnected from its settings page, see "A project's
-settings page" below, not from its card.
+settings page" below, not from its card. A paused project, its `held` `paused` or `all_paused`,
+shows a `Badge` "Paused" beside its hero label, a badge and not a banner, since the owner paused it
+himself.
 
 A project that cannot run yet shows the package's `NeedsYouBanner` in place of the count and the
 ticks, and takes the accent border, with one action, a link to the project's page drawn as a
@@ -217,7 +231,8 @@ secondary button. The first that applies: no worker has said hello, "No worker y
 run.", "Make the project's key, then start a worker with the two commands on its page." and "Set
 up a worker", first since setting up runs on a worker too; setting up, "Setting up: <done> of <total>
 steps done.", "No card runs until it is set up." and "Continue setting up"; `held`, its reason in
-the workers list's words, see "Workers", and "Open the project"; and `cannot_run`, its message,
+the workers list's words, see "Workers", and "Open the project", but for a pause, which the badge
+says; and `cannot_run`, its message,
 and "Open the project". A registered project whose setup check failed is not a banner here: it
 waits in "Waiting for you" as a setup item. The summary names no card and no worker, so the rows
 say counts; the picture's card title and worker name would need the summary to carry them.
@@ -228,11 +243,19 @@ of `design/DESIGN.md`, is a link "Projects" with an arrow pointing back; a mono 
 "<owner>/<name> · read <age> ago", from the list's `last_read_at`, or "· not read yet", with beside
 it, once the settings are read, a `Badge` naming the preset they match, "Fully automatic",
 "Guided", "Only I merge" or "Custom", see "Presets" under "Settings", the settings as last read or
-saved, never the form while it is edited; the repository's name as the page's title, in the heading
-font at `--text-display-size`; and, once the cards are read, one summary line in body large, such as
+saved, never the form while it is edited, and while the project is paused on its own a `Badge`
+"Paused" beside it; the repository's name as the page's title, in the heading
+font at `--text-display-size`; while paused, the line "Paused <date and time>. The run under way
+finishes; nothing new starts.", from the list's `paused_at`; and, once the cards are read, one summary line in body large, such as
 "9 cards: 2 being built, 2 need you, 2 queued, 3 done.", a group with none left out, or "No cards
 yet.", with on the right the stat pills "In progress", "Needs you" and "Done", the list "Cards by
-group", not shown on phone, where the line says the same. The line is counted in the page from its
+group", not shown on phone, where the line says the same. Under the pills, on the right and aligned
+to the header's bottom, and under the titles on phone, are the page's actions: a secondary "Pause",
+or once paused "Continue", `PUT /devflow/api/projects/{id}/paused`, and a ghost "Stop now" in the
+danger colour, which opens a destructive `Dialog`, "Stop <owner>/<name> now?", "This pauses the
+project and ends every run under way at once. Each run's work is kept on its branch.", and only once
+confirmed posts to `POST /devflow/api/projects/{id}/stop-now`, see "Pausing" under "Jobs". Each reads
+the project again once Dev flow answered; one that fails says why as an alert under them. The line is counted in the page from its
 cards, features' and those on their own, in the four groups the projects list's `summary` counts,
 `CARD_GROUPS` in `src/cards.tsx` written after `ProjectSummaries.Groups`, an ignored card in none.
 While the project is setting up its cards are not read, and neither shows. A project the caller
@@ -254,7 +277,9 @@ status "Running" while a worker was seen in the last ten minutes, else the `idle
 When the list's `held` says the project hands out no work, it shows first the `needs-you` status
 "No work" and, in the attention box, "No work is handed out until you give your Claude login on the
 Projects tab", or for `claude_login_expired` "No work is handed out: your Claude login is past its
-renewal. Give a new one on the Projects tab", see "Jobs"; when its `cannot_run` is set, the
+renewal. Give a new one on the Projects tab", for `paused` "No work is handed out: you paused it.
+Continue it at the top of this page" and for `all_paused` "No work is handed out: you paused
+everything. Continue everything on Running now", see "Jobs"; when its `cannot_run` is set, the
 `failed` status "Cannot run" and its text, see "Stops". Then how many workers have said hello, in
 thin numerals at `--text-num-l-size`, with "worker has said hello" or "workers have said hello"
 beside it, and the list "Workers", each an inset row, by when it first said hello: its name, in
@@ -620,7 +645,12 @@ A stream is the browser's `EventSource`, `src/events.ts`, which sends the sessio
 stream again by itself when it closes, and takes up a log from its `Last-Event-ID`. A stream it
 cannot open again, a `401` once the session's token has run out among them, has the list read once
 through `src/api/client.ts`, which refreshes the session, and is opened again 2 seconds later.
-"Pause everything" joins the tab with #454.
+The tab's header holds the package's `Switch` "Pause everything", "Nothing new starts in any
+project; runs under way finish.", on the right on a wide screen and across the column on phone,
+shown once `GET /devflow/api/paused` answered: on, it pauses every project of the owner, and off it
+continues them, `PUT /devflow/api/paused`, after which whether everything is paused and the list
+are read again; one that fails says so as a toast. While it is on, the strip under the heading
+says so on every tab, see above.
 
 ### Usage and history
 
@@ -1470,7 +1500,8 @@ and the origin check:
   for any of them.
 - `GET /devflow/api/projects` answers `{"projects": [...]}`, each as above, by owner and name, with
   `last_read_at`, when its last read that succeeded was, as the waiting list's `last_success_at`
-  says it, null before any, which a project's page puts in its caption, and its `summary`, which
+  says it, null before any, which a project's page puts in its caption; `paused_at`, when the owner
+  paused it, null while it is not paused on its own, which the page's header shows; and its `summary`, which
   the Projects tab draws each project's card from:
   `{"cards": {"needs_you", "in_progress", "queued", "done"}, "workers": {"count", "last_seen_at", "held", "cannot_run"}, "setting_up": {"done", "total"} | null, "feature": {"number", "title", "landed", "total"} | null}`.
   `cards` counts its cards by group, an ignored one in none; `workers` says how many have said
@@ -2094,7 +2125,7 @@ branch for five minutes, or never has; otherwise `None`. `jobs/next` answers `20
 of a held project: the `Dispatcher` reads the hold before it asks GitHub anything, and again with
 `WatchStore.HoldUnderLock` in the transaction that takes the card, after taking the project's row
 `FOR SHARE`, so a stop recorded meanwhile still holds the card back. The workers' route answers it
-as `held`, `stopped` or `unwatched`, ahead of the Claude login's reasons, and the project's page
+as `held`, `stopped` or `unwatched`, after the pauses and ahead of the Claude login's reasons, and the project's page
 says why under Workers. An unwatched project is not marked stopped, and hands out work again as
 soon as a read succeeds. A feature's branch not read for five minutes holds only that feature:
 `WatchStore.FeatureWatchedSql` keeps its cards from every job, build, review and fix, while the
@@ -2186,12 +2217,13 @@ The routes, in `WorkerEndpoints`:
   key at once. `404` for a project the caller does not have, another user's among
   them, and nothing is stored.
 - `GET /devflow/api/projects/{id}/workers`, the user's, answers
-  `{"key_made_at": "<time>" or null, "recipe_version": "<commit>" or null, "start_command": "…", "held": "stopped", "unwatched" or null, "workers": [{"id", "name", "recipe_version", "base_image", "first_seen_at", "last_seen_at", "rebuild"}]}`,
+  `{"key_made_at": "<time>" or null, "recipe_version": "<commit>" or null, "start_command": "…", "held": "all_paused", "paused", "stopped", "unwatched", "no_claude_login", "claude_login_expired" or null, "workers": [{"id", "name", "recipe_version", "base_image", "first_seen_at", "last_seen_at", "rebuild"}]}`,
   by when each worker first said hello: `recipe_version`, the project's recipe as Dev flow last
   read it, null before it has been or when the default branch has none; `start_command`, the
   command that builds and starts a worker; each worker's `rebuild`, `recipe`, `base_image` or
   null, see "Starting a worker"; and `held`, why no worker of the project is handed work, which the
-  project's page says, the first that applies: `stopped` or `unwatched`, see "Watching the default
+  project's page says, the first that applies: `all_paused` or `paused`, from `Pauses.PauseSql`, see
+  "Pausing" under "Jobs", then `stopped` or `unwatched`, see "Watching the default
   branch", then `no_claude_login` or `claude_login_expired`, see "Jobs", or null; and
   `cannot_run`, once six runs in a row have failed outside their cards, "Dev flow cannot run
   <project>'s cards: <the last reason>", until a run succeeds, or null, see "Stops". Never the key.
@@ -3055,25 +3087,28 @@ Running now reads too, see "Running now" below. It reads the project's situation
 in, and answers run, a wait with its `WaitReason`, or nothing to do. Its gates, in this order, the
 first that holds deciding, each with the sentence the page shows:
 
-1. `NeedsRebuild`, the worker needs a rebuild, see "Starting a worker": "Its worker needs building
+1. `AllPaused`, the owner paused every project, see "Pausing" below: "Everything is paused:
+   continue it", acted on by the switch on Running now, the same tab, so not linked.
+2. `Paused`, the owner paused the project: "Paused: continue it", on the project's page.
+3. `NeedsRebuild`, the worker needs a rebuild, see "Starting a worker": "Its worker needs building
    again".
-2. `ProjectStopped`, see "Watching branches": "The project is stopped: resume it", on the project's
+4. `ProjectStopped`, see "Watching branches": "The project is stopped: resume it", on the project's
    page.
-3. `Unwatched`, its default branch not read for 5 minutes: "Its default branch has not been read
+5. `Unwatched`, its default branch not read for 5 minutes: "Its default branch has not been read
    for 5 minutes".
-4. `CannotRun(until)`, the project's wait after failures outside its cards, see "Stops", unless the
+6. `CannotRun(until)`, the project's wait after failures outside its cards, see "Stops", unless the
    last was Claude's usage limit with a reset: "Dev flow cannot run its cards: <why>", on the
    project's page.
-5. `NeedsSetup`, the worker's setup version has no check that passed: "Its recipe is being checked"
+7. `NeedsSetup`, the worker's setup version has no check that passed: "Its recipe is being checked"
    while one runs, "It needs setting up" after one failed, and for a worker built from no recipe
    with no setup job to take. A check due is what runs here instead, since it runs no agent and so
    needs neither a Claude login nor room under the usage limit, see "Setting up a project".
-6. `NoClaudeLogin`, no Claude login, or one past `renew_by`; one due soon still works: "No Claude
+8. `NoClaudeLogin`, no Claude login, or one past `renew_by`; one due soon still works: "No Claude
    login" or "The Claude login has expired", in the settings.
-7. `UsageLimit(until)`, the project's wait when the last failure outside its cards was Claude's
+9. `UsageLimit(until)`, the project's wait when the last failure outside its cards was Claude's
    usage limit and its reset was believed, `until_reset` on `project_waits`: "At Claude's usage
    limit until <time>", in UTC until Dev flow's time zone is read.
-8. `NoWorker`, no worker of the project seen in the last 2 minutes, `RunStore.Silence`, the same 2
+10. `NoWorker`, no worker of the project seen in the last 2 minutes, `RunStore.Silence`, the same 2
    minutes a run is lost after: "No worker is running for <project>", on the project's page. The
    worker asking was just seen, so it never holds a job back, only the page.
 
@@ -3547,7 +3582,38 @@ review, a fix or a conflict, holds its feature where it is, "Stopped by you", wi
 `stopped_by_owner_at`: none of its jobs, its cards' included, is handed out and its readiness is not
 decided while it is set. A reading, a setup run or a check is put back as a lost one is, its cards
 or its setup handed out again, without the project's wait; keeping one from running is pausing the
-project, #454.
+project, below.
+
+**Pausing.** The owner pauses a project, or every project of his with one switch, and nothing new
+starts while the run under way finishes. A project's pause is `projects.paused_at`, null while it
+runs; everything paused is one row of `all_paused`, `(user_id, paused_at)`, guarded like every
+scoped table, laid over each project's own pause, so continuing everything leaves a project paused
+on its own paused. `Pauses` and `PauseEndpoints` in `src/DevFlow/Jobs/`. A pause holds every kind of
+job, a build, a review, a fix, a conflict, a feature's review and fix, a reading, a setup's jobs and
+the recipe's check: `RunDecision` reads them first, `AllPaused` and then `Paused`, before every other
+reason, and the dispatcher reads them again with `Pauses.HeldUnderLock` in the transaction that
+takes the work, after taking the project's row `FOR SHARE`, so a pause recorded while GitHub was
+asked still holds it back. A run under way finishes and its result is recorded as always; what
+follows it waits. Reading GitHub, opening a built card's pull request and marking go on, and so do
+the merge check and a feature's end, which read the watch's hold and never a pause. The routes, as
+the owner, under the `Api` policy and the origin check, through the door:
+
+- `PUT /devflow/api/projects/{id}/paused`, with `{"paused": true}` or `false`: `204`; `422` when
+  `paused` is missing; `404` for a project the caller does not have. Pausing what is paused, or
+  continuing what runs, is a `204` that changes nothing, `paused_at` kept.
+- `PUT /devflow/api/paused`, the same body, for everything: `204`, or `422`.
+- `GET /devflow/api/paused` answers `{"paused": bool, "paused_at": "<time>" or null}`.
+- `POST /devflow/api/projects/{id}/stop-now`, "Stop now" on a project: in one transaction as the
+  owner, it pauses the project first, its time kept when it already is, and then marks every run of
+  it under way to stop as stopping one run does, so each card lands "Stopped by you". Pausing first
+  takes the project's row, so a job handed out meanwhile is either held by the pause or committed
+  before it and among the runs marked. It answers `{"stopped": <runs told to stop>}`, a run marked
+  before among them, `0` with none under way, and `404` for a project the caller does not have. It
+  stops nothing of another project.
+
+The workers list's `held`, and with it the Projects tab's summary, answer `all_paused` and then
+`paused` ahead of `stopped`, see "Workers", and `GET /devflow/api/projects` gives each project its
+own `paused_at`.
 
 **A lost run.** Each read of a project, before it asks the code host anything, ends every run of it
 under way whose worker has sent nothing for 2 minutes: whose `last_heard_at`, the last post to its

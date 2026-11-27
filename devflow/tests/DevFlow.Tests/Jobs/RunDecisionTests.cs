@@ -46,6 +46,8 @@ public sealed class RunDecisionTests
     /// alone.</summary>
     private static readonly (string Gate, Func<ProjectSituation, ProjectSituation> Set, WaitReason Reason)[] Gates =
     [
+        ("all paused", s => s with { Pause = PauseHold.AllPaused }, new WaitReason.AllPaused()),
+        ("paused", s => s with { Pause = PauseHold.Paused }, new WaitReason.Paused()),
         ("rebuild", s => s with { NeedsRebuild = true }, new WaitReason.NeedsRebuild()),
         ("stopped", s => s with { Hold = ProjectHold.Stopped }, new WaitReason.ProjectStopped()),
         ("unwatched", s => s with { Hold = ProjectHold.Unwatched }, new WaitReason.Unwatched()),
@@ -255,6 +257,8 @@ public sealed class RunDecisionTests
         var reset = new DateTimeOffset(2026, 11, 17, 13, 0, 0, TimeSpan.Zero);
         var reasons = new (WaitReason Reason, string Sentence, ActedOn Where)[]
         {
+            (new WaitReason.AllPaused(), "Everything is paused: continue it", ActedOn.Nowhere),
+            (new WaitReason.Paused(), "Paused: continue it", ActedOn.ProjectPage),
             (new WaitReason.NeedsRebuild(), "Its worker needs building again", ActedOn.Nowhere),
             (new WaitReason.ProjectStopped(), "The project is stopped: resume it", ActedOn.ProjectPage),
             (new WaitReason.Unwatched(), "Its default branch has not been read for 5 minutes", ActedOn.Nowhere),

@@ -7472,3 +7472,105 @@ def test_tokens_per_day(
     for _ in range(3):
         page.keyboard.press("ArrowLeft")
     capture(page, "devflow-usage-per-day")
+
+
+PAUSED_LINE = "The run under way finishes; nothing new starts."
+EVERYTHING_PAUSED = "Everything is paused. Nothing new starts in any project."
+
+
+def _project_card(page: Page, full_name: str) -> Locator:
+    """The project's card on the Projects tab."""
+    return page.get_by_role("region", name="Projects").get_by_role(
+        "article", name=full_name
+    )
+
+
+def test_i_pause_a_project_and_continue_it(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    """On a project's page I pause it: Pause turns to Continue, the badge
+    Paused and its line show, and its card on the Projects tab says Paused;
+    Continue clears both. See "The pages" in devflow/README.md."""
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    add_issue(world, 7, "Show the plan's date in the header", labels=["devflow"])
+    _open_project(page, base_url, devflow_world, world)
+    project_page = page.url
+    _read(page, base_url, project_page.rsplit("/", 1)[1])
+    page.reload()
+    full_name = f"{OWNER}/Personal-platform"
+    header = page.locator("main header").filter(
+        has=page.get_by_role("heading", name="Personal-platform", exact=True)
+    )
+
+    header.get_by_role("button", name="Pause", exact=True).click()
+    expect(header.get_by_role("button", name="Continue", exact=True)).to_be_visible()
+    expect(header.get_by_text("Paused", exact=True)).to_be_visible()
+    expect(header.get_by_text(PAUSED_LINE, exact=False)).to_be_visible()
+    workers = page.get_by_role("article", name="Workers", exact=True)
+    expect(workers.get_by_text("you paused it", exact=False)).to_be_visible()
+    _looks_right(page)
+    capture(page, "devflow-project-paused")
+
+    # Its card says so, as a badge, not a banner: I paused it myself.
+    page.goto("/devflow/projects")
+    card = _project_card(page, full_name)
+    expect(card.get_by_text("Paused", exact=True)).to_be_visible()
+    expect(card.get_by_text("you paused it", exact=False)).to_have_count(0)
+
+    # Continue clears both.
+    page.goto(project_page)
+    header.get_by_role("button", name="Continue", exact=True).click()
+    expect(header.get_by_role("button", name="Pause", exact=True)).to_be_visible()
+    expect(header.get_by_text("Paused", exact=True)).to_have_count(0)
+    expect(header.get_by_text(PAUSED_LINE, exact=False)).to_have_count(0)
+    page.goto("/devflow/projects")
+    expect(_project_card(page, full_name)).to_be_visible()
+    expect(
+        _project_card(page, full_name).get_by_text("Paused", exact=True)
+    ).to_have_count(0)
+
+
+def test_i_pause_everything(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    """The switch on Running now pauses every project of mine and shows the
+    strip under the heading on every tab, Waiting for you among them;
+    Continue everything clears it. See "The pages" in devflow/README.md."""
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    add_issue(world, 7, "Show the plan's date in the header", labels=["devflow"])
+    _another_repository(world, FODR, "fodr", 12, "Dark mode")
+    _open_project(page, base_url, devflow_world, world)
+    _connect(page, base_url, FODR)
+
+    page.goto("/devflow/running")
+    switch = page.get_by_role("switch", name="Pause everything")
+    expect(switch).not_to_be_checked()
+    switch.click()
+    expect(switch).to_be_checked()
+    strip = page.locator("main > header").get_by_text(EVERYTHING_PAUSED)
+    expect(strip).to_be_visible()
+    # Next up says why fodr's card does not run.
+    next_up = page.get_by_role("table", name="Next up")
+    expect(
+        next_up.get_by_text("Everything is paused: continue it").filter(visible=True)
+    ).to_be_visible()
+
+    # Every project of mine is held, both of them.
+    listed = page.request.get("/devflow/api/projects").json()["projects"]
+    assert [each["summary"]["workers"]["held"] for each in listed] == [
+        "all_paused",
+        "all_paused",
+    ]
+    _looks_right(page)
+    capture(page, "devflow-everything-paused")
+
+    # The strip is on Waiting for you too, with Continue everything.
+    page.goto("/devflow")
+    expect(strip).to_be_visible()
+    page.get_by_role("button", name="Continue everything").click()
+    expect(strip).to_have_count(0)
+    page.goto("/devflow/running")
+    expect(page.get_by_role("switch", name="Pause everything")).not_to_be_checked()
+    expect(strip).to_have_count(0)

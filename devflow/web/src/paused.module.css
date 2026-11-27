@@ -1,0 +1,35 @@
+/* Everything paused: a strip under the page's heading, in the attention style
+ * of design/DESIGN.md, the needs you banner's soft amber fill and amber
+ * outline, as the fake mode's strip is, with its one action beside the words,
+ * wrapping under them on phone. Tokens only. */
+.strip {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2) var(--space-3);
+	margin-top: var(--space-3);
+	padding: var(--space-3) var(--space-4);
+	border: 1px solid var(--accent-border);
+	border-radius: var(--radius-md);
+	background: var(--accent-soft);
+}
+
+.words {
+	flex: 1 1 16rem;
+	min-width: 0;
+	margin: 0;
+	color: var(--accent-text);
+	font-size: var(--text-body-size);
+	line-height: var(--text-body-line);
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+/* Why continuing did not happen, on a line of its own. */
+.failed {
+	flex-basis: 100%;
+	margin: 0;
+	color: var(--danger);
+	font-size: var(--text-body-size);
+	line-height: var(--text-body-line);
+}

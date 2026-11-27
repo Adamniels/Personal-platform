@@ -154,6 +154,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/paused": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether every project of the caller is paused
+         * @description paused, whether the caller paused everything, and paused_at, when, null while not. Without a valid token, 401 with an empty body.
+         */
+        get: operations["getPaused"];
+        /**
+         * Pause every project of the caller, or continue them
+         * @description paused true pauses every project of the caller, laid over each project's own pause: nothing new starts in any of them, as a project's pause holds it. false continues them, and a project paused on its own stays paused. Pausing what is paused, or continuing what runs, changes nothing, the time it was paused kept. 204; 422 when paused is missing. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        put: operations["pauseEverything"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/projects": {
         parameters: {
             query?: never;
@@ -163,7 +187,7 @@ export interface paths {
         };
         /**
          * The caller's projects
-         * @description Each connected repository, by owner and name, with last_read_at, when its last read that succeeded was, null before any, and its summary, computed from what Dev flow stored: cards, its cards counted by group, needs_you (needs_answers, waiting_for_owner, stopped and refused), in_progress (reading, building, checking, reviewing and fixing), queued (queued and held) and done, an ignored card in none; workers, how many have said hello, last_seen_at, when the one seen last was seen, null with none, and held and cannot_run, the values listWorkers answers; setting_up, its setup steps done of total, six, while its state is setting_up, null once it is registered; and feature, its open feature, neither merged, closed nor ignored, with the most cards landed, the lowest number among equals, its number, title, landed, its cards in done, and total, its cards but an ignored one, null with none open. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description Each connected repository, by owner and name, with last_read_at, when its last read that succeeded was, null before any; paused_at, when the caller paused it, null while it is not paused on its own, a pause of everything being in held; and its summary, computed from what Dev flow stored: cards, its cards counted by group, needs_you (needs_answers, waiting_for_owner, stopped and refused), in_progress (reading, building, checking, reviewing and fixing), queued (queued and held) and done, an ignored card in none; workers, how many have said hello, last_seen_at, when the one seen last was seen, null with none, and held and cannot_run, the values listWorkers answers; setting_up, its setup steps done of total, six, while its state is setting_up, null once it is registered; and feature, its open feature, neither merged, closed nor ignored, with the most cards landed, the lowest number among equals, its number, title, landed, its cards in done, and total, its cards but an ignored one, null with none open. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         get: operations["listProjects"];
         put?: never;
@@ -462,6 +486,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/projects/{id}/paused": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Pause a project, or continue it, as the caller
+         * @description paused true pauses the project: no job of it is handed out, of any kind, a setup's and a check among them, until it is continued; a run under way finishes and its result is recorded as always, and reading GitHub goes on. false continues it. Pausing what is paused, or continuing what runs, changes nothing, the time it was paused kept. 204. In order: 422 when paused is missing; 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        put: operations["pauseProject"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/projects/{id}/refresh": {
         parameters: {
             query?: never;
@@ -706,6 +750,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/projects/{id}/stop-now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pause a project and stop every run of it under way, as the caller
+         * @description Pauses the project, as pauseProject does, and then, in the same transaction, marks every run of it under way to stop, as stopRun marks one: each worker's next post to its run's log, at most 15 seconds later, is answered stop, it keeps what a pushing job did on its branch, and the run is recorded stopped_by_owner, its card "Stopped by you". Nothing of another project is stopped. stopped, how many runs were marked, a run marked before among them; 0 with none under way, and the project is paused all the same. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["stopProjectNow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/projects/{id}/values": {
         parameters: {
             query?: never;
@@ -779,7 +843,7 @@ export interface paths {
         };
         /**
          * The project's workers
-         * @description Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; start_command, the command that builds and starts the project's worker; and held, why the project hands out no work whichever worker asks, the first that applies: stopped, when something landed on its default branch that Dev flow did not put there, unwatched, when its default branch has not been read for five minutes, no_claude_login when its user has given no Claude login, claude_login_expired when it is past its renewal, or null; and cannot_run, once six runs in a row have failed outside their cards, "Dev flow cannot run <project>'s cards: <the last reason>", until a run succeeds, or null. The key itself is never in it. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; start_command, the command that builds and starts the project's worker; and held, why the project hands out no work whichever worker asks, the first that applies: all_paused, when the caller paused everything, paused, when the caller paused the project, stopped, when something landed on its default branch that Dev flow did not put there, unwatched, when its default branch has not been read for five minutes, no_claude_login when its user has given no Claude login, claude_login_expired when it is past its renewal, or null; and cannot_run, once six runs in a row have failed outside their cards, "Dev flow cannot run <project>'s cards: <the last reason>", until a run succeeds, or null. The key itself is never in it. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         get: operations["listWorkers"];
         put?: never;
@@ -1114,6 +1178,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AllPausedState: {
+            paused: boolean;
+            /** Format: date-time */
+            paused_at: null | string;
+        };
         AnswersRequest: {
             answers: null | components["schemas"]["GivenAnswer"][];
             /** Format: uuid */
@@ -1699,6 +1768,8 @@ export interface components {
             last_read_at: null | string;
             name: string;
             owner: string;
+            /** Format: date-time */
+            paused_at: null | string;
             /** Format: int64 */
             repository_id: number;
             summary: components["schemas"]["ProjectSummary"];
@@ -1774,6 +1845,9 @@ export interface components {
             alternative: null | string;
             chosen: string;
             why: null | string;
+        };
+        PauseRequest: {
+            paused: null | boolean;
         };
         ProblemDetails: {
             detail?: null | string;
@@ -2209,6 +2283,10 @@ export interface components {
             event_id?: null | string;
             event_type?: null | string;
             reconnection_interval?: null | string;
+        };
+        StopNowAnswer: {
+            /** Format: int32 */
+            stopped: number;
         };
         StoppedCard: {
             /** Format: int32 */
@@ -2760,6 +2838,71 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    getPaused: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AllPausedState"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    pauseEverything: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PauseRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
                 };
             };
         };
@@ -3655,6 +3798,55 @@ export interface operations {
             };
         };
     };
+    pauseProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PauseRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
     refreshProject: {
         parameters: {
             query?: never;
@@ -4277,6 +4469,44 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    stopProjectNow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StopNowAnswer"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

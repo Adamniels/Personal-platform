@@ -177,8 +177,8 @@ public sealed class ProjectStore(UserDb database, UserTokens tokens, ICodeHost h
     /// <summary>
     /// The user's projects, by owner and name, each with its summary, under row level security:
     /// the projects with their workers' health, the cards counted by group and the open features,
-    /// one query each in one transaction. <c>held</c> is the workers list's, the project's hold and
-    /// then the user's Claude login, and <c>cannot_run</c> its too; setting up is
+    /// one query each in one transaction. <c>held</c> is the workers list's, the pauses, the project's
+    /// hold and then the user's Claude login, and <c>cannot_run</c> its too; setting up is
     /// <see cref="SetupStore.Of"/>, asked only for a project not registered, since its values step
     /// is worked out from the newest setup report in C#. See "Projects" in
     /// devflow/docs/devflow-architecture.md.
@@ -192,7 +192,8 @@ public sealed class ProjectStore(UserDb database, UserTokens tokens, ICodeHost h
                 SELECT p.id AS Id, p.installation_id AS InstallationId, p.repository_id AS RepositoryId, p.owner AS Owner, p.name AS Name, p.created_at AS CreatedAt,
                        (SELECT count(*)::int FROM workers w WHERE w.project_id = p.id) AS Workers,
                        (SELECT max(w.last_seen_at) FROM workers w WHERE w.project_id = p.id) AS LastSeenAt,
-                       {WatchStore.HoldSql} AS Held,
+                       coalesce({Jobs.Pauses.PauseSql}, {WatchStore.HoldSql}) AS Held,
+                       p.paused_at AS PausedAt,
                        {ProjectWaits.CannotRunReasonSql} AS CannotRunReason,
                        {SetupStore.RegisteredSql} AS Registered,
                        (SELECT r.last_success_at FROM project_reads r WHERE r.project_id = p.id) AS LastReadAt
@@ -269,6 +270,7 @@ public sealed class ProjectStore(UserDb database, UserTokens tokens, ICodeHost h
                 row.CannotRunReason is { } reason ? ProjectWaits.CannotRun(row.Name, reason) : null);
             listed.Add(new ListedProject(row.Id, row.InstallationId, row.RepositoryId, row.Owner, row.Name, GitHubLink.Utc(row.CreatedAt),
                 row.LastReadAt is { } read ? GitHubLink.Utc(read) : null,
+                row.PausedAt is { } paused ? GitHubLink.Utc(paused) : null,
                 new ProjectSummary(counts, workers, settingUp, feature)));
         }
 
@@ -299,7 +301,7 @@ public sealed class ProjectStore(UserDb database, UserTokens tokens, ICodeHost h
     };
 
     private sealed record Row(Guid Id, long InstallationId, long RepositoryId, string Owner, string Name, DateTime CreatedAt,
-        int Workers, DateTime? LastSeenAt, string? Held, string? CannotRunReason, bool Registered, DateTime? LastReadAt);
+        int Workers, DateTime? LastSeenAt, string? Held, DateTime? PausedAt, string? CannotRunReason, bool Registered, DateTime? LastReadAt);
 
     private sealed record CountsRow(Guid ProjectId, int NeedsYou, int InProgress, int Queued, int Done);
 

@@ -1,5 +1,9 @@
 import { EmptyState, Tab, TabPanel, Tabs, ToastProvider } from "@platform/ui";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	QueryClient,
+	QueryClientProvider,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import type { ActionsApi } from "./actions";
 import { navigate, usePathname } from "./address";
@@ -16,12 +20,13 @@ import {
 import { openEvents } from "./events";
 import { type FeatureApi, FeaturePage } from "./feature";
 import type { FeatureMergeApi } from "./feature-merge";
+import { PAUSED, PausedStrip, type PausesApi, usePaused } from "./paused";
 import { type ProjectApi, ProjectPage } from "./project";
 import { type Project, Projects, type ProjectsApi } from "./projects";
 import { GitHubLink } from "./projects-link";
 import type { RunAgainApi } from "./run-again";
 import type { LoadRunLog } from "./run-log";
-import { Running, type RunningApi, useRunning } from "./running";
+import { RUNNING, Running, type RunningApi, useRunning } from "./running";
 import {
 	cardAt,
 	featureAt,
@@ -42,6 +47,8 @@ import { type Period, Usage, type UsageApi } from "./usage";
 import { useWaiting, Waiting, type WaitingApi } from "./waiting";
 
 const client = createClient();
+
+export type { PausesApi };
 
 export type AppProps = {
 	/** How the status is read, the service's by default; a test passes its
@@ -78,6 +85,9 @@ export type AppProps = {
 	/** How Usage and history reads what was used, the service's by default;
 	 * a test passes its own. */
 	usage?: UsageApi;
+	/** How whether everything is paused is read and changed, the service's
+	 * by default; a test passes its own. */
+	pauses?: PausesApi;
 	/** The time, in milliseconds since the epoch, the page says how old the
 	 * picture is by, and counts a run's time to; a test passes its own. */
 	now?: () => number;
@@ -108,6 +118,18 @@ const projectApi: ProjectApi = {
 			"POST",
 			`/projects/${encodeURIComponent(id)}/worker-key`,
 		),
+	pauseProject: async (id, paused) => {
+		await client.send("PUT", `/projects/${encodeURIComponent(id)}/paused`, {
+			paused,
+		});
+	},
+	stopNow: async (id) =>
+		(
+			await client.send<components["schemas"]["StopNowAnswer"]>(
+				"POST",
+				`/projects/${encodeURIComponent(id)}/stop-now`,
+			)
+		).stopped,
 	loadSettings: (id) =>
 		client.get(
 			`/projects/${encodeURIComponent(id)}/settings` as "/projects/{id}/settings",
@@ -311,6 +333,14 @@ const waitingApi: WaitingApi = {
 	},
 };
 
+/** Whether everything is paused, through Dev flow's API. */
+const pausesApi: PausesApi = {
+	loadPaused: () => client.get("/paused"),
+	pauseAll: async (paused) => {
+		await client.send("PUT", "/paused", { paused });
+	},
+};
+
 /** Usage and history, through Dev flow's API. */
 const usageApi: UsageApi = {
 	loadUsage: (period: Period) =>
@@ -414,6 +444,7 @@ function Frame({
 	feature = featureApi,
 	running = runningApi,
 	usage = usageApi,
+	pauses = pausesApi,
 	now = Date.now,
 }: AppProps) {
 	const pathname = usePathname();
@@ -436,6 +467,17 @@ function Frame({
 	// The busy workers, on Running now's tab once there is one.
 	const runs = useRunning(running.loadRunning);
 	const busy = runs.data?.busy_workers || undefined;
+	// Whether everything is paused: the strip under the heading on every tab,
+	// and the switch on Running now, read once for both.
+	const queries = useQueryClient();
+	const paused = usePaused(pauses.loadPaused);
+	const pauseAll = async (value: boolean) => {
+		await pauses.pauseAll(value);
+		await Promise.all([
+			queries.invalidateQueries({ queryKey: PAUSED }),
+			queries.invalidateQueries({ queryKey: RUNNING }),
+		]);
+	};
 	// Read once: the return from the code host sends the browser here with
 	// ?link=failed when it did not link.
 	const [failed] = useState(
@@ -450,6 +492,7 @@ function Frame({
 				<p className={styles.lede}>
 					What your agents built, and what waits for you.
 				</p>
+				<PausedStrip paused={paused.data} continueAll={() => pauseAll(false)} />
 			</header>
 			<Tabs
 				label="Dev flow sections"
@@ -491,6 +534,8 @@ function Frame({
 								list={runs.data}
 								failed={runs.isError}
 								now={now}
+								paused={paused.data?.paused}
+								pauseAll={pauseAll}
 								{...running}
 							/>
 						) : section.key === "usage" ? (

@@ -10,8 +10,10 @@ namespace DevFlow.Projects;
 /// <param name="CreatedAt">When it was connected.</param>
 /// <param name="LastReadAt">When it was last read, the last read that succeeded, as the waiting
 /// list's freshness says it in <c>last_success_at</c>; null before any.</param>
+/// <param name="PausedAt">When its owner paused it, null while it is not paused on its own; a
+/// pause of everything is not here, but in <see cref="WorkersHealth.Held"/>.</param>
 /// <param name="Summary">How it is doing, computed as it is listed.</param>
-public sealed record ListedProject(Guid Id, long InstallationId, long RepositoryId, string Owner, string Name, DateTimeOffset CreatedAt, DateTimeOffset? LastReadAt, ProjectSummary Summary);
+public sealed record ListedProject(Guid Id, long InstallationId, long RepositoryId, string Owner, string Name, DateTimeOffset CreatedAt, DateTimeOffset? LastReadAt, DateTimeOffset? PausedAt, ProjectSummary Summary);
 
 /// <summary>How a project is doing, for its card on the Projects tab, computed from what Dev flow
 /// stored and never stored itself. See "Projects" in devflow/docs/devflow-architecture.md.</summary>
@@ -30,7 +32,7 @@ public sealed record CardCounts(int NeedsYou, int InProgress, int Queued, int Do
 /// <param name="Count">How many workers have said hello with its key.</param>
 /// <param name="LastSeenAt">When the one seen last was seen, null with none.</param>
 /// <param name="Held">Why it hands out no work, the same value the workers list answers:
-/// <c>stopped</c>, <c>unwatched</c>, <c>no_claude_login</c> or <c>claude_login_expired</c>; null
+/// <c>all_paused</c>, <c>paused</c>, <c>stopped</c>, <c>unwatched</c>, <c>no_claude_login</c> or <c>claude_login_expired</c>; null
 /// when work is handed out.</param>
 /// <param name="CannotRun">What the workers list says once six runs in a row failed outside their
 /// cards, null otherwise.</param>

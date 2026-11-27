@@ -986,6 +986,20 @@ no longer holds it, where the dispatcher before held every job; a network failur
 the check needs the network as much as a build. What a job needs from the code host is read after
 the rule has answered run, as before, since it is a question for GitHub and not for the database.
 
+**The pauses are the rule's first reasons.** The owner pausing a project, or everything, is the
+strongest thing he can say about it, so it comes before every reason that existed before it:
+everything paused, then the project's own pause, then a rebuild and the rest. Ahead of a stop, since
+a project both paused and stopped by a commit is held by his own word first, and the stop still
+waits for him under "Waiting for you"; ahead of the setup's check too, since a check is a job a
+worker runs, and a pause that let it through would not be one. Everything paused is its own table
+rather than a mark written on each project, so continuing it leaves a project he paused on its own
+paused, and a project connected while everything is paused is paused from the start. A pause is
+its own SQL fragment, `Pauses.PauseSql`, and not part of the watch's `HoldSql`, which the merge
+check and a feature's end read as well: a pause holds the jobs that spend his usage, and leaves
+merging what is approved, reading GitHub and opening pull requests going, since none of them
+starts a run. The dispatcher reads the pauses again under the project's row lock, as it reads the
+watch's hold, so a pause recorded while GitHub was asked still holds the work back.
+
 **Nothing is read from GitHub under the lock.** What a job needs from the code host, the default
 branch, `.devflow/project.json`'s check, the clone address, the committer and a push key, is read
 first, and only then is the card taken, in a transaction that holds its row for a few statements.
@@ -2188,6 +2202,14 @@ stopped it. A feature's own run is held rather than stopped, since a feature nev
 everything of the feature waits with it, its cards' builds included, so nothing builds on a branch
 the owner just stopped work on. A reading, a setup or a check has nothing to resume from, so it is
 put back as a lost one is; keeping one from running is pausing the project.
+
+**"Stop now" on a project pauses it first, then stops its runs, in one transaction.** Stopping
+every run without pausing would hand the next job to the first worker that asks a moment later,
+and he asked for the project to stop. The order matters too: writing the pause takes the project's
+row, which the dispatcher takes `FOR SHARE` before it takes any work, so a job being handed out at
+that moment either waits and then sees the pause, or committed first and is a run under way that
+the second statement marks. Each run is marked as stopping one marks it, so each lands as one he
+stopped, "Stopped by you", with nothing counted; it stops nothing of another project.
 
 **The usage limit's reset is read from the text Claude Code prints.** Its JSON answer has no field
 for it, and the exact `resetsAt` is in a streamed event the worker's format never prints, so the

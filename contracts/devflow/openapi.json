@@ -1,6 +1,25 @@
 {
   "components": {
     "schemas": {
+      "AllPausedState": {
+        "properties": {
+          "paused": {
+            "type": "boolean"
+          },
+          "paused_at": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "paused",
+          "paused_at"
+        ],
+        "type": "object"
+      },
       "AnswersRequest": {
         "properties": {
           "answers": {
@@ -2396,6 +2415,13 @@
           "owner": {
             "type": "string"
           },
+          "paused_at": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "repository_id": {
             "format": "int64",
             "type": "integer"
@@ -2412,6 +2438,7 @@
           "name",
           "created_at",
           "last_read_at",
+          "paused_at",
           "summary"
         ],
         "type": "object"
@@ -2710,6 +2737,20 @@
           "chosen",
           "alternative",
           "why"
+        ],
+        "type": "object"
+      },
+      "PauseRequest": {
+        "properties": {
+          "paused": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        },
+        "required": [
+          "paused"
         ],
         "type": "object"
       },
@@ -4579,6 +4620,18 @@
         },
         "type": "object"
       },
+      "StopNowAnswer": {
+        "properties": {
+          "stopped": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stopped"
+        ],
+        "type": "object"
+      },
       "StoppedCard": {
         "properties": {
           "feature_number": {
@@ -5655,9 +5708,70 @@
         ]
       }
     },
+    "/devflow/api/paused": {
+      "get": {
+        "description": "paused, whether the caller paused everything, and paused_at, when, null while not. Without a valid token, 401 with an empty body.",
+        "operationId": "getPaused",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllPausedState"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "Whether every project of the caller is paused",
+        "tags": [
+          "DevFlow"
+        ]
+      },
+      "put": {
+        "description": "paused true pauses every project of the caller, laid over each project's own pause: nothing new starts in any of them, as a project's pause holds it. false continues them, and a project paused on its own stays paused. Pausing what is paused, or continuing what runs, changes nothing, the time it was paused kept. 204; 422 when paused is missing. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "operationId": "pauseEverything",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PauseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Pause every project of the caller, or continue them",
+        "tags": [
+          "PauseEndpoints"
+        ]
+      }
+    },
     "/devflow/api/projects": {
       "get": {
-        "description": "Each connected repository, by owner and name, with last_read_at, when its last read that succeeded was, null before any, and its summary, computed from what Dev flow stored: cards, its cards counted by group, needs_you (needs_answers, waiting_for_owner, stopped and refused), in_progress (reading, building, checking, reviewing and fixing), queued (queued and held) and done, an ignored card in none; workers, how many have said hello, last_seen_at, when the one seen last was seen, null with none, and held and cannot_run, the values listWorkers answers; setting_up, its setup steps done of total, six, while its state is setting_up, null once it is registered; and feature, its open feature, neither merged, closed nor ignored, with the most cards landed, the lowest number among equals, its number, title, landed, its cards in done, and total, its cards but an ignored one, null with none open. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "description": "Each connected repository, by owner and name, with last_read_at, when its last read that succeeded was, null before any; paused_at, when the caller paused it, null while it is not paused on its own, a pause of everything being in held; and its summary, computed from what Dev flow stored: cards, its cards counted by group, needs_you (needs_answers, waiting_for_owner, stopped and refused), in_progress (reading, building, checking, reviewing and fixing), queued (queued and held) and done, an ignored card in none; workers, how many have said hello, last_seen_at, when the one seen last was seen, null with none, and held and cannot_run, the values listWorkers answers; setting_up, its setup steps done of total, six, while its state is setting_up, null once it is registered; and feature, its open feature, neither merged, closed nor ignored, with the most cards landed, the lowest number among equals, its number, title, landed, its cards in done, and total, its cards but an ignored one, null with none open. Without a valid token, 401 with an empty body; a change from another origin, 403.",
         "operationId": "listProjects",
         "responses": {
           "200": {
@@ -6819,6 +6933,65 @@
         ]
       }
     },
+    "/devflow/api/projects/{id}/paused": {
+      "put": {
+        "description": "paused true pauses the project: no job of it is handed out, of any kind, a setup's and a check among them, until it is continued; a run under way finishes and its result is recorded as always, and reading GitHub goes on. false continues it. Pausing what is paused, or continuing what runs, changes nothing, the time it was paused kept. 204. In order: 422 when paused is missing; 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "operationId": "pauseProject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PauseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Pause a project, or continue it, as the caller",
+        "tags": [
+          "PauseEndpoints"
+        ]
+      }
+    },
     "/devflow/api/projects/{id}/refresh": {
       "post": {
         "description": "204 once it has been read, whether or not GitHub answered, which the list then says; 202 when the read is still under way after 10 seconds, and it goes on. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.",
@@ -7601,6 +7774,52 @@
         ]
       }
     },
+    "/devflow/api/projects/{id}/stop-now": {
+      "post": {
+        "description": "Pauses the project, as pauseProject does, and then, in the same transaction, marks every run of it under way to stop, as stopRun marks one: each worker's next post to its run's log, at most 15 seconds later, is answered stop, it keeps what a pushing job did on its branch, and the run is recorded stopped_by_owner, its card \"Stopped by you\". Nothing of another project is stopped. stopped, how many runs were marked, a run marked before among them; 0 with none under way, and the project is paused all the same. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "operationId": "stopProjectNow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StopNowAnswer"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "Pause a project and stop every run of it under way, as the caller",
+        "tags": [
+          "PauseEndpoints"
+        ]
+      }
+    },
     "/devflow/api/projects/{id}/values": {
       "get": {
         "description": "values, each name the project's newest setup run that succeeded listed, in its order, then every other name the caller gave, by name: its name; why, what needs it as the setup said, or null for one it did not list; asked, whether it listed it; set_at, when the caller last gave it, or null while it has none; and problem, why a listed name cannot be given, or null. Never a value. done, whether every listed name that can be given has a value, true when none is listed. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.",
@@ -7807,7 +8026,7 @@
     },
     "/devflow/api/projects/{id}/workers": {
       "get": {
-        "description": "Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; start_command, the command that builds and starts the project's worker; and held, why the project hands out no work whichever worker asks, the first that applies: stopped, when something landed on its default branch that Dev flow did not put there, unwatched, when its default branch has not been read for five minutes, no_claude_login when its user has given no Claude login, claude_login_expired when it is past its renewal, or null; and cannot_run, once six runs in a row have failed outside their cards, \"Dev flow cannot run <project>'s cards: <the last reason>\", until a run succeeds, or null. The key itself is never in it. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "description": "Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; start_command, the command that builds and starts the project's worker; and held, why the project hands out no work whichever worker asks, the first that applies: all_paused, when the caller paused everything, paused, when the caller paused the project, stopped, when something landed on its default branch that Dev flow did not put there, unwatched, when its default branch has not been read for five minutes, no_claude_login when its user has given no Claude login, claude_login_expired when it is past its renewal, or null; and cannot_run, once six runs in a row have failed outside their cards, \"Dev flow cannot run <project>'s cards: <the last reason>\", until a run succeeds, or null. The key itself is never in it. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.",
         "operationId": "listWorkers",
         "parameters": [
           {
@@ -8701,6 +8920,9 @@
     },
     {
       "name": "StopEndpoints"
+    },
+    {
+      "name": "PauseEndpoints"
     },
     {
       "name": "UsageEndpoints"

@@ -123,12 +123,13 @@ public sealed class ConnectTests
             created));
 
         // Listed, and stored with the code host's owner and name, GitHub as its code host and the
-        // runner's bot as whose pull requests are read. It was never read, and its summary is a new
+        // runner's bot as whose pull requests are read. It was never read nor paused, and its summary is a new
         // project's: no card, no worker, its default branch never read, and only the values step
         // done of its setup, since no setup run has listed any.
         var listed = await Json(await linking.App.Get(ProjectsPath, Contract.Token));
         var expected = created.DeepClone().AsObject();
         expected["last_read_at"] = null;
+        expected["paused_at"] = null;
         expected["summary"] = JsonNode.Parse("""
             {
               "cards": {"needs_you": 0, "in_progress": 0, "queued": 0, "done": 0},

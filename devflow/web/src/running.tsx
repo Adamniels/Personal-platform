@@ -1,4 +1,4 @@
-// The "Running now" tab: a panel for each run under way of the owner's projects, oldest first, with
+// The "Running now" tab: in its header the switch that pauses everything; a panel for each run under way of the owner's projects, oldest first, with
 // its card, what it is doing, how long and how many tokens so far, the agent's log as it happens,
 // and "Stop now"; and under the panels "Next up", the cards that come next, each with why it is not
 // running yet. The list comes from GET /devflow/api/running and then its stream, the log of each
@@ -10,6 +10,7 @@ import {
 	Dialog,
 	EmptyState,
 	Status,
+	Switch,
 	Table,
 	type TableColumn,
 	useToast,
@@ -85,31 +86,48 @@ export type RunningProps = RunningApi & {
 	/** The time, in milliseconds since the epoch, a run's time is counted
 	 * to. */
 	now: () => number;
+	/** Whether everything is paused, undefined before the page knows. */
+	paused?: boolean;
+	/** Pauses everything, or continues it. */
+	pauseAll?: (paused: boolean) => Promise<void>;
 };
 
-/** The tab: its stream open while it shows, and a panel per run. */
+/** The tab: its stream open while it shows, the switch in its header, and a
+ * panel per run. */
 export function Running({
 	list,
 	failed,
 	now,
 	stopRun,
 	openEvents,
+	paused,
+	pauseAll,
 }: RunningProps) {
 	const queries = useQueryClient();
 	useListStream(openEvents, queries);
 	const at = useTicking(now);
+	const header =
+		paused === undefined || pauseAll === undefined ? null : (
+			<PauseSwitch paused={paused} pauseAll={pauseAll} />
+		);
 
 	if (!list) {
-		return failed ? (
-			<EmptyState
-				title="Running now could not be read"
-				detail="Dev flow did not answer. The page asks again by itself."
-			/>
-		) : null;
+		return (
+			<div className={styles.running}>
+				{header}
+				{failed ? (
+					<EmptyState
+						title="Running now could not be read"
+						detail="Dev flow did not answer. The page asks again by itself."
+					/>
+				) : null}
+			</div>
+		);
 	}
 
 	return (
 		<div className={styles.running}>
+			{header}
 			{list.runs.length === 0 ? (
 				<EmptyState
 					title="Nothing is running"
@@ -132,6 +150,44 @@ export function Running({
 			)}
 			<NextUp cards={list.next} more={list.next_more} />
 		</div>
+	);
+}
+
+/** The tab's header: "Pause everything", a switch that pauses every project
+ * of the owner, or continues them. While it is on, the strip under the page's
+ * heading says so on every tab. */
+function PauseSwitch({
+	paused,
+	pauseAll,
+}: {
+	paused: boolean;
+	pauseAll: (paused: boolean) => Promise<void>;
+}) {
+	const toast = useToast();
+	const [busy, setBusy] = useState(false);
+	return (
+		<header className={styles.tabHeader}>
+			<Switch
+				className={styles.pauseAll}
+				label="Pause everything"
+				help="Nothing new starts in any project; runs under way finish."
+				checked={paused}
+				disabled={busy}
+				onChange={async (event) => {
+					const value = event.currentTarget.checked;
+					setBusy(true);
+					try {
+						await pauseAll(value);
+					} catch (error) {
+						toast.error(
+							`Could not ${value ? "pause" : "continue"} everything: ${describe(error)}`,
+						);
+					} finally {
+						setBusy(false);
+					}
+				}}
+			/>
+		</header>
 	);
 }
 

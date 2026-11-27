@@ -40,6 +40,20 @@ public abstract record WaitReason
     /// <summary>Where it is acted on.</summary>
     public virtual ActedOn Where => ActedOn.Nowhere;
 
+    /// <summary>Every project of the user is paused, by the switch on "Running now".</summary>
+    public sealed record AllPaused : WaitReason
+    {
+        public override string Sentence => "Everything is paused: continue it";
+    }
+
+    /// <summary>The owner paused the project.</summary>
+    public sealed record Paused : WaitReason
+    {
+        public override string Sentence => "Paused: continue it";
+
+        public override ActedOn Where => ActedOn.ProjectPage;
+    }
+
     /// <summary>The worker asking is built from an older recipe or another base image.</summary>
     public sealed record NeedsRebuild : WaitReason
     {
@@ -180,6 +194,7 @@ public enum SetupGate
 /// with none.</param>
 /// <param name="Version">The worker's setup version.</param>
 /// <param name="Now">When it was read.</param>
+/// <param name="Pause">Whether the project is paused, on its own or with everything.</param>
 public sealed record ProjectSituation(
     string Project,
     bool NeedsRebuild,
@@ -191,7 +206,8 @@ public sealed record ProjectSituation(
     bool WorkerSeen,
     string? NextKind,
     string Version,
-    DateTimeOffset Now);
+    DateTimeOffset Now,
+    PauseHold Pause = PauseHold.None);
 
 /// <summary>A card's decision, and the kind of job due for it, null for one that waits for another
 /// card with none due.</summary>
@@ -206,7 +222,8 @@ public static class RunDecision
 {
     /// <summary>
     /// The project's decision for its situation, its gates in the order the dispatcher meets them:
-    /// the worker asking needs a rebuild; the project is stopped, or its default branch not read
+    /// everything is paused, then the project is, before any other, since they hold every kind of
+    /// job, the setup's and the check among them; the worker asking needs a rebuild; the project is stopped, or its default branch not read
     /// lately; it waits after failures outside its cards, other than a usage limit; the worker's
     /// setup version has no check that passed, when a check due is what runs, since it runs no agent
     /// and needs no Claude login, once a worker of the project was seen lately; no Claude login, or
@@ -217,6 +234,14 @@ public static class RunDecision
     {
         ArgumentNullException.ThrowIfNull(situation);
         var wait = situation.Wait is { } counted && counted.WaitUntil > situation.Now ? counted : null;
+        switch (situation.Pause)
+        {
+            case PauseHold.AllPaused:
+                return new Decision.Wait(new WaitReason.AllPaused());
+            case PauseHold.Paused:
+                return new Decision.Wait(new WaitReason.Paused());
+        }
+
         if (situation.NeedsRebuild)
         {
             return new Decision.Wait(new WaitReason.NeedsRebuild());
@@ -285,7 +310,7 @@ public static class RunDecision
     /// <summary>
     /// The project's situation for <paramref name="workerId"/> at <paramref name="now"/>, in one
     /// query as the project's user, from the fragments each gate is kept in:
-    /// <see cref="Workers.WorkerStore.RebuildSql"/> with <paramref name="image"/>,
+    /// <see cref="Pauses.PauseSql"/>, <see cref="Workers.WorkerStore.RebuildSql"/> with <paramref name="image"/>,
     /// <see cref="WatchStore.HoldSql"/>, the project's wait, the worker's setup version by
     /// <see cref="Setup.SetupStore"/>'s checks, the setup's and the cards' next kind, the user's
     /// Claude login and whether any worker was seen within <see cref="RunStore.Silence"/>. Null when
@@ -314,6 +339,7 @@ public static class RunDecision
         var row = await database.InUserTransaction(userId, transaction => transaction.Connection!.QuerySingleOrDefaultAsync<SituationRow>(new CommandDefinition(
             $"""
             SELECT p.name AS Project,
+                   {Pauses.PauseSql} AS Pause,
                    {Workers.WorkerStore.RebuildSql},
                    {WatchStore.HoldSql} AS Hold,
                    pw.failures AS Failures, pw.reason AS Reason, pw.since AS Since, pw.wait_until AS WaitUntil, pw.until_reset AS UntilReset,
@@ -352,7 +378,7 @@ public static class RunDecision
         var wait = row.Failures is { } failures
             ? new ProjectWait(failures, row.Reason!, Utc(row.Since!.Value), Utc(row.WaitUntil!.Value), row.UntilReset ?? false)
             : null;
-        return new ProjectSituation(row.Project, row.Rebuild is not null, WatchStore.Read(row.Hold), wait, setup, row.SetupKind, login, row.WorkerSeen, row.NextKind, row.Version, now);
+        return new ProjectSituation(row.Project, row.Rebuild is not null, WatchStore.Read(row.Hold), wait, setup, row.SetupKind, login, row.WorkerSeen, row.NextKind, row.Version, now, Pauses.Read(row.Pause));
     }
 
     private static DateTimeOffset Utc(DateTime at) => new(DateTime.SpecifyKind(at, DateTimeKind.Utc));
@@ -360,6 +386,8 @@ public static class RunDecision
     private sealed class SituationRow
     {
         public string Project { get; init; } = "";
+
+        public string? Pause { get; init; }
 
         public string? Rebuild { get; init; }
 
