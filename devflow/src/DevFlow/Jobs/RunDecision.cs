@@ -365,7 +365,134 @@ public static class RunDecision
         public bool WorkerSeen { get; init; }
     }
 
-    /// <summary>Each card waiting to run and its decision, in the order they are handed out.</summary>
-    public static Task<IReadOnlyList<CardDecision>> Cards(UserDb database, Guid userId, Guid projectId, Decision project, DateTimeOffset now, CancellationToken cancellationToken) =>
-        throw new NotImplementedException();
+    /// <summary>
+    /// Each card of the project waiting to run, and its decision under <paramref name="project"/>,
+    /// the project's own, in the order they are handed out: by the kind of job, a review, a fix, a
+    /// reading and a build, as <see cref="JobStore.NextKind"/> orders them, each by
+    /// <see cref="DevFlow.Cards.CardStore.QueueOrder"/>, then the cards that wait for another. A card is
+    /// waiting when it is queued, reviewing or fixing with no run under way, and either one of
+    /// those jobs is due for it, by the predicates handing it out reads,
+    /// <see cref="JobStore.Reviewable"/>, <see cref="JobStore.Fixable"/>,
+    /// <see cref="Readings.ReadingStore.Due"/> and <see cref="JobStore.Buildable"/>, or, queued, it
+    /// waits for an open issue it is blocked by or the card before it in its feature,
+    /// <see cref="DevFlow.Cards.CardStore.HeldBackBy"/>. One the rule has no reason for, such as one whose
+    /// review is kept, is not listed. Read in one transaction as the project's user, at
+    /// <paramref name="now"/>.
+    /// </summary>
+    public static async Task<IReadOnlyList<CardDecision>> Cards(UserDb database, Guid userId, Guid projectId, Decision project, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        ArgumentNullException.ThrowIfNull(project);
+        var parameters = new { projectId, watchedSince = WatchStore.WatchedSince(now), seenSince = now - RunStore.Silence };
+        var (cards, busy) = await database.InUserTransaction(userId, async transaction =>
+        {
+            var rows = await transaction.Connection!.QueryAsync<WaitingCard>(new CommandDefinition(
+                $"""
+                SELECT c.number AS Number, c.kind AS Kind, c.waits_for AS WaitsFor, c.held_back_by AS HeldBackBy,
+                       coalesce(c.held_for_answers, false) AS HeldForAnswers, {JobStore.SettingsAccepted} AS SettingsAccepted
+                FROM (
+                    SELECT cards.number, cards.priority, cards.issue_created_at,
+                           CASE WHEN {JobStore.Reviewable} THEN '{Protocol.Job.Review}'
+                                WHEN {JobStore.Fixable} THEN '{Protocol.Job.Fix}'
+                                WHEN {Readings.ReadingStore.Due} THEN '{Protocol.Job.Read}'
+                                WHEN {JobStore.Buildable} THEN '{Protocol.Job.Build}' END AS kind,
+                           CASE WHEN cards.state = 'queued' THEN cards.waits_for[1] END AS waits_for,
+                           CASE WHEN cards.state = 'queued' AND cards.feature_id IS NOT NULL THEN {DevFlow.Cards.CardStore.HeldBackBy} END AS held_back_by,
+                           (SELECT hb.state = 'needs_answers' FROM cards hb
+                            WHERE hb.project_id = cards.project_id AND hb.number = {DevFlow.Cards.CardStore.HeldBackBy}) AS held_for_answers
+                    FROM cards
+                    WHERE cards.project_id = @projectId AND cards.state IN ('queued', 'reviewing', 'fixing')
+                      AND NOT EXISTS (SELECT 1 FROM runs u WHERE u.project_id = cards.project_id AND u.card_number = cards.number AND u.finished_at IS NULL)
+                ) c
+                WHERE c.kind IS NOT NULL OR c.waits_for IS NOT NULL OR c.held_back_by IS NOT NULL
+                ORDER BY CASE c.kind WHEN '{Protocol.Job.Review}' THEN 0 WHEN '{Protocol.Job.Fix}' THEN 1 WHEN '{Protocol.Job.Read}' THEN 2
+                                     WHEN '{Protocol.Job.Build}' THEN 3 ELSE 4 END,
+                         {DevFlow.Cards.CardStore.QueueOrder}
+                """,
+                parameters,
+                transaction,
+                cancellationToken: cancellationToken));
+            // Every worker seen lately is busy when none of them is free; the one whose run started
+            // first is named, as the likeliest to be free next.
+            var named = await transaction.Connection!.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
+                """
+                SELECT w.name FROM workers w
+                JOIN runs r ON r.project_id = w.project_id AND r.worker_id = w.id AND r.finished_at IS NULL
+                WHERE w.project_id = @projectId AND w.last_seen_at >= @seenSince
+                  AND NOT EXISTS (SELECT 1 FROM workers f
+                                  WHERE f.project_id = w.project_id AND f.last_seen_at >= @seenSince
+                                    AND NOT EXISTS (SELECT 1 FROM runs fr WHERE fr.project_id = f.project_id AND fr.worker_id = f.id AND fr.finished_at IS NULL))
+                ORDER BY r.started_at, r.id
+                LIMIT 1
+                """,
+                parameters,
+                transaction,
+                cancellationToken: cancellationToken));
+            return (rows.ToList(), named);
+        }, cancellationToken);
+        return [.. cards.Select(card => new CardDecision(card.Number, ForCard(project, card, busy)))];
+    }
+
+    /// <summary>
+    /// A waiting card's decision: the project's when it waits; otherwise the card's own wait, for
+    /// an open issue it is blocked by, then for the card before it in its feature, for the owner's
+    /// answers when that one needs them; then, for a job due, the setup the project runs first, the
+    /// settings step for a reading or a build, and <paramref name="busy"/>, the worker it is next for
+    /// when every worker is busy; and otherwise it runs.
+    /// </summary>
+    public static Decision ForCard(Decision project, WaitingCard card, string? busy)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentNullException.ThrowIfNull(card);
+        if (project is Decision.Wait)
+        {
+            return project;
+        }
+
+        if (card.WaitsFor is { } issue)
+        {
+            return new Decision.Wait(new WaitReason.WaitsForCard(issue));
+        }
+
+        if (card.HeldBackBy is { } before)
+        {
+            return new Decision.Wait(card.HeldForAnswers
+                ? new WaitReason.WaitsForAnswers(before)
+                : new WaitReason.WaitsForCard(string.Create(CultureInfo.InvariantCulture, $"#{before}")));
+        }
+
+        return (project, card.Kind) switch
+        {
+            (Decision.Run { Kind: Protocol.Job.RecipeCheck }, _) => new Decision.Wait(new WaitReason.NeedsSetup(Checking: true)),
+            (Decision.Run { Kind: Protocol.Job.Setup }, _) => new Decision.Wait(new WaitReason.NeedsSetup(Checking: false)),
+            (_, Protocol.Job.Read or Protocol.Job.Build) when !card.SettingsAccepted => new Decision.Wait(new WaitReason.NeedsSetup(Checking: false)),
+            _ when busy is not null => new Decision.Wait(new WaitReason.WorkersBusy(busy)),
+            (_, { } kind) => new Decision.Run(kind),
+            _ => throw new ArgumentException("a waiting card with no job due and nothing it waits for", nameof(card)),
+        };
+    }
+}
+
+/// <summary>A card waiting to run, as <see cref="RunDecision.Cards"/> reads it.</summary>
+public sealed class WaitingCard
+{
+    /// <summary>Its number.</summary>
+    public int Number { get; init; }
+
+    /// <summary>The kind of job due for it, null with none.</summary>
+    public string? Kind { get; init; }
+
+    /// <summary>The first open issue it is blocked by, for a queued card, null with none.</summary>
+    public string? WaitsFor { get; init; }
+
+    /// <summary>The card before it in its feature that holds it back, for a queued card, null with
+    /// none.</summary>
+    public int? HeldBackBy { get; init; }
+
+    /// <summary>Whether the card holding it back needs the owner's answers.</summary>
+    public bool HeldForAnswers { get; init; }
+
+    /// <summary>Whether the project's settings step is done, before which no reading or build
+    /// runs.</summary>
+    public bool SettingsAccepted { get; init; }
 }
