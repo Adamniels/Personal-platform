@@ -204,6 +204,17 @@ public static class SetupRunStore
             cancellationToken: cancellationToken)), cancellationToken);
     }
 
+    /// <summary>The kind of setup job project <c>@projectId</c> has to hand out, as SQL, in
+    /// <see cref="NextKind"/>'s order; null when it has none. The one statement of it, which
+    /// <see cref="Jobs.RunDecision"/> reads too.</summary>
+    internal const string NextKindSql = $"""
+        CASE WHEN NOT {NeedsSetup} THEN NULL
+             WHEN EXISTS (SELECT 1 FROM setups s WHERE {Reviewable}) THEN '{ReviewKind}'
+             WHEN EXISTS (SELECT 1 FROM setups s WHERE {Fixable}) THEN '{Job.Fix}'
+             WHEN EXISTS (SELECT 1 FROM setups s WHERE {Runnable}) THEN '{SetupKind}'
+             WHEN NOT EXISTS (SELECT 1 FROM setups s WHERE s.project_id = @projectId AND s.state <> 'done') THEN '{SetupKind}' END
+        """;
+
     /// <summary>
     /// The setup job due for the project's worker built from no recipe, in the order a card's are:
     /// a review, <see cref="ReviewKind"/>, then a fix, <see cref="Job.Fix"/>, then a run,
@@ -215,13 +226,7 @@ public static class SetupRunStore
     {
         ArgumentNullException.ThrowIfNull(database);
         return await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteScalarAsync<string?>(new CommandDefinition(
-            $"""
-            SELECT CASE WHEN NOT {NeedsSetup} THEN NULL
-                        WHEN EXISTS (SELECT 1 FROM setups s WHERE {Reviewable}) THEN '{ReviewKind}'
-                        WHEN EXISTS (SELECT 1 FROM setups s WHERE {Fixable}) THEN '{Job.Fix}'
-                        WHEN EXISTS (SELECT 1 FROM setups s WHERE {Runnable}) THEN '{SetupKind}'
-                        WHEN NOT EXISTS (SELECT 1 FROM setups s WHERE s.project_id = @projectId AND s.state <> 'done') THEN '{SetupKind}' END
-            """,
+            $"SELECT {NextKindSql}",
             new { projectId },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);

@@ -14,7 +14,9 @@ namespace DevFlow.Stops;
 /// <param name="Reason">The last one's reason.</param>
 /// <param name="Since">When the first of them failed.</param>
 /// <param name="WaitUntil">Until when the project hands out no job.</param>
-public sealed record ProjectWait(int Failures, string Reason, DateTimeOffset Since, DateTimeOffset WaitUntil);
+/// <param name="UntilReset">Whether it waits until Claude's usage limit resets, as the last
+/// failure's answer said, rather than for <see cref="ProjectWaits.Wait"/>.</param>
+public sealed record ProjectWait(int Failures, string Reason, DateTimeOffset Since, DateTimeOffset WaitUntil, bool UntilReset);
 
 /// <summary>
 /// A project waiting after failures outside its cards, a usage limit, the network or the machine,
@@ -75,10 +77,11 @@ public static class ProjectWaits
             new { projectId, userId, reason, now },
             transaction,
             cancellationToken: cancellationToken));
-        var until = resetsAt is { } reset && reset > now && reset - now <= FurthestReset ? reset : now + Wait(failures);
+        var untilReset = resetsAt is { } reset && reset > now && reset - now <= FurthestReset;
+        var until = untilReset ? resetsAt!.Value : now + Wait(failures);
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
-            "UPDATE project_waits SET wait_until = @until WHERE project_id = @projectId",
-            new { projectId, until },
+            "UPDATE project_waits SET wait_until = @until, until_reset = @untilReset WHERE project_id = @projectId",
+            new { projectId, until, untilReset },
             transaction,
             cancellationToken: cancellationToken));
     }
@@ -100,11 +103,11 @@ public static class ProjectWaits
     {
         ArgumentNullException.ThrowIfNull(database);
         var row = await database.InUserTransaction(userId, transaction => transaction.Connection!.QuerySingleOrDefaultAsync<Row>(new CommandDefinition(
-            "SELECT failures AS Failures, reason AS Reason, since AS Since, wait_until AS WaitUntil FROM project_waits WHERE project_id = @projectId",
+            "SELECT failures AS Failures, reason AS Reason, since AS Since, wait_until AS WaitUntil, until_reset AS UntilReset FROM project_waits WHERE project_id = @projectId",
             new { projectId },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);
-        return row is null ? null : new ProjectWait(row.Failures, row.Reason, Utc(row.Since), Utc(row.WaitUntil));
+        return row is null ? null : new ProjectWait(row.Failures, row.Reason, Utc(row.Since), Utc(row.WaitUntil), row.UntilReset);
     }
 
     /// <summary>What the project's page says of a project that cannot run its cards,
@@ -132,5 +135,5 @@ public static class ProjectWaits
 
     private sealed record Failing(string Name, string? Reason);
 
-    private sealed record Row(int Failures, string Reason, DateTime Since, DateTime WaitUntil);
+    private sealed record Row(int Failures, string Reason, DateTime Since, DateTime WaitUntil, bool UntilReset);
 }

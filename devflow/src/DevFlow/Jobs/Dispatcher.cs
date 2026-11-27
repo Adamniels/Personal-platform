@@ -98,16 +98,17 @@ public sealed partial class Dispatcher(
     /// <summary>
     /// Why a user's project hands out no work for their Claude login, as the project's page says
     /// it: <c>no_claude_login</c> without one, <c>claude_login_expired</c> past its renewal, or
-    /// null. A login due soon still works. The one rule both handing out and the page read.
+    /// null. A login due soon still works. <see cref="RunDecision.LoginReason"/> words, as the
+    /// project's page and the workers list name them.
     /// </summary>
     public static string? HeldFor(ClaudeLoginStatus login)
     {
         ArgumentNullException.ThrowIfNull(login);
-        return login.State switch
+        return RunDecision.LoginReason(login.State) switch
         {
-            ClaudeLoginState.None => "no_claude_login",
-            ClaudeLoginState.Expired => "claude_login_expired",
-            _ => null,
+            null => null,
+            { Expired: true } => "claude_login_expired",
+            _ => "no_claude_login",
         };
     }
 
