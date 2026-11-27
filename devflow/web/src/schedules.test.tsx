@@ -115,8 +115,10 @@ describe("the card When it runs", () => {
 			within(region).queryByRole("button", { name: "Add a schedule" }),
 		).toBeNull();
 
-		// By schedule is saved at once, with no windows.
+		// By schedule is chosen as it is clicked, and saved at once, with no
+		// windows.
 		fireEvent.click(bySchedule);
+		expect(checked(bySchedule)).toBe(true);
 		await waitFor(() =>
 			expect(saveSchedules).toHaveBeenLastCalledWith(ID, {
 				runs_by: "schedule",
@@ -201,6 +203,7 @@ describe("the card When it runs", () => {
 
 		// Switched off, at once, the other left as it was.
 		fireEvent.click(weekend);
+		expect(checked(weekend)).toBe(false);
 		await waitFor(() =>
 			expect(current().schedules.map((each) => each.active)).toEqual([
 				true,
@@ -253,6 +256,25 @@ describe("the card When it runs", () => {
 		expect(
 			within(region).queryByRole("switch", { name: "Weekend" }),
 		).toBeNull();
+	});
+
+	test("a change Dev flow does not take goes back", async () => {
+		const { api } = fakeApi();
+		api.saveSchedules = vi.fn(() => Promise.reject(new Error("down")));
+		const region = await card(api);
+		const bySchedule = within(region).getByRole("radio", {
+			name: "By schedule",
+		});
+
+		fireEvent.click(bySchedule);
+		expect(checked(bySchedule)).toBe(true);
+		expect((await within(region).findByRole("alert")).textContent).toMatch(
+			/^The schedules were not saved: /,
+		);
+		expect(checked(bySchedule)).toBe(false);
+		expect(checked(within(region).getByRole("radio", { name: "Always" }))).toBe(
+			true,
+		);
 	});
 
 	test("the time zone is changed at once, for every project", async () => {

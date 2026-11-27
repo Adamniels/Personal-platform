@@ -160,12 +160,22 @@ export function SchedulesCard({
 			setBusy(true);
 			setSaved(false);
 			setFailed(null);
+			// The mode and a switch move as they are clicked, and go back if
+			// Dev flow refuses; a window still being added waits for its id.
+			const before = schedules;
+			if (before && request.schedules.every((entry) => entry.id !== null))
+				setSchedules({
+					...before,
+					runs_by: request.runs_by,
+					schedules: request.schedules as Schedule[],
+				});
 			try {
 				setSchedules(await saveSchedules(id, request));
 				setInvalid({});
 				setSaved(true);
 				return true;
 			} catch (error) {
+				setSchedules(before);
 				const fields = refusals(error);
 				setInvalid(fields ?? {});
 				setFailed(
@@ -178,7 +188,7 @@ export function SchedulesCard({
 				setBusy(false);
 			}
 		},
-		[id, saveSchedules],
+		[id, saveSchedules, schedules],
 	);
 
 	if (schedules === undefined) return null;
