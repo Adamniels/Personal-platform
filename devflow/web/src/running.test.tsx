@@ -153,6 +153,7 @@ describe("Running now", () => {
 			"Waiting for you",
 			"Running now 1",
 			"Projects",
+			"Usage and history",
 		]);
 		expect(within(panel).getByText("Building")).toBeTruthy();
 		expect(within(panel).getByText("Fodr")).toBeTruthy();
@@ -229,6 +230,7 @@ describe("Running now", () => {
 			"Waiting for you",
 			"Running now 2",
 			"Projects",
+			"Usage and history",
 		]);
 
 		// The first run ends: its log says so and its stream is closed.
@@ -439,7 +441,12 @@ describe("Running now", () => {
 
 		expect(await screen.findByText("Nothing is running")).toBeTruthy();
 		expect(screen.getByText("Your workers are waiting for work.")).toBeTruthy();
-		expect(tabNames()).toEqual(["Waiting for you", "Running now", "Projects"]);
+		expect(tabNames()).toEqual([
+			"Waiting for you",
+			"Running now",
+			"Projects",
+			"Usage and history",
+		]);
 	});
 });
 

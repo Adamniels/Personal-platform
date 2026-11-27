@@ -1,0 +1,127 @@
+/* The "Usage and history" tab. Tokens only, design/DESIGN.md. */
+
+/* The picker, then a table per project, --space-4 apart. */
+.usage {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	min-width: 0;
+}
+
+/* The period's picker, on the left, as wide as its choices need. */
+.bar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	gap: var(--space-2);
+}
+
+.period {
+	flex: 0 1 auto;
+	min-width: 0;
+	max-width: 100%;
+}
+
+.table {
+	min-width: 0;
+}
+
+/* A row's name, set in by how deep it sits: a project's features, cards and
+ * Setting up one step, a feature's cards and own runs two. */
+.name {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.name[data-depth="1"] {
+	padding-left: var(--space-5);
+}
+
+.name[data-depth="2"] {
+	padding-left: calc(var(--space-5) * 2);
+}
+
+/* The button that opens a project: its name beside the chevron. */
+.toggle {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-height: var(--control-h);
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: none;
+	color: var(--text);
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+/* The chevron alone, which opens a feature, a full touch target. */
+.chevronOnly {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: var(--control-h);
+	height: var(--control-h);
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: none;
+	color: var(--text-2);
+	vertical-align: middle;
+	cursor: pointer;
+}
+
+.toggle:focus-visible,
+.chevronOnly:focus-visible,
+.link:focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: var(--focus-offset);
+}
+
+.chevron {
+	flex: none;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	transition: transform 120ms ease;
+}
+
+.chevron[data-open="true"] {
+	transform: rotate(90deg);
+}
+
+/* The project's name, the row the table is about. */
+.project {
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.feature {
+	display: inline;
+}
+
+/* An issue's number, hard rule 8. */
+.number {
+	color: var(--text-2);
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+}
+
+.link {
+	border-radius: var(--radius-sm);
+	color: var(--info);
+	font-weight: 600;
+}
+
+/* What did not happen, read as an alert. */
+.error {
+	margin: 0;
+	color: var(--accent-text);
+	font-weight: 600;
+}

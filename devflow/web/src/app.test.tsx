@@ -111,13 +111,14 @@ function selectedTab() {
 afterEach(cleanup);
 
 describe("the address decides the tab, and a tab changes the address", () => {
-	test("the three tabs render, in order", () => {
+	test("the four tabs render, in order", () => {
 		openAt("/devflow");
 
 		expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
 			"Waiting for you",
 			"Running now",
 			"Projects",
+			"Usage and history",
 		]);
 	});
 
