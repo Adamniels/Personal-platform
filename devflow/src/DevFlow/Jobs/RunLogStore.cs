@@ -21,6 +21,13 @@ public sealed record HeardPost(IReadOnlyList<RunLogLine> Stored, bool Stop);
 /// and whether the run has ended.</summary>
 public sealed record StoredLog(IReadOnlyList<RunLogLine> Lines, bool Ended);
 
+/// <summary>What <c>GET /devflow/api/projects/{id}/runs/{run}/log</c> answers: a page of a run's
+/// log, in seq order.</summary>
+/// <param name="Lines">At most <see cref="RunLogStore.PageLines"/> lines, after the seq asked
+/// for.</param>
+/// <param name="More">Whether the run holds lines after the last of these.</param>
+public sealed record RunLogPage(IReadOnlyList<RunLogLine> Lines, bool More);
+
 /// <summary>A run's token figures so far, each checked to be 0 or more.</summary>
 public sealed record RunUsageSoFar(long InputTokens, long CacheCreationInputTokens, long CacheReadInputTokens, long OutputTokens);
 
@@ -181,6 +188,76 @@ public static class RunLogStore
                 cancellationToken: cancellationToken));
             return new StoredLog([.. lines.Select(line => new RunLogLine(line.Seq, new DateTimeOffset(DateTime.SpecifyKind(line.At, DateTimeKind.Utc)), line.Kind, line.Text))], finished);
         }, cancellationToken);
+    }
+
+    /// <summary>The most lines a page of a run's log holds, as the card's and the feature's pages
+    /// read it.</summary>
+    public const int PageLines = 1_000;
+
+    /// <summary>
+    /// The first <see cref="PageLines"/> of the run's lines after <paramref name="after"/>, in seq
+    /// order, and whether it holds more after them, read through the door as
+    /// <paramref name="userId"/>; null when the project has no such run of theirs. A run whose log
+    /// was pruned, or that never had one, answers no line.
+    /// </summary>
+    public static async Task<RunLogPage?> Page(UserDb database, Guid userId, Guid projectId, Guid runId, long after, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        return await database.InUserTransaction<RunLogPage?>(userId, async transaction =>
+        {
+            var found = await transaction.Connection!.ExecuteScalarAsync<bool>(new CommandDefinition(
+                "SELECT EXISTS (SELECT 1 FROM runs WHERE id = @runId AND project_id = @projectId)",
+                new { runId, projectId },
+                transaction,
+                cancellationToken: cancellationToken));
+            if (!found)
+            {
+                return null;
+            }
+
+            // One more than a page, so whether there are more is known without counting them.
+            var lines = (await transaction.Connection!.QueryAsync<(long Seq, DateTime At, string Kind, string Text)>(new CommandDefinition(
+                """
+                SELECT seq, at, kind, text FROM run_log_lines
+                WHERE run_id = @runId AND project_id = @projectId AND seq > @after
+                ORDER BY seq LIMIT @most
+                """,
+                new { runId, projectId, after, most = PageLines + 1 },
+                transaction,
+                cancellationToken: cancellationToken))).ToList();
+            return new RunLogPage(
+                [.. lines.Take(PageLines).Select(line => new RunLogLine(line.Seq, new DateTimeOffset(DateTime.SpecifyKind(line.At, DateTimeKind.Utc)), line.Kind, line.Text))],
+                lines.Count > PageLines);
+        }, cancellationToken);
+    }
+
+    /// <summary>How long a run's lines are kept after it finished; the run itself, its result, its
+    /// figures and its reason are kept for ever.</summary>
+    public static readonly TimeSpan Kept = TimeSpan.FromDays(90);
+
+    /// <summary>
+    /// Deletes the lines of each of the project's runs finished <see cref="Kept"/> or more before
+    /// <paramref name="now"/>, and marks each such run pruned at <paramref name="now"/>, in one
+    /// transaction through the door as <paramref name="userId"/>; a run under way is never pruned,
+    /// and a run with no lines is left as it is. How many runs it pruned.
+    /// </summary>
+    public static async Task<int> Prune(UserDb database, Guid userId, Guid projectId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        return await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            """
+            WITH pruned AS (
+                DELETE FROM run_log_lines l USING runs r
+                WHERE l.run_id = r.id AND l.project_id = @projectId AND r.project_id = @projectId
+                  AND r.finished_at IS NOT NULL AND r.finished_at <= @before
+                RETURNING l.run_id
+            )
+            UPDATE runs SET log_pruned_at = @now
+            WHERE project_id = @projectId AND id IN (SELECT run_id FROM pruned)
+            """,
+            new { projectId, before = now - Kept, now },
+            transaction,
+            cancellationToken: cancellationToken)), cancellationToken);
     }
 
     /// <summary><paramref name="time"/> to the microsecond, as Postgres keeps it, so a line handed

@@ -106,7 +106,8 @@ program that calls it: everything else the tabs will show arrives with later sli
 - `GET /devflow/api/running`, the caller's runs under way and the cards that come next, and
   `GET /devflow/api/running/events`, the same list as server-sent events, see "Running now" under
   "Jobs". Without a valid token, `401` with an empty body.
-- `GET /devflow/api/projects/{id}/runs/{run}/log/events`, a run's log as server-sent events, and
+- `GET /devflow/api/projects/{id}/runs/{run}/log/events`, a run's log as server-sent events,
+  `GET /devflow/api/projects/{id}/runs/{run}/log`, a run's log a page at a time, and
   `POST /devflow/api/projects/{id}/runs/{run}/stop`, which marks a run to stop, see "Jobs". Without a
   valid token, `401` with an empty body.
 - `GET /devflow`, `/devflow/running`, `/devflow/projects`, `/devflow/projects/{id}`, a project's page, and
@@ -432,7 +433,17 @@ card is on Waiting for you. Top to bottom:
     outcome: "The review of <commit> asked for changes." or "You sent it back with a comment.", his
     words under "What you wrote" with their line breaks, "The developer's replies" on insets, a
     failure's reason and error output, "It left <commit>" with what the review of it said, "not
-    reviewed yet", or nothing more when the fix failed, and its check. The last entry is "Now",
+    reviewed yet", or nothing more when the fix failed, and its check. Every run's entry, a review's
+    and a round's among them, ends with "Log" when it has one, `has_log`, which opens
+    its log under it, "Hide log" closing it again: the view of "Running now", `src/run-log.tsx`,
+    the region "Log of <the entry's title>", as tall as its lines up to the live log's 240px, its
+    lines as text with a tool's name in bold, read
+    from `GET /devflow/api/projects/{id}/runs/{run}/log` as it opens, not live, with "Show more"
+    under it while the run holds more, which adds the next 1,000 under the lines shown, and "The
+    log could not be read. Try again." with "Try again" when a read fails. A run whose log was
+    kept its 90 days, `log_pruned`, says "Its log was kept for 90 days." instead; a run from
+    before logs were kept says nothing of one. A run under way has "Log" too, its lines so far, not
+    live; it is live on "Running now". The last entry is "Now",
     the card's state as a status, with its reason under it, and the filled accent dot when it
     needs the owner; while a run is under way its own entry says "Running". With no run yet, "No
     run has taken this card yet." over "Now".
@@ -3316,6 +3327,25 @@ stored after the last one sent and an `end` event, data null, and the stream clo
 them at once. When the feed ends a reader that fell behind, the stream closes without an `end`,
 and `EventSource` opens it again from its `Last-Event-ID`.
 
+**A run's log afterwards.** `GET /devflow/api/projects/{id}/runs/{run}/log?after=<seq>`,
+`RunLogReadEndpoints` in `src/DevFlow/Jobs/`, as the owner, under the `Api` policy, through the door,
+so another user's run, or a run the project does not have, is `404` "No such run". It answers
+`{"lines", "more"}`: the first 1,000 lines after `after`, 0 when it is not given, in `seq` order,
+each as the stream sends one, and `more`, whether the run holds lines after the last of them, to
+read next with `after` set to its `seq`; read by `RunLogStore.Page`, which asks for one line more
+than a page to know. It is how a card's page and a feature's show a run's log, see "A card's page"
+under "The pages", a run under way's lines so far among them.
+
+**How long a log is kept.** A run's lines are kept 90 days after it finished; the run, its result,
+its figures and its reason for ever. `RunLogPruner` in `src/DevFlow/Jobs/`, a `BackgroundService`,
+as it starts and then once a day lists `poll_targets` through the door's `WithoutUser`, as
+`OpeningLoop` does, and for each project, as its user, `RunLogStore.Prune` deletes in one
+transaction the lines of every run finished 90 or more days ago and sets those runs'
+`log_pruned_at` to now. A run under way is never pruned, and a run with no lines is left as it is,
+so `log_pruned_at` tells a log kept its 90 days from a run from before logs were kept, which never
+had one. One project failing is logged and tried again the next day, and never stops another's.
+Like the other loops it does not run with `DEVFLOW_POLL_SECONDS=0`.
+
 **Running now.** `GET /devflow/api/running`, `RunningEndpoints` and `RunningStore` in
 `src/DevFlow/Jobs/`, as the owner, under the `Api` policy, through the door: every run under way of
 the caller's projects, oldest first, each with `run_id`, `project_id` and `project_name`,
@@ -3480,9 +3510,10 @@ on a stop or written on a done.
 of `contracts/devflow/openapi.json`: `POST /devflow/api/fake/worker/run` with
 `{"project_id", "result"}`, `result` a result as above without `worker_id`, `branch` and
 `head_commit`; or `{"project_id", "keep_running": true}`, with no result needed, which takes the
-job, posts the first three lines of its log through the same code the log route stores them with,
-a `system` line "Cloning <owner>/<name> at <base>", a `text` line and a `tool` line, and sends
-nothing more, as a worker still at it, answering `head_commit` null. It says hello in the caller's project as `devflow-fake-worker` on the image expected,
+job and sends nothing back, as a worker still at it, answering `head_commit` null. Every job it
+takes, kept running or not, first posts the first three lines of its log through the same code the
+log route stores them with, a `system` line "Cloning <owner>/<name> at <base>", a `text` line and a
+`tool` line, so a run it ends has its log as a real worker's has. It says hello in the caller's project as `devflow-fake-worker` on the image expected,
 takes its next job through the same `Dispatcher`, makes a commit on the job's branch in the fake's
 git repository, by the job's committer, on top of the base branch, giving the base branch a first
 commit of its own when the fake's git has none, as a real repository has, ends the job with the
@@ -3534,6 +3565,10 @@ From `migrations/0052_run_model.sql`, `runs` gains `model`, `opus`, `sonnet` or 
 its job was handed out with, written in the transaction that takes the work, as `run_minutes` is, so
 Running now names the model a run uses whatever the setting is changed to meanwhile; null for a
 check, which runs no model, and for every run handed out before it.
+
+From `migrations/0053_run_log_pruned.sql`, `runs` gains `log_pruned_at`, when `RunLogPruner`
+deleted its lines, null while it has them and for a run that never had any, see "How long a log is
+kept".
 
 ## The pull request Dev flow opens
 
@@ -3748,7 +3783,10 @@ failure whether it lay in the card, true for `failed_in_card`, `report_invalid`,
 `head_commit`, for a review the commit it reviewed, and `stderr_tail`, for a run that failed the
 last 50 lines of the stderr its worker sent, stored scrubbed as "A project's values" says, so
 nothing is scrubbed again here, empty when it sent none, and null for a run that succeeded or
-still runs; a reading that read the card is among them,
+still runs, `has_log`, whether it has lines of its log, read through
+`GET /devflow/api/projects/{id}/runs/{run}/log`, and `log_pruned`, whether it had a log that was
+deleted once kept its 90 days, both false for a run from before logs were kept, see "How long a log
+is kept" under "Jobs"; a reading that read the card is among them,
 its feature's for a card of a feature; `report`, the latest build's or fix's
 report that reads in its form, or null; `reviews`, newest first, each `run_id`, `commit`,
 `verdict`, `summary`, `findings`, `for_owner`, `reviewed_at`, `posted`, and `current`, whether it
@@ -3905,7 +3943,8 @@ The side column:
 - **"Its own runs"**, only when the feature has a run of its own: label and value rows, the run's
   kind, "Conflict" or "Review of the feature" among them, and its result and how long it took; a
   failed one also why, its cause said to lie in the job, "so the feature waits for you", or outside
-  it, "so it runs again".
+  it, "so it runs again"; and under it, the full width, its "Log" or "Its log was kept for 90
+  days.", as a card's page shows a run's.
 
 Every text from the code host or an agent goes through `src/format.tsx`, as everywhere in Dev flow;
 the owner's own words are shown as he wrote them, his line breaks kept. The comment boxes of "Send back" and "Send the whole

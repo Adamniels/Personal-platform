@@ -28,8 +28,10 @@ import type { components } from "./api/schema";
 import {
 	KINDS,
 	LAY,
+	type LogSource,
 	ReviewRow,
 	RoundRow,
+	RunLog,
 	resultOf,
 	took,
 	verdictWord,
@@ -44,6 +46,7 @@ import { Inline } from "./format";
 import { askNavAgain } from "./nav-attention";
 import { Command } from "./project";
 import { type RunAgainApi, RunFeatureAgain, STOPPED_BY_YOU } from "./run-again";
+import type { LoadRunLog } from "./run-log";
 import { cardScreenshot, Screenshots } from "./screenshots";
 import { cardPath } from "./sections";
 import {
@@ -99,6 +102,8 @@ export type FeatureApi = FeatureMergeApi &
 		) => Promise<void>;
 		/** Copies text to the clipboard, the browser's by default. */
 		copy?: (text: string) => Promise<void>;
+		/** Reads a page of a finished run's log. */
+		loadRunLog: LoadRunLog;
 	};
 
 export type FeaturePageProps = FeatureApi & {
@@ -149,6 +154,7 @@ export function FeaturePage({
 	sendBackDecision,
 	link,
 	copy = clipboard,
+	loadRunLog,
 }: FeaturePageProps) {
 	const [story, setStory] = useState<FeatureStory | null>();
 	const [failed, setFailed] = useState(false);
@@ -417,7 +423,9 @@ export function FeaturePage({
 				<div className={styles.side}>
 					<TheBranch story={story} copy={copy} />
 					<ReviewsAndRounds story={story} />
-					{story.runs.length === 0 ? null : <OwnRuns runs={story.runs} />}
+					{story.runs.length === 0 ? null : (
+						<OwnRuns runs={story.runs} log={{ project, load: loadRunLog }} />
+					)}
 				</div>
 			</div>
 		</>
@@ -748,8 +756,14 @@ function MomentRow({ moment, most }: { moment: Moment; most: number }) {
 }
 
 /** Its own runs, a label and a value each: its kind, then its result and how
- * long it took, and for a failure why and where it lay. */
-function OwnRuns({ runs }: { runs: FeatureStory["runs"] }) {
+ * long it took, for a failure why and where it lay, and its log. */
+function OwnRuns({
+	runs,
+	log,
+}: {
+	runs: FeatureStory["runs"];
+	log: LogSource;
+}) {
 	return (
 		<Panel title="Its own runs">
 			<dl className={styles.facts}>
@@ -771,6 +785,15 @@ function OwnRuns({ runs }: { runs: FeatureStory["runs"] }) {
 										: run.in_card
 											? LAY.feature.in
 											: LAY.feature.outside}
+								</dd>
+							)}
+							{!run.has_log && !run.log_pruned ? null : (
+								<dd className={own.runLog}>
+									<RunLog
+										run={run}
+										title={KINDS[run.kind] ?? run.kind}
+										source={log}
+									/>
 								</dd>
 							)}
 						</div>

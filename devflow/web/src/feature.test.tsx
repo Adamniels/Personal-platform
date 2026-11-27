@@ -13,6 +13,7 @@ import type { DecisionAnswer, FeatureApi, FeatureStory } from "./feature";
 import { checkout, NOT_ANSWERED } from "./feature";
 import own from "./feature.module.css";
 import type { FeatureMergeConfirmation } from "./feature-merge";
+import type { RunLogPage } from "./run-log";
 import { cardPath, featureAt, featurePath } from "./sections";
 import type { Status } from "./status";
 
@@ -114,6 +115,7 @@ function open(api: Partial<FeatureApi> = {}) {
 		sendBackDecision: vi.fn(() => Promise.resolve()),
 		runFeatureAgain: vi.fn(() => Promise.resolve()),
 		copy: vi.fn(() => Promise.resolve()),
+		loadRunLog: vi.fn(() => new Promise<RunLogPage>(() => {})),
 		...api,
 	};
 	render(
@@ -366,6 +368,8 @@ describe("a feature's page", () => {
 								check: { exit_code: 0, output: "Tests: 40 passed" },
 								head_commit: COMMIT,
 								stderr_tail: null,
+								has_log: false,
+								log_pruned: false,
 							},
 							{
 								id: "01a3185c-5000-7000-8000-000000000008",
@@ -383,6 +387,8 @@ describe("a feature's page", () => {
 								check: null,
 								head_commit: null,
 								stderr_tail: "",
+								has_log: false,
+								log_pruned: false,
 							},
 						],
 					}),
@@ -409,6 +415,81 @@ describe("a feature's page", () => {
 			"Failed · 1 min 0 s",
 			"Claude's API did not answer It lay outside the job, so it runs again.",
 		]);
+	});
+
+	test("opens the log of each of its own runs, or says it was kept 90 days", async () => {
+		const own = (
+			id: string,
+			overrides: Partial<FeatureStory["runs"][number]>,
+		) => ({
+			id,
+			kind: "feature_review",
+			worker: "fodr-worker",
+			started_at: "2026-11-20T09:00:00+00:00",
+			finished_at: "2026-11-20T09:12:00+00:00",
+			duration_ms: 720000,
+			result: "succeeded",
+			reason: null,
+			in_card: null,
+			auth_method: "oauth_token",
+			input_tokens: 12,
+			output_tokens: 3400,
+			check: null,
+			head_commit: COMMIT,
+			stderr_tail: null,
+			has_log: false,
+			log_pruned: false,
+			...overrides,
+		});
+		const kept = "01a3185c-5000-7000-8000-000000000009";
+		const loadRunLog = vi.fn(() =>
+			Promise.resolve({
+				lines: [
+					{
+						seq: 1,
+						at: "2026-11-20T09:00:00+00:00",
+						kind: "text",
+						text: "Reading the whole diff.",
+					},
+				],
+				more: false,
+			}),
+		);
+		open({
+			loadRunLog,
+			loadFeature: () =>
+				Promise.resolve(
+					story({
+						runs: [
+							own(kept, { has_log: true }),
+							own("01a3185c-5000-7000-8000-000000000008", {
+								started_at: "2026-11-20T08:00:00+00:00",
+								log_pruned: true,
+							}),
+							own("01a3185c-5000-7000-8000-000000000007", {
+								started_at: "2026-11-20T07:00:00+00:00",
+							}),
+						],
+					}),
+				),
+		});
+
+		const runs = await screen.findByRole("article", { name: "Its own runs" });
+		expect(within(runs).getAllByRole("button", { name: "Log" })).toHaveLength(
+			1,
+		);
+		expect(
+			within(runs).getAllByText("Its log was kept for 90 days."),
+		).toHaveLength(1);
+		fireEvent.click(within(runs).getByRole("button", { name: "Log" }));
+		const log = await within(runs).findByRole("log", {
+			name: "Log of Review of the feature",
+		});
+		await within(log).findByText("Reading the whole diff.");
+		expect(loadRunLog).toHaveBeenCalledWith(PROJECT, kept, 0);
+		expect(
+			within(runs).queryByRole("button", { name: "Show more" }),
+		).toBeNull();
 	});
 
 	test("shows the review of the whole feature, and whether it covers the head", async () => {
@@ -1051,6 +1132,7 @@ describe("merging the feature", () => {
 					sendBackCard: () => new Promise(() => {}),
 					sendBackDecision: () => new Promise(() => {}),
 					runFeatureAgain: () => new Promise(() => {}),
+					loadRunLog: () => new Promise(() => {}),
 				}}
 			/>,
 		);
@@ -1148,6 +1230,8 @@ function run(overrides: Partial<Run> = {}): Run {
 		check: null,
 		head_commit: COMMIT,
 		stderr_tail: null,
+		has_log: false,
+		log_pruned: false,
 		...overrides,
 	};
 }
