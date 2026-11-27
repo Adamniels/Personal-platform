@@ -26,6 +26,7 @@ import {
 import styles from "./project.module.css";
 import css from "./project.module.css?raw";
 import type { Project } from "./projects";
+import type { ProjectSchedules, SchedulesRequest } from "./schedules";
 import type { ProjectSettings, SettingsRequest } from "./settings";
 import {
 	CHECK_RUNNING,
@@ -112,6 +113,15 @@ const EMPTY: WorkerList = {
 const SETUP_COMMAND =
 	"{ docker rm -f devflow-fodr-setup 2>/dev/null; docker run -d --name devflow-fodr-setup --memory 2g --env-file ~/.devflow/fodr.env -e DEVFLOW_URL=http://host.docker.internal:9080 -e DEVFLOW_BASE_IMAGE=devflow-worker:dev devflow-worker:dev; }";
 
+/** A project that runs always, as a new one does. */
+const ALWAYS: ProjectSchedules = {
+	runs_by: "always",
+	time_zone: "Europe/Stockholm",
+	schedules: [],
+	next_start: null,
+	running_until: null,
+};
+
 /** A project registered, every step done, with no check to show. */
 const REGISTERED: ProjectSetup = {
 	state: "registered",
@@ -138,8 +148,12 @@ function renderPage(
 		values?: ProjectValueList;
 		list?: Partial<WorkerList>;
 		setup?: ProjectSetup;
+		schedules?: ProjectSchedules;
 	} = {},
 ) {
+	// When it runs, as Dev flow holds it: a save replaces the mode and the
+	// list, as the route does.
+	let schedules: ProjectSchedules = props.schedules ?? ALWAYS;
 	let list: WorkerList = { ...EMPTY, ...props.list };
 	let setup: ProjectSetup = props.setup ?? REGISTERED;
 	// The values as Dev flow holds them: a given value is answered as its
@@ -235,10 +249,23 @@ function renderPage(
 			};
 			return Promise.resolve();
 		}),
+		loadSchedules: vi.fn(() => Promise.resolve(schedules)),
+		saveSchedules: vi.fn((_id: string, request: SchedulesRequest) => {
+			schedules = {
+				...schedules,
+				runs_by: request.runs_by,
+				schedules: request.schedules.map((each) => ({
+					...each,
+					id: each.id ?? "0190a8f0-0000-7000-8000-000000000199",
+				})),
+			};
+			return Promise.resolve(schedules);
+		}),
+		saveTimeZone: vi.fn((zone: string) => Promise.resolve(zone)),
 		copy: vi.fn(() => Promise.resolve()),
 		back: vi.fn(),
 	};
-	const { list: _, setup: __, values: ___, ...rest } = props;
+	const { list: _, setup: __, values: ___, schedules: ____, ...rest } = props;
 	render(<ProjectPage id={ID} now={() => NOW} {...api} {...rest} />);
 	return api;
 }

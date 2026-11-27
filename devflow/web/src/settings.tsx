@@ -1,12 +1,13 @@
 // A project's settings page, /devflow/projects/<id>/settings, opened by "Edit settings" on its
-// page and in its setup's settings step: in four sections, how much happens alone, the presets,
+// page and in its setup's settings step: in five sections, how much happens alone, the presets,
 // whether a card's questions wait for the owner's answers, and whether a card's pull request waits
 // for him, with what "sometimes" waits for; how cards are picked, the four labels and the trusted
-// accounts whose cards, edits and comments count; the models and limits its runs get; and its
-// values. A preset fills in the settings it covers in the form, and the side column names the
+// accounts whose cards, edits and comments count; the models and limits its runs get; when it
+// runs, always or by its schedules; and its values. A preset fills in the settings it covers in the form, and the side column names the
 // preset the form matches, or Custom. All eighteen settings are saved together with one Save,
-// never the preset, and a value Dev flow refuses is named under its field; values are saved at
-// once through their own routes. See "Settings" in devflow/README.md.
+// never the preset, and a value Dev flow refuses is named under its field; when it runs, its
+// schedules and the time zone, and its values are saved at once through their own routes. See
+// "Settings" and "Schedules" in devflow/README.md.
 import {
 	Button,
 	Card,
@@ -29,6 +30,7 @@ import { plainClick } from "./address";
 import { ApiError } from "./api/client";
 import type { components } from "./api/schema";
 import type { Project } from "./projects";
+import { type SchedulesApi, SchedulesCard } from "./schedules";
 import { projectPath } from "./sections";
 import styles from "./settings.module.css";
 import { type ValuesApi, ValuesCard } from "./values";
@@ -307,7 +309,8 @@ export const PRESET_LINES: Record<Preset, string> = {
  * and disconnecting it; Dev flow's API in the page and a test's own in a
  * test. */
 export type SettingsPageApi = SettingsApi &
-	ValuesApi & {
+	ValuesApi &
+	SchedulesApi & {
 		loadProjects: () => Promise<Project[]>;
 		disconnect: (id: string) => Promise<void>;
 	};
@@ -379,18 +382,20 @@ export const unsavedLine = (count: number): string =>
 			? "1 unsaved change"
 			: `${count} unsaved changes`;
 
-/** The anchors of the four sections, which the side column links to. */
+/** The anchors of the five sections, which the side column links to. */
 const SECTION_LINKS: { anchor: string; label: string }[] = [
 	{ anchor: "alone", label: "How much happens alone" },
 	{ anchor: "picked", label: "How cards are picked" },
 	{ anchor: "runs", label: "Runs" },
+	{ anchor: "schedules", label: "When it runs" },
 	{ anchor: "values", label: "Values" },
 ];
 
 /** A project's settings page, /devflow/projects/<id>/settings: the header
  * with the way back to the project; the form, how much happens alone, how
- * cards are picked and runs, with the Values card and one Save bar under it;
- * and the side column with the preset the form matches, links to the four
+ * cards are picked and runs, with the cards "When it runs" and Values and one
+ * Save bar under it;
+ * and the side column with the preset the form matches, links to the five
  * sections and Disconnect. Nothing before the project is read. */
 export function SettingsPage({
 	id,
@@ -402,6 +407,9 @@ export function SettingsPage({
 	loadValues,
 	giveValue,
 	removeValue,
+	loadSchedules,
+	saveSchedules,
+	saveTimeZone,
 	disconnect,
 }: SettingsPageProps) {
 	const [project, setProject] = useState<Project | null>();
@@ -889,6 +897,13 @@ export function SettingsPage({
 							</Card>
 						</form>
 					)}
+					<SchedulesCard
+						id={id}
+						anchor={anchor("schedules")}
+						loadSchedules={loadSchedules}
+						saveSchedules={saveSchedules}
+						saveTimeZone={saveTimeZone}
+					/>
 					<ValuesCard
 						id={id}
 						anchor={anchor("values")}

@@ -25,6 +25,7 @@ import {
 } from "./cards";
 import styles from "./project.module.css";
 import type { Project } from "./projects";
+import type { SchedulesApi } from "./schedules";
 import { settingsPath } from "./sections";
 import {
 	PRESET_FILLS,
@@ -95,7 +96,8 @@ export const QUIET_MS = 10 * 60 * 1000;
 export type ProjectApi = SettingsApi &
 	CardsApi &
 	SetupApi &
-	ValuesApi & {
+	ValuesApi &
+	SchedulesApi & {
 		loadProjects: () => Promise<Project[]>;
 		loadWorkers: (id: string) => Promise<WorkerList>;
 		/** Makes the project's key, replacing its last, and answers it with

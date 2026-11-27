@@ -1,0 +1,260 @@
+/* The card "When it runs", on a project's settings page. Tokens only; the
+ * track and its segments are the settings page's preset track, the Tabs track
+ * of section 4 of design/DESIGN.md, written again since a module's classes
+ * are its own. */
+
+.card {
+	margin: 0;
+}
+
+.group {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+}
+
+.error {
+	margin: 0;
+	color: var(--accent-text);
+	font-weight: 600;
+}
+
+.fieldError {
+	margin: 0;
+	color: var(--accent-text);
+	font-size: var(--text-caption-size);
+	line-height: var(--text-caption-line);
+	font-weight: 600;
+}
+
+.saved {
+	color: var(--text-2);
+}
+
+.label {
+	margin: 0;
+	padding: 0;
+	color: var(--text-2);
+	font-size: var(--text-caption-size);
+	line-height: var(--text-caption-line);
+	font-weight: 500;
+}
+
+.hint {
+	margin: 0;
+	color: var(--text-3);
+	font-size: var(--text-caption-size);
+	line-height: var(--text-caption-line);
+}
+
+.mono {
+	font-family: var(--font-mono);
+}
+
+/* The radio group's name, for assistive technology alone. The shared rule of
+ * design/ui's visually-hidden.module.css. */
+.hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* Always or by schedule: the Tabs track, as wide as its two segments. */
+.track {
+	box-sizing: border-box;
+	display: flex;
+	flex-wrap: wrap;
+	align-self: flex-start;
+	max-width: 100%;
+	padding: 4px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-full);
+	background: var(--surface);
+}
+
+.segment,
+.day {
+	position: relative;
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 0;
+	height: var(--control-h);
+	padding: 0 16px;
+	border-radius: var(--radius-full);
+	color: var(--text-2);
+	font-weight: 500;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+/* The input lies over the whole segment, unseen, so it is the control a
+ * click, a tap or the keyboard reaches, and the segment shows its state. */
+.radio {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	border-radius: inherit;
+	opacity: 0;
+	cursor: pointer;
+}
+
+.segment:has(.radio:focus-visible),
+.day:has(.radio:focus-visible) {
+	outline: var(--focus-ring);
+	outline-offset: var(--focus-offset);
+}
+
+/* Chosen: inverted (hard rule 11), never amber. */
+.segment:has(.radio:checked),
+.day:has(.radio:checked) {
+	background: var(--text);
+	color: var(--bg);
+	font-weight: 600;
+}
+
+.segment:has(.radio:disabled) {
+	cursor: default;
+	opacity: 0.6;
+}
+
+/* The windows, each an "Inset list row" of section 4, hard rule 3. */
+.windows {
+	display: flex;
+	flex-direction: column;
+	gap: var(--inset-gap);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+/* Its switch row and its actions on one line where there is room, the
+ * actions under it at phone width rather than scrolling sideways, hard rule
+ * 13. */
+.window {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-1) var(--space-3);
+	min-width: 0;
+	min-height: var(--row-h);
+	box-sizing: border-box;
+	padding: 8px 12px;
+	border-radius: var(--radius-md);
+	background: var(--surface-2);
+}
+
+.switch {
+	flex: 1 1 14rem;
+	min-width: 0;
+}
+
+.actions {
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+}
+
+/* Remove takes a window away: a ghost in the danger colour, two classes to
+ * outrank the ghost button's own. */
+.actions .remove,
+.actions .remove:hover:not(:disabled) {
+	color: var(--danger);
+}
+
+/* The editor of one window, an inset of its own. */
+.editor {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	padding: var(--space-3);
+	border-radius: var(--radius-md);
+	background: var(--surface-2);
+}
+
+.days {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+/* The seven days as one track of toggles, equal segments, wrapping rather
+ * than scrolling where it is narrow. */
+.dayTrack {
+	box-sizing: border-box;
+	display: grid;
+	grid-template-columns: repeat(7, minmax(0, 1fr));
+	gap: 2px;
+	max-width: 32rem;
+	padding: 4px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-full);
+	background: var(--surface);
+}
+
+.day {
+	padding: 0 4px;
+}
+
+.times {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 12rem));
+	gap: var(--space-3);
+}
+
+.editorActions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+}
+
+/* The zone, a line with its Change, or the select in its place. */
+.zone {
+	padding-top: var(--space-3);
+	border-top: 1px solid var(--border);
+}
+
+.zoneLine {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-1) var(--space-3);
+	margin: 0;
+	color: var(--text-2);
+}
+
+@media (max-width: 639.98px) {
+	.track {
+		align-self: stretch;
+		flex-wrap: nowrap;
+	}
+
+	.segment {
+		flex: 1 1 0;
+		padding: 0 4px;
+		font-size: 13px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.day {
+		font-size: 13px;
+	}
+
+	.times {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}

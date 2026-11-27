@@ -710,6 +710,17 @@ function renderPage(
 		removeValue: vi.fn(async (_: string, name: string) => {
 			values = values.filter((value) => value.name !== name);
 		}),
+		loadSchedules: vi.fn(() =>
+			Promise.resolve({
+				runs_by: "always",
+				time_zone: "Europe/Stockholm",
+				schedules: [],
+				next_start: null,
+				running_until: null,
+			}),
+		),
+		saveSchedules: vi.fn(() => new Promise<never>(() => {})),
+		saveTimeZone: vi.fn(() => new Promise<never>(() => {})),
 		disconnect: vi.fn(() => Promise.resolve()),
 		back: vi.fn(),
 		disconnected: vi.fn(),
@@ -1046,6 +1057,9 @@ describe("the settings page", () => {
 				loadSettings={() => Promise.resolve(DEFAULTS)}
 				saveSettings={() => new Promise(() => {})}
 				loadValues={() => new Promise(() => {})}
+				loadSchedules={() => new Promise(() => {})}
+				saveSchedules={() => new Promise(() => {})}
+				saveTimeZone={() => new Promise(() => {})}
 				giveValue={() => Promise.resolve()}
 				removeValue={() => Promise.resolve()}
 				disconnect={() => Promise.resolve()}
