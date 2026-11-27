@@ -11,6 +11,7 @@ import { App } from "./app";
 import { fakeEvents } from "./events.testing";
 import {
 	amount,
+	type NextCard,
 	type RunningApi,
 	type RunningList,
 	type RunningRun,
@@ -46,13 +47,52 @@ function run(overrides: Partial<RunningRun> = {}): RunningRun {
 	};
 }
 
-function list(runs: RunningRun[]): RunningList {
+function list(
+	runs: RunningRun[],
+	next: NextCard[] = [],
+	next_more = 0,
+): RunningList {
 	return {
 		runs,
 		busy_workers: new Set(runs.map((each) => each.worker_id)).size,
-		next: [],
-		next_more: 0,
+		next,
+		next_more,
 	};
+}
+
+const TICK = "55555555-5555-5555-5555-555555555555";
+
+function nextCard(overrides: Partial<NextCard> = {}): NextCard {
+	return {
+		project_id: PROJECT,
+		project_name: "Fodr",
+		number: 52,
+		title: "Revoke a shared link",
+		state: "queued",
+		job: "build",
+		reason: "Waits for #51, which it depends on",
+		link: "card",
+		link_card: 51,
+		...overrides,
+	};
+}
+
+/** The rows of "Next up", by their card's number and title. */
+function nextRow(name: string): HTMLElement {
+	const table = screen.getByRole("table", { name: "Next up" });
+	const row = within(table)
+		.getAllByRole("row")
+		.find((each) => within(each).queryByRole("link", { name }));
+	if (!row) throw new Error(`no row for ${name}`);
+	return row;
+}
+
+/** Every link in `row` named `name` goes to `href`: the reason is in its
+ * column on a wide screen and under the title on a phone, one of them shown. */
+function linksTo(row: HTMLElement, name: string, href: string) {
+	const links = within(row).getAllByRole("link", { name });
+	expect(links.length).toBeGreaterThan(0);
+	for (const link of links) expect(link.getAttribute("href")).toBe(href);
 }
 
 /** Dev flow at Running now, its list and streams the test's own, and the
@@ -224,6 +264,174 @@ describe("Running now", () => {
 		expect(
 			within(panel).queryByRole("button", { name: "Stop now" }),
 		).toBeNull();
+	});
+
+	test("next up lists cards with their reason and its link", async () => {
+		const { events } = openRunning(
+			list(
+				[run()],
+				[
+					nextCard(),
+					nextCard({
+						project_id: OTHER,
+						project_name: "Personal-platform",
+						number: 236,
+						title: "Scheduling",
+						state: "reviewing",
+						job: "review",
+						reason: "Next for platform-1, after its current run",
+						link: null,
+						link_card: null,
+					}),
+					nextCard({
+						project_id: TICK,
+						project_name: "Tick",
+						number: 9,
+						title: "Sync conflict on wake",
+						job: "read",
+						reason: "No worker is running for Tick",
+						link: "project_page",
+						link_card: null,
+					}),
+					nextCard({
+						number: 53,
+						title: "Answer the questions",
+						job: null,
+						reason: "Waits for your answers on #50",
+						link: "waiting_for_you",
+						link_card: null,
+					}),
+					nextCard({
+						project_id: OTHER,
+						project_name: "Personal-platform",
+						number: 240,
+						title: "Fix the list",
+						state: "fixing",
+						job: "fix",
+						reason: "No Claude login",
+						link: "settings",
+						link_card: null,
+					}),
+					nextCard({
+						project_id: TICK,
+						project_name: "Tick",
+						number: 12,
+						title: "Dark mode",
+						reason: null,
+						link: null,
+						link_card: null,
+					}),
+				],
+			),
+		);
+
+		// Under the panels, its heading with how many come next.
+		await screen.findByRole("article", { name: "#51 Share a plan by link" });
+		const heading = screen.getByRole("heading", { name: /^Next up/ });
+		expect(heading.textContent).toBe("Next up 6");
+		const table = screen.getByRole("table", { name: "Next up" });
+		expect(
+			within(table)
+				.getAllByRole("columnheader")
+				.map((each) => each.textContent),
+		).toEqual(["Card", "Project", "State", "Why it is not running"]);
+
+		// Each card, in the order given, linked to its page, with its project and
+		// its state in words.
+		const blocked = nextRow("#52 Revoke a shared link");
+		linksTo(
+			blocked,
+			"#52 Revoke a shared link",
+			`/devflow/projects/${PROJECT}/cards/52`,
+		);
+		expect(within(blocked).getAllByText("Fodr").length).toBeGreaterThan(0);
+		expect(within(blocked).getAllByText("Queued").length).toBeGreaterThan(0);
+		// Its reason, linked to where it is acted on: the card it waits for.
+		linksTo(
+			blocked,
+			"Waits for #51, which it depends on",
+			`/devflow/projects/${PROJECT}/cards/51`,
+		);
+
+		// A reason with no place to act is said, not linked.
+		const busy = nextRow("#236 Scheduling");
+		expect(within(busy).getAllByText("To review").length).toBeGreaterThan(0);
+		expect(
+			within(busy).getAllByText("Next for platform-1, after its current run")
+				.length,
+		).toBeGreaterThan(0);
+		expect(
+			within(busy).queryByRole("link", {
+				name: "Next for platform-1, after its current run",
+			}),
+		).toBeNull();
+
+		// The project's page, "Waiting for you" and the settings.
+		const noWorker = nextRow("#9 Sync conflict on wake");
+		expect(within(noWorker).getAllByText("To read").length).toBeGreaterThan(0);
+		linksTo(
+			noWorker,
+			"No worker is running for Tick",
+			`/devflow/projects/${TICK}`,
+		);
+		linksTo(
+			nextRow("#53 Answer the questions"),
+			"Waits for your answers on #50",
+			"/devflow",
+		);
+		const login = nextRow("#240 Fix the list");
+		expect(within(login).getAllByText("To fix").length).toBeGreaterThan(0);
+		linksTo(login, "No Claude login", "/devflow/projects");
+
+		// A card that runs as soon as a worker asks has no reason.
+		expect(
+			within(nextRow("#12 Dark mode")).getAllByText("Next to start").length,
+		).toBeGreaterThan(0);
+
+		// A reason that changes arrives with the list's stream.
+		events
+			.at(LIST)
+			.send(
+				"running",
+				list(
+					[run()],
+					[nextCard({ reason: null, link: null, link_card: null })],
+				),
+			);
+		await waitFor(() =>
+			expect(
+				within(nextRow("#52 Revoke a shared link")).getAllByText(
+					"Next to start",
+				).length,
+			).toBeGreaterThan(0),
+		);
+		expect(screen.getByRole("heading", { name: /^Next up/ }).textContent).toBe(
+			"Next up 1",
+		);
+	});
+
+	test("a long list says how many more", async () => {
+		const many = Array.from({ length: 50 }, (_, index) =>
+			nextCard({ number: 100 + index, title: `Card ${100 + index}` }),
+		);
+		openRunning(list([], many, 7));
+
+		const table = await screen.findByRole("table", { name: "Next up" });
+		expect(within(table).getAllByRole("row")).toHaveLength(51);
+		expect(screen.getByText("and 7 more")).toBeTruthy();
+		// The heading counts every card that comes next.
+		expect(screen.getByRole("heading", { name: /^Next up/ }).textContent).toBe(
+			"Next up 57",
+		);
+		// With nothing running, the panels say so above it.
+		expect(screen.getByText("Nothing is running")).toBeTruthy();
+	});
+
+	test("nothing next says so", async () => {
+		openRunning(list([run()]));
+
+		expect(await screen.findByText("Nothing waits to run.")).toBeTruthy();
+		expect(screen.queryByRole("table", { name: "Next up" })).toBeNull();
 	});
 
 	test("no busy worker says so", async () => {

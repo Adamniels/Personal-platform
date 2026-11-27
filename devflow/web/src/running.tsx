@@ -1,6 +1,7 @@
 // The "Running now" tab: a panel for each run under way of the owner's projects, oldest first, with
 // its card, what it is doing, how long and how many tokens so far, the agent's log as it happens,
-// and "Stop now". The list comes from GET /devflow/api/running and then its stream, the log of each
+// and "Stop now"; and under the panels "Next up", the cards that come next, each with why it is not
+// running yet. The list comes from GET /devflow/api/running and then its stream, the log of each
 // run from its own; every text a worker sent is shown as text, never as HTML. See "The pages" in
 // devflow/README.md.
 import {
@@ -9,6 +10,8 @@ import {
 	Dialog,
 	EmptyState,
 	Status,
+	Table,
+	type TableColumn,
 	useToast,
 } from "@platform/ui";
 import {
@@ -31,10 +34,13 @@ import type { GetAnswer } from "./api/client";
 import type { components } from "./api/schema";
 import { AGAIN, CLOSED, dataOf, type EventStream } from "./events";
 import styles from "./running.module.css";
-import { cardPath, featurePath } from "./sections";
+import { cardPath, featurePath, projectPath, SECTIONS } from "./sections";
 
 export type RunningList = GetAnswer<"/running">;
 export type RunningRun = RunningList["runs"][number];
+
+/** A card that comes next, as "Next up" lists it. */
+export type NextCard = RunningList["next"][number];
 
 /** A line of a run's log, as its stream sends it. */
 export type LogLine = components["schemas"]["RunLogLine"];
@@ -105,29 +111,190 @@ export function Running({
 		) : null;
 	}
 
-	if (list.runs.length === 0) {
-		return (
-			<EmptyState
-				title="Nothing is running"
-				detail="Your workers are waiting for work."
-			/>
-		);
-	}
-
 	return (
-		<ul className={styles.panels} aria-label="Runs under way">
-			{list.runs.map((run) => (
-				<li key={run.run_id} className={styles.item}>
-					<RunPanel
-						run={run}
-						at={at}
-						stopRun={stopRun}
-						openEvents={openEvents}
-						stopped={() => queries.invalidateQueries({ queryKey: RUNNING })}
+		<div className={styles.running}>
+			{list.runs.length === 0 ? (
+				<EmptyState
+					title="Nothing is running"
+					detail="Your workers are waiting for work."
+				/>
+			) : (
+				<ul className={styles.panels} aria-label="Runs under way">
+					{list.runs.map((run) => (
+						<li key={run.run_id} className={styles.item}>
+							<RunPanel
+								run={run}
+								at={at}
+								stopRun={stopRun}
+								openEvents={openEvents}
+								stopped={() => queries.invalidateQueries({ queryKey: RUNNING })}
+							/>
+						</li>
+					))}
+				</ul>
+			)}
+			<NextUp cards={list.next} more={list.next_more} />
+		</div>
+	);
+}
+
+/** "Next up": the cards that come next, in the order work starts, in a card
+ * of its own under the panels. On a wide screen a table, its card, project,
+ * state and why it is not running; on a phone a list, each row its card with
+ * its project and state on a line under it and then its reason. */
+export function NextUp({ cards, more }: { cards: NextCard[]; more: number }) {
+	const label = useId();
+	return (
+		<article className={styles.next} aria-labelledby={label}>
+			<h2 id={label} className={styles.nextLabel}>
+				Next up
+				{cards.length === 0 ? null : (
+					<>
+						{" "}
+						<span className={styles.count}>{cards.length + more}</span>
+					</>
+				)}
+			</h2>
+			{cards.length === 0 ? (
+				<p className={styles.nothing}>Nothing waits to run.</p>
+			) : (
+				<>
+					<Table
+						label="Next up"
+						columns={NEXT_COLUMNS}
+						rows={cards}
+						rowKey={(card) => `${card.project_id}/${card.number}`}
+						className={styles.nextTable}
 					/>
-				</li>
-			))}
-		</ul>
+					{more > 0 ? (
+						<p className={styles.more}>{`and ${more} more`}</p>
+					) : null}
+				</>
+			)}
+		</article>
+	);
+}
+
+/** The columns of "Next up": the card, which alone shows on a phone and then
+ * holds the rest under its title; its project, its state and why it is not
+ * running, priority 3, on a wide screen. */
+const NEXT_COLUMNS: TableColumn<NextCard>[] = [
+	{
+		key: "card",
+		header: "Card",
+		cell: (card) => (
+			<div className={styles.cardCell}>
+				<PageLink
+					className={styles.cellTitle}
+					href={cardPath(card.project_id, card.number)}
+				>
+					<span className={styles.number}>#{card.number}</span> {card.title}
+				</PageLink>
+				<div className={styles.phoneOnly}>
+					<span className={styles.cardMeta}>
+						{`${card.project_name} · ${nextState(card)}`}
+					</span>
+					<Reason card={card} />
+				</div>
+			</div>
+		),
+	},
+	{
+		key: "project",
+		header: "Project",
+		priority: 3,
+		cell: (card) => card.project_name,
+	},
+	{
+		key: "state",
+		header: "State",
+		priority: 3,
+		cell: (card) => <Badge>{nextState(card)}</Badge>,
+	},
+	{
+		key: "why",
+		header: "Why it is not running",
+		priority: 3,
+		cell: (card) => <Reason card={card} />,
+	},
+];
+
+/** A card's state in words: what is due for it. */
+export function nextState(card: NextCard): string {
+	switch (card.state) {
+		case "reviewing":
+			return "To review";
+		case "fixing":
+			return "To fix";
+		default:
+			return card.job === "read" ? "To read" : "Queued";
+	}
+}
+
+/** Where a card's reason is acted on, or null where it has no place: the
+ * card it waits for, "Waiting for you", its project's page, or the Projects
+ * tab, whose Connections hold the Claude login. */
+export function reasonPath(card: NextCard): string | null {
+	switch (card.link) {
+		case "card":
+			return card.link_card === null
+				? null
+				: cardPath(card.project_id, card.link_card);
+		case "waiting_for_you":
+			return sectionPath("waiting");
+		case "project_page":
+			return projectPath(card.project_id);
+		case "settings":
+			return sectionPath("projects");
+		default:
+			return null;
+	}
+}
+
+function sectionPath(key: string): string {
+	const section = SECTIONS.find((each) => each.key === key);
+	if (!section) throw new Error(`no section ${key}`);
+	return section.path;
+}
+
+/** Why a card is not running yet, the rule's own sentence, linked to where it
+ * is acted on; for a card that runs as soon as a worker asks, so it says. */
+function Reason({ card }: { card: NextCard }) {
+	if (card.reason === null)
+		return <span className={styles.starts}>Next to start</span>;
+	const href = reasonPath(card);
+	return href === null ? (
+		<span className={styles.reason}>{card.reason}</span>
+	) : (
+		<PageLink className={styles.reasonLink} href={href}>
+			{card.reason}
+		</PageLink>
+	);
+}
+
+/** A link to a page of Dev flow's own, followed without a reload. */
+function PageLink({
+	href,
+	className,
+	children,
+}: {
+	href: string;
+	className?: string;
+	children: ReactNode;
+}) {
+	return (
+		<a
+			className={className}
+			href={href}
+			onClick={(event: MouseEvent<HTMLAnchorElement>) => {
+				if (plainClick(event)) {
+					event.preventDefault();
+					navigate(href);
+				}
+			}}
+		>
+			{children}
+		</a>
 	);
 }
 
