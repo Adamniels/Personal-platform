@@ -261,3 +261,15 @@ div > dd.runReason {
 	line-height: var(--text-body-line);
 	overflow-wrap: anywhere;
 }
+
+/* A run's log, under its label and value, the full width, in the UI font:
+ * "Log" and the log it opens, or that its log was kept for 90 days. */
+div > dd.runLog {
+	display: block;
+	flex-basis: 100%;
+	min-width: 0;
+	padding-bottom: var(--space-2);
+	font-family: var(--font-ui);
+	font-size: var(--text-body-size);
+	line-height: var(--text-body-line);
+}

@@ -1,0 +1,78 @@
+/* A run's log, as "Running now" shows it live and a card's and a feature's
+ * pages show a finished run's: an inset on --surface-2, 13/20, as the agents'
+ * detail panel has it in section 6, of a fixed height, scrolling inside
+ * itself. */
+.logFrame {
+	position: relative;
+	min-width: 0;
+}
+
+.log {
+	box-sizing: border-box;
+	height: 240px;
+	overflow-y: auto;
+	padding: 8px 12px;
+	border-radius: var(--radius-md);
+	background: var(--surface-2);
+	color: var(--text);
+	font-size: var(--text-small-size);
+	line-height: 20px;
+}
+
+/* A finished run's log grows with its lines, up to the live log's height,
+ * since no panel beside it needs to line up. */
+.finished {
+	height: auto;
+	max-height: 240px;
+}
+
+.log:focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: var(--focus-offset);
+}
+
+.lines {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.line {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/* A tool's answer, quiet. */
+.muted {
+	color: var(--text-3);
+}
+
+/* The check's output and the worker's own lines, in the mono face. */
+.mono {
+	font-family: var(--font-mono);
+}
+
+.empty {
+	margin: 0;
+	color: var(--text-3);
+}
+
+/* "Jump to latest", over the log's bottom right while the owner reads
+ * further up. */
+.jump {
+	position: absolute;
+	right: var(--space-2);
+	bottom: var(--space-2);
+}
+
+/* Under a finished run's log: "Show more", or why it could not be read. */
+.after {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	margin-top: var(--space-2);
+}

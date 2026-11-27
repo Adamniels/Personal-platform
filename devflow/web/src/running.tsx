@@ -31,8 +31,8 @@ import {
 import { describe } from "./actions";
 import { navigate, plainClick } from "./address";
 import type { GetAnswer } from "./api/client";
-import type { components } from "./api/schema";
 import { AGAIN, CLOSED, dataOf, type EventStream } from "./events";
+import { type LogLine, LogLines, logStyles } from "./run-log";
 import styles from "./running.module.css";
 import { cardPath, featurePath, projectPath, SECTIONS } from "./sections";
 
@@ -41,9 +41,6 @@ export type RunningRun = RunningList["runs"][number];
 
 /** A card that comes next, as "Next up" lists it. */
 export type NextCard = RunningList["next"][number];
-
-/** A line of a run's log, as its stream sends it. */
-export type LogLine = components["schemas"]["RunLogLine"];
 
 /** How the tab reads the list, stops a run and opens a stream, Dev flow's
  * API in the page and a test's own in a test. */
@@ -556,10 +553,10 @@ function RunLog({ projectId, runId, label, openEvents }: RunLogProps) {
 	}, [lines, following]);
 
 	return (
-		<div className={styles.logFrame}>
+		<div className={logStyles.logFrame}>
 			<div
 				ref={scroller}
-				className={styles.log}
+				className={logStyles.log}
 				role="log"
 				aria-label={label}
 				// Scrollable, so reachable from the keyboard.
@@ -571,21 +568,15 @@ function RunLog({ projectId, runId, label, openEvents }: RunLogProps) {
 				}}
 			>
 				{lines.length === 0 ? (
-					<p className={styles.empty}>No line yet.</p>
+					<p className={logStyles.empty}>No line yet.</p>
 				) : (
-					<ol className={styles.lines}>
-						{lines.map((line) => (
-							<li key={line.seq} className={lineClass(line.kind)}>
-								{lineText(line)}
-							</li>
-						))}
-					</ol>
+					<LogLines lines={lines} />
 				)}
 			</div>
 			{following ? null : (
 				<Button
 					kind="secondary"
-					className={styles.jump}
+					className={logStyles.jump}
 					onClick={() => {
 						const box = scroller.current;
 						if (box) box.scrollTop = box.scrollHeight;
@@ -596,30 +587,5 @@ function RunLog({ projectId, runId, label, openEvents }: RunLogProps) {
 				</Button>
 			)}
 		</div>
-	);
-}
-
-function lineClass(kind: string): string {
-	switch (kind) {
-		case "tool_result":
-			return `${styles.line} ${styles.muted}`;
-		case "check":
-		case "system":
-			return `${styles.line} ${styles.mono}`;
-		default:
-			return styles.line ?? "";
-	}
-}
-
-/** A line's text as text; a tool's name, its first word, in bold. */
-function lineText(line: LogLine): ReactNode {
-	if (line.kind !== "tool") return line.text;
-	const space = line.text.indexOf(" ");
-	const name = space < 0 ? line.text : line.text.slice(0, space);
-	return (
-		<>
-			<strong>{name}</strong>
-			{space < 0 ? null : line.text.slice(space)}
-		</>
 	);
 }

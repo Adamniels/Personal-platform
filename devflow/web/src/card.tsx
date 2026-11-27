@@ -21,6 +21,7 @@ import type { components } from "./api/schema";
 import styles from "./card.module.css";
 import { StepsBar, stateWord } from "./cards";
 import { Inline } from "./format";
+import { FinishedLog, KEPT_90_DAYS, type LoadRunLog } from "./run-log";
 import { cardScreenshot, Screenshots } from "./screenshots";
 import { featurePath } from "./sections";
 import { sentence } from "./sentence";
@@ -39,6 +40,8 @@ export const NOT_READ = "The card could not be read. Try again.";
  * in a test. Null when the caller has no such card. */
 export type CardApi = {
 	loadCard: (project: string, number: number) => Promise<CardStory | null>;
+	/** Reads a page of a finished run's log. */
+	loadRunLog: LoadRunLog;
 };
 
 export type CardPageProps = CardApi & {
@@ -146,6 +149,7 @@ export function CardPage({
 	back,
 	backPath,
 	loadCard,
+	loadRunLog,
 }: CardPageProps) {
 	const [story, setStory] = useState<CardStory | null>();
 	const [failed, setFailed] = useState(false);
@@ -248,7 +252,7 @@ export function CardPage({
 						/>
 					)}
 					{story.report === null ? null : <WhatItDid report={story.report} />}
-					<HowItGotHere story={story} />
+					<HowItGotHere story={story} log={{ project, load: loadRunLog }} />
 				</div>
 				<div className={styles.side}>
 					<AtAGlance story={story} />
@@ -520,7 +524,7 @@ type Moment = { at: string; entry: React.ReactElement };
  * first, ending in now. A fix run is told as its round, and a review run that
  * kept a verdict as its review; every other run, a read run among them, as
  * itself. */
-function HowItGotHere({ story }: { story: CardStory }) {
+function HowItGotHere({ story, log }: { story: CardStory; log: LogSource }) {
 	const reviews = new Map(
 		story.reviews.map((review) => [review.run_id, review]),
 	);
@@ -539,13 +543,14 @@ function HowItGotHere({ story }: { story: CardStory }) {
 						round={round}
 						reviews={story.reviews}
 						most={story.most_rounds}
+						log={log}
 					/>
 				),
 			});
 		} else if (!reviews.has(run.id)) {
 			moments.push({
 				at: run.started_at,
-				entry: <RunEntry key={`run-${run.id}`} run={run} />,
+				entry: <RunEntry key={`run-${run.id}`} run={run} log={log} />,
 			});
 		}
 	}
@@ -557,6 +562,7 @@ function HowItGotHere({ story }: { story: CardStory }) {
 					key={`review-${review.run_id}`}
 					review={review}
 					run={runs.get(review.run_id)}
+					log={log}
 				/>
 			),
 		});
@@ -618,16 +624,14 @@ export function resultOf(result: string | null): {
 /** A run as an entry: its kind and result, and for a failure why, where it
  * lay and Claude Code's error output, then its check with the output behind
  * Show output. */
-function RunEntry({ run }: { run: Run }) {
+function RunEntry({ run, log }: { run: Run; log: LogSource }) {
 	const { word, tone } = resultOf(run.result);
+	const title = KINDS[run.kind] ?? run.kind;
 	return (
-		<TimelineEntry
-			time={runLine(run)}
-			title={KINDS[run.kind] ?? run.kind}
-			status={{ tone, word }}
-		>
+		<TimelineEntry time={runLine(run)} title={title} status={{ tone, word }}>
 			<Failure run={run} />
 			<CheckLine run={run} />
+			<RunLog run={run} title={title} source={log} />
 		</TimelineEntry>
 	);
 }
@@ -719,7 +723,15 @@ function CheckLine({ run }: { run: Run }) {
  * counts for the head and is on the pull request, the reviewer's summary,
  * its findings, blocking ones first, each on an inset, and its view on each
  * decision marked for the owner. */
-function ReviewEntry({ review, run }: { review: Review; run?: Run }) {
+function ReviewEntry({
+	review,
+	run,
+	log,
+}: {
+	review: Review;
+	run?: Run;
+	log: LogSource;
+}) {
 	const verdict = verdictWord(review.verdict);
 	const findings = [...review.findings].sort(
 		(one, other) => Number(other.blocking) - Number(one.blocking),
@@ -784,6 +796,13 @@ function ReviewEntry({ review, run }: { review: Review; run?: Run }) {
 					</>
 				)}
 			</Section>
+			{run === undefined ? null : (
+				<RunLog
+					run={run}
+					title={`Review of ${review.commit.slice(0, 7)}`}
+					source={log}
+				/>
+			)}
 		</TimelineEntry>
 	);
 }
@@ -798,27 +817,25 @@ function RoundEntry({
 	round,
 	reviews,
 	most,
+	log,
 }: {
 	run: Run;
 	round: Round;
 	reviews: Review[];
 	most: number;
+	log: LogSource;
 }) {
 	const { word, tone } = resultOf(round.result);
 	const asked = reviews.find((review) => review.run_id === round.review_run_id);
 	const after = reviews.find(
 		(review) => review.run_id === round.review_after_run_id,
 	);
+	const title =
+		round.round === null
+			? "Fix, for your comment"
+			: `Fix, round ${round.round} of ${most}`;
 	return (
-		<TimelineEntry
-			time={runLine(run)}
-			title={
-				round.round === null
-					? "Fix, for your comment"
-					: `Fix, round ${round.round} of ${most}`
-			}
-			status={{ tone, word }}
-		>
+		<TimelineEntry time={runLine(run)} title={title} status={{ tone, word }}>
 			{round.round === null ? (
 				<p className={styles.text}>You sent it back with a comment.</p>
 			) : asked === undefined ? null : (
@@ -856,7 +873,57 @@ function RoundEntry({
 				</p>
 			)}
 			<CheckLine run={run} />
+			<RunLog run={run} title={title} source={log} />
 		</TimelineEntry>
+	);
+}
+
+/** Where a run's log is read from: its project, and how. */
+export type LogSource = { project: string; load: LoadRunLog };
+
+/** A finished run's "Log", which opens its log under it, the view of
+ * "Running now", not live, with "Show more"; for a run whose log was kept
+ * its 90 days, that it was. Nothing for a run under way, whose log is on
+ * "Running now", nor for one from before logs were kept. */
+export function RunLog({
+	run,
+	title,
+	source,
+}: {
+	run: Run;
+	/** What the run is called where it is shown, which names its log. */
+	title: string;
+	source: LogSource;
+}) {
+	const [showing, setShowing] = useState(false);
+	const id = useId();
+	if (run.finished_at === null) return null;
+	if (run.log_pruned) return <p className={styles.muted}>{KEPT_90_DAYS}</p>;
+	if (!run.has_log) return null;
+	return (
+		<>
+			<p className={styles.text}>
+				<button
+					type="button"
+					className={styles.show}
+					aria-expanded={showing}
+					aria-controls={id}
+					onClick={() => setShowing((shown) => !shown)}
+				>
+					{showing ? "Hide log" : "Log"}
+				</button>
+			</p>
+			{showing ? (
+				<div id={id}>
+					<FinishedLog
+						project={source.project}
+						run={run.id}
+						label={`Log of ${title}`}
+						load={source.load}
+					/>
+				</div>
+			) : null}
+		</>
 	);
 }
 

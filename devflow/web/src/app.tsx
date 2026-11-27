@@ -20,6 +20,7 @@ import { type ProjectApi, ProjectPage } from "./project";
 import { type Project, Projects, type ProjectsApi } from "./projects";
 import { GitHubLink } from "./projects-link";
 import type { RunAgainApi } from "./run-again";
+import type { LoadRunLog } from "./run-log";
 import { Running, type RunningApi, useRunning } from "./running";
 import {
 	cardAt,
@@ -180,9 +181,17 @@ const settingsApi: SettingsPageApi = {
 	},
 };
 
+/** A page of a finished run's log, through Dev flow's API, as a card's page
+ * and a feature's read it. */
+const loadRunLog: LoadRunLog = (project, run, after) =>
+	client.get(
+		`/projects/${encodeURIComponent(project)}/runs/${encodeURIComponent(run)}/log?after=${after}` as "/projects/{id}/runs/{run}/log",
+	);
+
 /** A card's story, through Dev flow's API; a card the caller does not have
  * answers 404, which the page shows as none. */
 const cardApi: CardApi = {
+	loadRunLog,
 	loadCard: async (project, number) => {
 		try {
 			return await client.get(
@@ -238,6 +247,7 @@ const runAgainApi: RunAgainApi = {
  * caller does not have answers 404, which the page shows as none. */
 const featureApi: FeatureApi = {
 	...featureMergeApi,
+	loadRunLog,
 	runFeatureAgain: runAgainApi.runFeatureAgain,
 	loadFeature: async (project, number) => {
 		try {

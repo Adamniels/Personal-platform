@@ -2719,6 +2719,41 @@ def test_a_card_page_tells_its_story(
     expect(page.get_by_role("article", name=CARD_TITLE)).to_be_visible()
 
 
+def test_a_cards_run_has_its_log(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    """After the fake worker's run, the card's page opens that run's log with
+    the lines the fake posted, the view of "Running now", not live. See "A
+    card's page" in devflow/README.md."""
+    register_and_log_in(page, invite_code, base_url)
+    project, _ = _built_card(page, base_url, devflow_world, review=False)
+
+    page.goto(f"/devflow/projects/{project}/cards/{CARD}")
+    build = _entries(page).filter(has=page.locator("h3", has_text="Build"))
+    expect(build).to_have_count(1)
+    expect(build.get_by_role("log")).to_have_count(0)
+    log_button = build.get_by_role("button", name="Log", exact=True)
+    expect(log_button).to_have_attribute("aria-expanded", "false")
+    log_button.click()
+
+    log = build.get_by_role("log", name="Log of Build")
+    expect(log.get_by_text(f"Cloning {OWNER}/{NAME} at main")).to_be_visible()
+    expect(log.get_by_text("Reading the card and the code it touches.")).to_be_visible()
+    # A tool's name in bold, as on Running now.
+    expect(log.locator("strong", has_text="Read")).to_be_visible()
+    expect(log.get_by_role("listitem")).to_have_count(3)
+    # Three lines are the whole log, so there is nothing more to read.
+    expect(build.get_by_role("button", name="Show more")).to_have_count(0)
+    expect(build.get_by_role("button", name="Hide log")).to_be_visible()
+
+    _looks_right(page)
+    capture(page, "devflow-card-run-log")
+
+    # Hide log closes it again.
+    build.get_by_role("button", name="Hide log").click()
+    expect(build.get_by_role("log")).to_have_count(0)
+
+
 def test_the_card_page_shows_which_pages_the_agent_looked_at(
     page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
 ):

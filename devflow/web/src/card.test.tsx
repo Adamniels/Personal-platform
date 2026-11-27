@@ -9,6 +9,7 @@ import {
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { App } from "./app";
 import { type CardStory, took } from "./card";
+import type { LoadRunLog } from "./run-log";
 import { cardAt, cardPath } from "./sections";
 import type { Status } from "./status";
 
@@ -189,9 +190,11 @@ function status(): Status {
 	};
 }
 
-/** The page at the card's address, its card read by `loadCard`. */
+/** The page at the card's address, its card read by `loadCard` and a run's
+ * log by `loadRunLog`. */
 function open(
 	loadCard: (project: string, number: number) => Promise<CardStory | null>,
+	loadRunLog: LoadRunLog = () => new Promise(() => {}),
 ) {
 	window.history.pushState(null, "", cardPath(PROJECT, 4));
 	const loads = vi.fn(loadCard);
@@ -202,7 +205,7 @@ function open(
 				loadWaiting: () => new Promise(() => {}),
 				refresh: () => Promise.resolve(),
 			}}
-			card={{ loadCard: loads }}
+			card={{ loadCard: loads, loadRunLog }}
 		/>,
 	);
 	return loads;
@@ -1555,5 +1558,132 @@ describe("a card's page tells its story in order", () => {
 		expect(
 			within(glance).getByRole("img", { name: "Fix rounds: 1 of 3 used" }),
 		).toBeTruthy();
+	});
+});
+
+describe("a card's page shows each finished run's log", () => {
+	const KEPT = "01a3185c-5000-7000-8000-000000000013";
+	const PRUNED = "01a3185c-5000-7000-8000-000000000012";
+	const BEFORE = "01a3185c-5000-7000-8000-000000000011";
+	const UNDER_WAY = "01a3185c-5000-7000-8000-000000000014";
+
+	/** Four builds, oldest first in the timeline: one from before logs were
+	 * kept, one whose log was kept its 90 days, one with its log, and one
+	 * under way with its log so far. */
+	function withLogs(): Partial<CardStory> {
+		return {
+			state: "building",
+			runs: [
+				run({
+					id: UNDER_WAY,
+					started_at: "2026-11-18T11:00:00+00:00",
+					finished_at: null,
+					duration_ms: null,
+					result: null,
+					check: null,
+					head_commit: null,
+					has_log: true,
+				}),
+				run({
+					id: KEPT,
+					started_at: "2026-11-18T10:00:00+00:00",
+					has_log: true,
+				}),
+				run({
+					id: PRUNED,
+					started_at: "2026-11-18T09:00:00+00:00",
+					log_pruned: true,
+				}),
+				run({ id: BEFORE, started_at: "2026-11-18T08:00:00+00:00" }),
+			],
+		};
+	}
+
+	const line = (seq: number, kind: string, text: string) => ({
+		seq,
+		at: "2026-11-18T10:00:00+00:00",
+		kind,
+		text,
+	});
+
+	test("a run's log opens, reads more, and says when it was not kept", async () => {
+		const loadRunLog = vi.fn((_project: string, _run: string, after: number) =>
+			Promise.resolve(
+				after === 0
+					? {
+							lines: [
+								line(1, "system", "Cloning Adamniels/Fodr at main"),
+								line(2, "tool", "Read README.md"),
+							],
+							more: true,
+						}
+					: {
+							lines: [line(3, "text", "Writing the failing test first.")],
+							more: false,
+						},
+			),
+		);
+		open(() => Promise.resolve(story(withLogs())), loadRunLog);
+
+		const [before, pruned, kept, underWay] = (await entries()).map((item) =>
+			within(item),
+		) as ReturnType<typeof within>[];
+
+		// From before logs were kept: nothing about a log.
+		expect(before?.queryByRole("button", { name: "Log" })).toBeNull();
+		expect(before?.queryByText("Its log was kept for 90 days.")).toBeNull();
+		// Kept its 90 days: it says so, with nothing to open.
+		expect(pruned?.getByText("Its log was kept for 90 days.")).toBeTruthy();
+		expect(pruned?.queryByRole("button", { name: "Log" })).toBeNull();
+		// Under way: its log is on Running now, not here.
+		expect(underWay?.queryByRole("button", { name: "Log" })).toBeNull();
+		expect(loadRunLog).not.toHaveBeenCalled();
+
+		// "Log" opens it, read from its start, each line as text, a tool's name
+		// in bold.
+		const button = kept?.getByRole("button", { name: "Log" });
+		expect(button?.getAttribute("aria-expanded")).toBe("false");
+		fireEvent.click(button as HTMLElement);
+		expect(button?.getAttribute("aria-expanded")).toBe("true");
+		expect(button?.textContent).toBe("Hide log");
+		const log = await screen.findByRole("log", { name: "Log of Build" });
+		await within(log).findByText("Cloning Adamniels/Fodr at main");
+		expect(loadRunLog).toHaveBeenCalledWith(PROJECT, KEPT, 0);
+		expect(within(log).getByText("Read").tagName).toBe("STRONG");
+
+		// "Show more" reads after the last line shown, adds them under it, and
+		// goes once there are no more.
+		fireEvent.click(
+			kept?.getByRole("button", { name: "Show more" }) as HTMLElement,
+		);
+		await within(log).findByText("Writing the failing test first.");
+		expect(loadRunLog).toHaveBeenLastCalledWith(PROJECT, KEPT, 2);
+		expect(within(log).getAllByRole("listitem")).toHaveLength(3);
+		expect(kept?.queryByRole("button", { name: "Show more" })).toBeNull();
+
+		// "Hide log" closes it.
+		fireEvent.click(button as HTMLElement);
+		expect(screen.queryByRole("log", { name: "Log of Build" })).toBeNull();
+	});
+
+	test("a log that cannot be read says so, and is read again", async () => {
+		const loadRunLog = vi
+			.fn<LoadRunLog>()
+			.mockRejectedValueOnce(new Error("offline"))
+			.mockResolvedValue({
+				lines: [line(1, "text", "Reading the card.")],
+				more: false,
+			});
+		open(() => Promise.resolve(story(withLogs())), loadRunLog);
+
+		const kept = within((await entries())[2] as HTMLElement);
+		fireEvent.click(kept.getByRole("button", { name: "Log" }));
+		expect((await kept.findByRole("alert")).textContent).toBe(
+			"The log could not be read. Try again.",
+		);
+		fireEvent.click(kept.getByRole("button", { name: "Try again" }));
+		await kept.findByText("Reading the card.");
+		expect(loadRunLog).toHaveBeenLastCalledWith(PROJECT, KEPT, 0);
+		expect(kept.queryByRole("alert")).toBeNull();
 	});
 });
