@@ -21,16 +21,15 @@ using PlatformData;
 
 namespace DevFlow.Jobs;
 
-/// <summary>What the fake worker is asked to do: take the project's next job and end it with the
-/// prepared result, whose worker id, branch and head commit it fills itself; for a review job the
+/// <summary>What the fake worker is asked to do: take the project's next job, post the first lines
+/// of its log, <see cref="FakeWorkerEndpoints.FirstLines"/>, and end it with the prepared result, whose worker id, branch and head commit it fills itself; for a review job the
 /// prepared report is the verdict, as it is for a whole feature's review, and for a conflict job the prepared remerge diff is sent with
 /// the merge commit it makes, when the result passed its check. With <paramref name="LeaveNoCommit"/>, a fix makes no commit, as
 /// an agent that changed nothing, and names the commit it was handed; and a build makes none and
 /// names none, as a run that failed before anything was pushed. For a build or a fix whose
 /// result lists pictures, <paramref name="Pictures"/> holds their bytes by name, base64 in the
 /// JSON, which it puts where a worker pushes them. With <paramref name="KeepRunning"/>, it takes the
-/// job, posts the first lines of its log, <see cref="FakeWorkerEndpoints.FirstLines"/>, and sends
-/// nothing back, as a worker still at it, so the card stays where taking it put it; no result is
+/// job and sends nothing back, as a worker still at it, so the card stays where taking it put it; no result is
 /// needed then. With <paramref name="ForCheck"/>, the prepared result is a check's and
 /// ends the check the worker is handed, as a check's worker sends it; without it, a check the worker
 /// is handed first is passed, as a recipe that works, and the next job taken, so a test of anything
@@ -72,7 +71,7 @@ public static class FakeWorkerEndpoints
     /// <summary>Why a job ends when the fake's git made no commit on its branch.</summary>
     public const string NoCommit = "The fake's git made no commit on the job's branch";
 
-    /// <summary>The lines a job the fake worker keeps running posts to its log, at
+    /// <summary>The lines every job the fake worker takes posts to its log, at
     /// <paramref name="now"/>: the worker's own line, then what the agent wrote and a tool it
     /// called, as a real run's first post holds them.</summary>
     public static LogRequest FirstLines(Job job, DateTimeOffset now)
@@ -169,6 +168,9 @@ public static class FakeWorkerEndpoints
             job = next;
         }
 
+        // The first lines of its log are posted as a worker posts them, through the same code, so a
+        // run the fake ends has its log as a real worker's has.
+        await JobEndpoints.Hear(database, values, feed, caller, job.JobId, WorkerId, FirstLines(job, Now(time)), Now(time), cancellationToken);
         if (forCheck)
         {
             if (job.Kind != Job.RecipeCheck)
@@ -184,9 +186,8 @@ public static class FakeWorkerEndpoints
 
         if (keepRunning)
         {
-            // Taken and still running: nothing is pushed and no result comes back, and the first
-            // lines of its log are posted as a worker posts them, through the same code.
-            await JobEndpoints.Hear(database, values, feed, caller, job.JobId, WorkerId, FirstLines(job, Now(time)), Now(time), cancellationToken);
+            // Taken and still running, its first lines posted: nothing is pushed and no result
+            // comes back.
             return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card?.Number, job.Branch, null, job.Brief));
         }
 

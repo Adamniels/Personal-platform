@@ -44,6 +44,8 @@ function story(overrides: Partial<CardStory> = {}): CardStory {
 				check: { exit_code: 0, output: "Tests: 12 passed" },
 				head_commit: HEAD,
 				stderr_tail: null,
+				has_log: false,
+				log_pruned: false,
 			},
 			{
 				id: "01a3185c-5000-7000-8000-000000000001",
@@ -61,6 +63,8 @@ function story(overrides: Partial<CardStory> = {}): CardStory {
 				check: null,
 				head_commit: null,
 				stderr_tail: "",
+				has_log: false,
+				log_pruned: false,
 			},
 		],
 		report: {
@@ -839,6 +843,8 @@ describe("a card's page", () => {
 				in_card: true,
 				head_commit: SECOND,
 				stderr_tail: "",
+				has_log: false,
+				log_pruned: false,
 			}),
 		];
 		open(() => Promise.resolve(story(shown)));
@@ -1004,6 +1010,8 @@ function run(overrides: Partial<CardStory["runs"][number]>) {
 		check: { exit_code: 0, output: "Tests: 12 passed" },
 		head_commit: HEAD,
 		stderr_tail: null,
+		has_log: false,
+		log_pruned: false,
 		...overrides,
 	};
 }
@@ -1200,6 +1208,8 @@ describe("a card's page tells its story in order", () => {
 							check: null,
 							head_commit: null,
 							stderr_tail: "Error: the token was refused\nat login (cli.js:12)",
+							has_log: false,
+							log_pruned: false,
 						}),
 					],
 				}),
@@ -1240,6 +1250,8 @@ describe("a card's page tells its story in order", () => {
 							check: null,
 							head_commit: null,
 							stderr_tail: "",
+							has_log: false,
+							log_pruned: false,
 						}),
 					],
 				}),

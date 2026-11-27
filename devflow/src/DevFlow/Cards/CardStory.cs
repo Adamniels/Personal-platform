@@ -43,6 +43,10 @@ public sealed record RunCheck(int ExitCode, string Output);
 /// <param name="StderrTail">For a run that failed, the last <see cref="CardStory.StderrLines"/> lines of
 /// what its worker sent of Claude Code's stderr, stored scrubbed and shown as text; empty when it sent
 /// none, and null for a run that succeeded or still runs.</param>
+/// <param name="HasLog">Whether it has lines of its log, read through
+/// <c>GET /devflow/api/projects/{id}/runs/{run}/log</c>.</param>
+/// <param name="LogPruned">Whether it had a log that was deleted once kept its 90 days; false for a
+/// run from before logs were kept, which never had one.</param>
 public sealed record CardRun(
     Guid Id,
     string Kind,
@@ -58,7 +62,9 @@ public sealed record CardRun(
     long? OutputTokens,
     RunCheck? Check,
     string? HeadCommit,
-    string? StderrTail);
+    string? StderrTail,
+    bool HasLog,
+    bool LogPruned);
 
 /// <summary>A review of the card, as its page shows it: the verdict Dev flow kept, for the commit the
 /// worker reviewed. Every text of the reviewer's is shown as text.</summary>
@@ -302,7 +308,8 @@ public static class CardStory
                r.input_tokens AS InputTokens, r.output_tokens AS OutputTokens, r.check_exit_code AS CheckExitCode,
                r.check_output AS CheckOutput, r.head_commit AS HeadCommit, r.report::text AS Report,
                r.fix_round AS FixRound, r.fix_review_id AS FixReviewId, r.owner_comments::text AS OwnerComments,
-               r.screenshots::text AS Screenshots, r.screenshots_note AS ScreenshotsNote, r.stderr AS Stderr
+               r.screenshots::text AS Screenshots, r.screenshots_note AS ScreenshotsNote, r.stderr AS Stderr,
+               EXISTS (SELECT 1 FROM run_log_lines l WHERE l.run_id = r.id) AS HasLog, r.log_pruned_at IS NOT NULL AS LogPruned
         FROM runs r JOIN workers w ON w.project_id = r.project_id AND w.id = r.worker_id
         """;
 
@@ -396,7 +403,9 @@ public static class CardStory
         row.OutputTokens,
         row.CheckExitCode is { } exit ? new RunCheck(exit, row.CheckOutput ?? "") : null,
         row.HeadCommit,
-        row.Result is null or "succeeded" ? null : LastLines(row.Stderr ?? "", StderrLines));
+        row.Result is null or "succeeded" ? null : LastLines(row.Stderr ?? "", StderrLines),
+        row.HasLog,
+        row.LogPruned);
 
     /// <summary>The last <paramref name="count"/> lines of <paramref name="text"/>, all of it when it
     /// has no more.</summary>
@@ -447,7 +456,9 @@ public static class CardStory
         string? OwnerComments,
         string? Screenshots,
         string? ScreenshotsNote,
-        string? Stderr);
+        string? Stderr,
+        bool HasLog,
+        bool LogPruned);
 
     private sealed record SourceRow(long Installation, long RepositoryId, string Owner, string Name, string HeadCommit, string? Screenshots);
 }

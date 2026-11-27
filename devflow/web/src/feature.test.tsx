@@ -366,6 +366,8 @@ describe("a feature's page", () => {
 								check: { exit_code: 0, output: "Tests: 40 passed" },
 								head_commit: COMMIT,
 								stderr_tail: null,
+								has_log: false,
+								log_pruned: false,
 							},
 							{
 								id: "01a3185c-5000-7000-8000-000000000008",
@@ -383,6 +385,8 @@ describe("a feature's page", () => {
 								check: null,
 								head_commit: null,
 								stderr_tail: "",
+								has_log: false,
+								log_pruned: false,
 							},
 						],
 					}),
@@ -1148,6 +1152,8 @@ function run(overrides: Partial<Run> = {}): Run {
 		check: null,
 		head_commit: COMMIT,
 		stderr_tail: null,
+		has_log: false,
+		log_pruned: false,
 		...overrides,
 	};
 }
