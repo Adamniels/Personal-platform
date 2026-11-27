@@ -94,6 +94,9 @@ public sealed class RunDecisionTests
         // nothing when there is nothing to do.
         Assert.Equal(new Decision.Run(DevFlow.Protocol.Job.RecipeCheck), RunDecision.Of(Free with { Setup = SetupGate.CheckDue, Login = ClaudeLoginState.None, Wait = AtLimit }));
         Assert.Equal(new Decision.Wait(new WaitReason.CannotRun(Failing.WaitUntil, Failing.Reason)), RunDecision.Of(Free with { Setup = SetupGate.CheckDue, Wait = Failing }));
+        // A check runs on a worker too: with none seen lately, as the page reads a project, it waits
+        // for one.
+        Assert.Equal(new Decision.Wait(new WaitReason.NoWorker("Personal-platform")), RunDecision.Of(Free with { Setup = SetupGate.CheckDue, WorkerSeen = false }));
         Assert.Equal(new Decision.Run(DevFlow.Protocol.Job.Setup), RunDecision.Of(Free with { Setup = SetupGate.NotSetUp, SetupKind = DevFlow.Setup.SetupRunStore.SetupKind }));
         Assert.Equal(new Decision.Wait(new WaitReason.NoClaudeLogin(Expired: false)), RunDecision.Of(Free with { Setup = SetupGate.NotSetUp, SetupKind = DevFlow.Setup.SetupRunStore.SetupKind, Login = ClaudeLoginState.None }));
         Assert.Equal(new Decision.Idle(), RunDecision.Of(Free with { NextKind = null }));

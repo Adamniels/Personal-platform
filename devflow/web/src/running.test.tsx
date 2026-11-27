@@ -50,6 +50,8 @@ function list(runs: RunningRun[]): RunningList {
 	return {
 		runs,
 		busy_workers: new Set(runs.map((each) => each.worker_id)).size,
+		next: [],
+		next_more: 0,
 	};
 }
 

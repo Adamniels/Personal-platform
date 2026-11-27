@@ -212,7 +212,10 @@ public sealed class ContractTests
         Assert.NotNull(log!["responses"]?["200"]?["content"]?["text/event-stream"]);
         Assert.True(log["responses"]!.AsObject().ContainsKey("404"), "the log stream answers 404");
         var schemas = document["components"]!["schemas"]!;
-        Assert.Equal(["busy_workers", "runs"], schemas["RunningList"]!["properties"]!.AsObject().Select(pair => pair.Key).Order(StringComparer.Ordinal));
+        Assert.Equal(["busy_workers", "next", "next_more", "runs"], schemas["RunningList"]!["properties"]!.AsObject().Select(pair => pair.Key).Order(StringComparer.Ordinal));
+        Assert.Equal(
+            ["job", "link", "link_card", "number", "project_id", "project_name", "reason", "state", "title"],
+            schemas["NextCard"]!["properties"]!.AsObject().Select(pair => pair.Key).Order(StringComparer.Ordinal));
         Assert.Equal(
             ["cache_reads", "card_number", "feature_number", "fix_round", "kind", "model", "project_id", "project_name", "run_id", "started_at", "state", "stopping", "title", "tokens", "worker_id", "worker_name"],
             schemas["RunningRun"]!["properties"]!.AsObject().Select(pair => pair.Key).Order(StringComparer.Ordinal));

@@ -193,8 +193,9 @@ public sealed record ProjectSituation(
     string Version,
     DateTimeOffset Now);
 
-/// <summary>A card's decision.</summary>
-public sealed record CardDecision(int Number, Decision Decision);
+/// <summary>A card's decision, and the kind of job due for it, null for one that waits for another
+/// card with none due.</summary>
+public sealed record CardDecision(int Number, Decision Decision, string? Kind = null);
 
 /// <summary>
 /// The one rule that decides whether a project's next job runs and, for each card waiting, why it
@@ -208,7 +209,7 @@ public static class RunDecision
     /// the worker asking needs a rebuild; the project is stopped, or its default branch not read
     /// lately; it waits after failures outside its cards, other than a usage limit; the worker's
     /// setup version has no check that passed, when a check due is what runs, since it runs no agent
-    /// and needs no Claude login; no Claude login, or one past its renewal; Claude's usage limit; no
+    /// and needs no Claude login, once a worker of the project was seen lately; no Claude login, or one past its renewal; Claude's usage limit; no
     /// worker of the project seen lately. Past them a worker built from no recipe runs the setup's
     /// next job, and any other the cards' next, or nothing when there is none.
     /// </summary>
@@ -242,7 +243,11 @@ public static class RunDecision
             case SetupGate.NotSetUp when situation.SetupKind is null:
                 return new Decision.Wait(new WaitReason.NeedsSetup(Checking: false));
             case SetupGate.CheckDue:
-                return new Decision.Run(Protocol.Job.RecipeCheck);
+                // A check runs on a worker like any job, so with none seen lately the project waits
+                // for one; the dispatcher's worker was just seen, so this holds back only the page.
+                return situation.WorkerSeen
+                    ? new Decision.Run(Protocol.Job.RecipeCheck)
+                    : new Decision.Wait(new WaitReason.NoWorker(situation.Project));
         }
 
         if (LoginReason(situation.Login) is { } login)
@@ -286,7 +291,23 @@ public static class RunDecision
     /// Claude login and whether any worker was seen within <see cref="RunStore.Silence"/>. Null when
     /// the worker has not said hello in the project, or the user has no such project.
     /// </summary>
-    public static async Task<ProjectSituation?> Read(UserDb database, Guid userId, Guid projectId, Guid workerId, string image, DateTimeOffset now, CancellationToken cancellationToken)
+    public static Task<ProjectSituation?> Read(UserDb database, Guid userId, Guid projectId, Guid workerId, string image, DateTimeOffset now, CancellationToken cancellationToken) =>
+        Read(database, userId, projectId, (Guid?)workerId, image, now, cancellationToken);
+
+    /// <summary>
+    /// The project's situation as the page reads it, with no worker asking: as the worker of the
+    /// project seen last would find it, or, with none, one built from the project's recipe as last
+    /// read. Null when the user has no such project. See "Running now" under "Jobs" in
+    /// devflow/README.md.
+    /// </summary>
+    public static Task<ProjectSituation?> ReadForPage(UserDb database, Guid userId, Guid projectId, string image, DateTimeOffset now, CancellationToken cancellationToken) =>
+        Read(database, userId, projectId, null, image, now, cancellationToken);
+
+    /// <summary>The setup version the rule judges, as SQL: the worker's, or with none the
+    /// project's recipe as last read, or none.</summary>
+    private const string VersionSql = $"coalesce(w.recipe_version, p.recipe_version, '{Protocol.WorkerApi.NoVersion}')";
+
+    private static async Task<ProjectSituation?> Read(UserDb database, Guid userId, Guid projectId, Guid? workerId, string image, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
         var row = await database.InUserTransaction(userId, transaction => transaction.Connection!.QuerySingleOrDefaultAsync<SituationRow>(new CommandDefinition(
@@ -295,18 +316,22 @@ public static class RunDecision
                    {Workers.WorkerStore.RebuildSql},
                    {WatchStore.HoldSql} AS Hold,
                    pw.failures AS Failures, pw.reason AS Reason, pw.since AS Since, pw.wait_until AS WaitUntil, pw.until_reset AS UntilReset,
-                   w.recipe_version AS Version,
-                   {Setup.SetupStore.PassedSql("w.recipe_version")} AS Passed,
-                   {Setup.SetupStore.DueSql("w.recipe_version")} AS Due,
-                   {Setup.SetupStore.CheckingSql("w.recipe_version")} AS Checking,
+                   {VersionSql} AS Version,
+                   {Setup.SetupStore.PassedSql(VersionSql)} AS Passed,
+                   {Setup.SetupStore.DueSql(VersionSql)} AS Due,
+                   {Setup.SetupStore.CheckingSql(VersionSql)} AS Checking,
                    {Setup.SetupRunStore.NextKindSql} AS SetupKind,
                    {JobStore.NextKindSql} AS NextKind,
                    (SELECT l.given_at FROM claude_logins l WHERE l.user_id = p.user_id) AS LoginGivenAt,
                    EXISTS (SELECT 1 FROM workers s WHERE s.project_id = p.id AND s.last_seen_at >= @seenSince) AS WorkerSeen
             FROM projects p
-            JOIN workers w ON w.project_id = p.id AND w.id = @workerId
+            LEFT JOIN LATERAL (
+                SELECT s.* FROM workers s
+                WHERE s.project_id = p.id AND (@workerId::uuid IS NULL OR s.id = @workerId)
+                ORDER BY s.last_seen_at DESC, s.id
+                LIMIT 1) w ON true
             LEFT JOIN project_waits pw ON pw.project_id = p.id
-            WHERE p.id = @projectId
+            WHERE p.id = @projectId AND (@workerId::uuid IS NULL OR w.id IS NOT NULL)
             """,
             new { projectId, workerId, image, watchedSince = WatchStore.WatchedSince(now), seenSince = now - RunStore.Silence },
             transaction,
@@ -430,7 +455,7 @@ public static class RunDecision
                 cancellationToken: cancellationToken));
             return (rows.ToList(), named);
         }, cancellationToken);
-        return [.. cards.Select(card => new CardDecision(card.Number, ForCard(project, card, busy)))];
+        return [.. cards.Select(card => new CardDecision(card.Number, ForCard(project, card, busy), card.Kind))];
     }
 
     /// <summary>
