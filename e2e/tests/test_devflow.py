@@ -53,7 +53,7 @@ from look import (
     assert_nothing_scrolls_sideways,
 )
 
-TABS = ["Waiting for you", "Projects"]
+TABS = ["Waiting for you", "Running now", "Projects"]
 BANNER = "Fake GitHub. Nothing here is real."
 
 
@@ -101,6 +101,7 @@ def test_each_devflow_tab_has_its_address(page: Page, invite_code: str, base_url
 
     for path, tab, empty in [
         ("/devflow/projects", "Projects", "No project connected yet"),
+        ("/devflow/running", "Running now", "Nothing is running"),
         ("/devflow", "Waiting for you", "Nothing waits for you"),
     ]:
         page.goto(path)
@@ -3450,6 +3451,196 @@ def test_i_stop_and_run_again(
     page.get_by_role("button", name="Run again").click()
     expect(page.get_by_text("Running #60 again")).to_be_visible()
     expect(page.get_by_text("Stopped by you.")).to_have_count(0)
+
+
+SHARING = 80
+SHARING_TITLE = "Share a plan by link"
+DECKS = 81
+DECKS_TITLE = "Decks and cards, the pages"
+
+
+def _running_panel(page: Page, number: int, title: str) -> Locator:
+    return page.get_by_role("article", name=f"#{number} {title}")
+
+
+def test_running_now_shows_the_log(
+    page: Page,
+    invite_code: str,
+    base_url: str,
+    viewport: str,
+    devflow_world,
+    playwright,
+):
+    """Two busy workers are two panels on Running now, each with its log as
+    it arrives; Stop now asks, the panel says it is stopping, and once the
+    worker ends the run its card is "Stopped by you". See "The pages" in
+    devflow/README.md."""
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    add_issue(world, SHARING, SHARING_TITLE, labels=["devflow"])
+    add_issue(world, DECKS, DECKS_TITLE, labels=["devflow"])
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    _read(page, base_url, project)
+    # Each card on its own is read by a reading of its own, the older first.
+    assert _fake_read(page, base_url, project, [_ready(SHARING)])["card"] == SHARING
+    assert _fake_read(page, base_url, project, [_ready(DECKS)])["card"] == DECKS
+
+    # The fake worker takes the first card and keeps it running, its first
+    # lines posted.
+    taken = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={"project_id": project, "keep_running": True},
+        headers={"Origin": base_url},
+    )
+    assert taken.status == 200, taken.text()
+    assert (taken.json()["kind"], taken.json()["card"]) == ("build", SHARING)
+    run = taken.json()["job_id"]
+
+    # A second worker, on the fake's recipe and image, takes the other card
+    # through the worker API, and posts a line and its tokens so far.
+    key = _make_key(page)
+    fake = next(
+        each
+        for each in page.request.get(f"/devflow/api/projects/{project}/workers").json()[
+            "workers"
+        ]
+        if each["name"] == "devflow-fake-worker"
+    )
+    second = "0190a8f0-0000-7000-8000-0000000000f7"
+    worker = playwright.request.new_context(base_url=base_url, ignore_https_errors=True)
+    try:
+        hello = worker.post(
+            "/devflow/api/worker/hello",
+            data={
+                "worker_id": second,
+                "name": "platform-2",
+                "recipe_version": fake["recipe_version"],
+                "base_image": fake["base_image"],
+            },
+            headers={"Authorization": f"Bearer {key}"},
+        )
+        assert hello.status == 204, hello.text()
+        asked = worker.post(
+            "/devflow/api/worker/jobs/next",
+            data={"worker_id": second},
+            headers={"Authorization": f"Bearer {key}"},
+        )
+        assert asked.status == 200, asked.text()
+        assert asked.json()["card"]["number"] == DECKS
+        other = asked.json()["job_id"]
+
+        def log(job: str, worker_id: str, lines: list[dict], usage=None) -> dict:
+            body = {"worker_id": worker_id, "lines": lines}
+            if usage is not None:
+                body["usage"] = usage
+            posted = worker.post(
+                f"/devflow/api/worker/jobs/{job}/log",
+                data=body,
+                headers={"Authorization": f"Bearer {key}"},
+            )
+            assert posted.status == 200, posted.text()
+            return posted.json()
+
+        def line(seq: int, kind: str, text: str) -> dict:
+            return {
+                "seq": seq,
+                "at": "2026-11-27T08:00:00Z",
+                "kind": kind,
+                "text": text,
+            }
+
+        log(
+            other,
+            second,
+            [
+                line(1, "system", "Cloning Adamniels/Personal-platform at main"),
+                line(2, "text", "Reading the card and the diff, 14 files."),
+                line(3, "tool", "Bash npm test"),
+                line(4, "check", "Tests: 12 passed, 1 failed"),
+            ],
+            usage={
+                "input_tokens": 1_000,
+                "cache_creation_input_tokens": 20_000,
+                "cache_read_input_tokens": 2_100_000,
+                "output_tokens": 64_000,
+            },
+        )
+
+        page.goto("/devflow/running")
+        expect(page.get_by_role("tab", name="Running now 2")).to_have_attribute(
+            "aria-selected", "true"
+        )
+        sharing = _running_panel(page, SHARING, SHARING_TITLE)
+        decks = _running_panel(page, DECKS, DECKS_TITLE)
+        expect(sharing.get_by_text("Building")).to_be_visible()
+        expect(sharing.get_by_text("devflow-fake-worker")).to_be_visible()
+        sharing_log = sharing.get_by_role("log", name=f"Log of #{SHARING}")
+        expect(
+            sharing_log.get_by_text("Reading the card and the code it touches.")
+        ).to_be_visible()
+        expect(decks.get_by_text("platform-2")).to_be_visible()
+        expect(decks.get_by_text("85 k tokens · 2.1 M cache reads")).to_be_visible()
+        expect(
+            decks.get_by_role("log", name=f"Log of #{DECKS}").get_by_text(
+                "Tests: 12 passed, 1 failed"
+            )
+        ).to_be_visible()
+
+        # A line the fake's run posts now arrives while the page is open.
+        log(run, FAKE_WORKER, [line(4, "text", "Writing the failing test first.")])
+        expect(
+            sharing_log.get_by_text("Writing the failing test first.")
+        ).to_be_visible()
+
+        _looks_right(page)
+        capture(page, "devflow-running-now")
+
+        # Stop now asks first; then the panel says it is stopping.
+        sharing.get_by_role("button", name="Stop now").click()
+        dialog = page.get_by_role("dialog", name="Stop this run?")
+        expect(
+            dialog.get_by_text(
+                "What it did is kept on its branch, and it waits for you."
+            )
+        ).to_be_visible()
+        dialog.get_by_role("button", name="Stop now").click()
+        expect(sharing.get_by_text("Stopping…")).to_be_visible()
+
+        # The worker's next post is answered stop, and it ends the run stopped.
+        assert log(run, FAKE_WORKER, []) == {"stop": True}
+        ended = worker.post(
+            f"/devflow/api/worker/jobs/{run}/result",
+            data={
+                **_stopped_result(),
+                "worker_id": FAKE_WORKER,
+                "branch": taken.json()["branch"],
+                "head_commit": None,
+            },
+            headers={"Authorization": f"Bearer {key}"},
+        )
+        assert ended.status == 204, ended.text()
+    finally:
+        worker.dispose()
+
+    # Its panel goes, the other stays, and the card waits, stopped by me.
+    expect(sharing).to_have_count(0)
+    expect(decks).to_be_visible()
+    expect(page.get_by_role("tab", name="Running now 1")).to_be_visible()
+    page.goto("/devflow")
+    card = _item(page, SHARING_TITLE, re.compile("^Stopped"))
+    expect(card.get_by_text("Stopped by you", exact=True)).to_be_visible()
 
 
 def _thin(number: int, missing: list[str]) -> dict:

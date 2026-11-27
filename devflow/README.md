@@ -103,7 +103,13 @@ program that calls it: everything else the tabs will show arrives with later sli
 - In the fake mode only, the fake's addresses under `/devflow/api/fake/`, see "Staging a world",
   its sign in page, `/devflow/fake-github/authorize`, and its install page,
   `/devflow/fake-github/install`, see "The fake".
-- `GET /devflow`, `/devflow/projects`, `/devflow/projects/{id}`, a project's page, and
+- `GET /devflow/api/running`, the caller's runs under way, and `GET /devflow/api/running/events`,
+  the same list as server-sent events, see "Running now" under "Jobs". Without a valid token, `401`
+  with an empty body.
+- `GET /devflow/api/projects/{id}/runs/{run}/log/events`, a run's log as server-sent events, and
+  `POST /devflow/api/projects/{id}/runs/{run}/stop`, which marks a run to stop, see "Jobs". Without a
+  valid token, `401` with an empty body.
+- `GET /devflow`, `/devflow/running`, `/devflow/projects`, `/devflow/projects/{id}`, a project's page, and
   `/devflow/projects/{id}/cards/{number}`, a card's page, and
   `/devflow/projects/{id}/features/{number}`, a feature's page, with any query, the page:
   `web/dist/index.html`, revalidated on every load; `{id}` must be a UUID and `{number}` a number. Without a valid token each answers `303` to
@@ -134,6 +140,7 @@ you.", then the package's `Tabs`, one per section, each with its own address:
 | Section         | Address             |
 | --------------- | ------------------- |
 | Waiting for you | `/devflow`          |
+| Running now     | `/devflow/running`  |
 | Projects        | `/devflow/projects` |
 
 The page names its tab in the top bar's crumb, "Dev flow / " and the tab's name, by setting the
@@ -548,7 +555,41 @@ code element and `**bold**` into a strong element, as React elements, and leaves
 written; no Markdown library, and no HTML is ever inserted, see "Text read from a code host is
 data" in `docs/devflow-architecture.md`.
 
-"Running now" and "Usage and history" join with the parts that build them, never as empty tabs. The address is the state,
+The Running now tab, `src/running.tsx`, shows a panel for each run under way of the owner's
+projects, oldest first, from `GET /devflow/api/running`, see "What it serves". Its tab carries the
+number of busy workers, "Running now 2", the package's `Tabs` count as Waiting for you's, and none
+when no worker is busy; the list is read as the page loads and every minute for that count, and
+while the tab shows, its stream, `GET /devflow/api/running/events`, keeps it current. A panel is an
+`article` named by what it runs, `#51 Share a plan by link`, in the Card rule of `design/DESIGN.md`:
+
+- the project's name as a `Badge`, the card's or the feature's number in the mono font and its
+  title, or "Setting up" for a setup's run and "Checking the recipe" for a check, and a status label
+  with the kind and state in words: "Building", "Checking" once the check runs, "Reviewing",
+  "Fixing, round 2", "Resolving a conflict" or "Reading";
+- in the mono font, the worker's name, the model and the time since the run started, "14 min 5 s",
+  ticking each second; and its tokens so far by the one definition with its cache reads beside
+  them, "120 k tokens · 2.1 M cache reads", see "Jobs";
+- the log, a `role="log"` region named "Log of #51" on a `--surface-2` inset, 13/20, of a fixed
+  height and scrolling inside itself: the last 200 lines as they arrive from the run's log stream,
+  kept scrolled to the end unless the owner has scrolled up, with "Jump to latest" then. `text`
+  lines as text, `tool` lines with the tool's name, the first word, in bold, `tool_result` lines in
+  `--text-3`, and `check` and `system` lines in the mono face. Every line is text, never HTML, as
+  every text from a worker is. A line the panel already has, after its stream opened again, is
+  shown once;
+- "Open card", a link to the card's or the feature's page, none for a setup's run or a check, and
+  "Stop now", which opens a `Dialog`, "Stop this run?", "What it did is kept on its branch, and it
+  waits for you.", and posts to the stop route, see "Stopping a run" under "Jobs". The panel then
+  says "Stopping…" in place of its state, as it does for any run the list says is marked to stop,
+  until the run ends and its panel goes.
+
+With nothing running, the `EmptyState` "Nothing is running", "Your workers are waiting for work."
+A stream is the browser's `EventSource`, `src/events.ts`, which sends the session cookie, opens the
+stream again by itself when it closes, and takes up a log from its `Last-Event-ID`. A stream it
+cannot open again, a `401` once the session's token has run out among them, has the list read once
+through `src/api/client.ts`, which refreshes the session, and is opened again 2 seconds later. "What
+runs next, and why not yet" joins the tab with #449, and "Pause everything" with #454.
+
+"Usage and history" joins with the part that builds it, never as an empty tab. The address is the state,
 through the History API and no router library (`src/address.ts`): a tab pushes its section's
 address, an item in the inbox its own, see above, Back and Forward come back as `popstate`, and an
 address that names no section shows a not found state under the tabs; a project's name pushes its
@@ -564,9 +605,9 @@ the session cookie, a `401` is refreshed once, shared by every call that got one
 banner and the link, and again after unlinking; its other calls are starting a link, unlinking,
 the projects' four, reading what waits and refreshing a project, merging and sending back,
 merging a card, reading a card's story, reading a feature's story and answering a decision on it,
-a project's workers and making its key, and reading, giving and removing the Claude login, which
-`src/app.tsx` gives the tabs, so a test gives its own,
-with its own clock.
+a project's workers and making its key, reading, giving and removing the Claude login, and reading
+the runs under way and stopping one, which `src/app.tsx` gives the tabs, with the streams Running
+now opens, so a test gives its own, with its own clock.
 
 ## The schema
 
@@ -3239,9 +3280,43 @@ run's heartbeat: it sets the run's `last_heard_at`, marks the worker seen, and, 
 the run's `input_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens` and
 `output_tokens`, which the result's usage replaces at the end. The lines a post stored are then
 handed to `RunLogFeed`, in process, by run, once their transaction has committed, which the live
-pages of "Running now", #448, read; a reader that falls 2,000 lines behind is ended, and takes up
-again from the table after the last `seq` it had. `RunLogStore.Heard` stores a post, in one
-transaction that takes the run's row first.
+pages of "Running now" read; a reader that falls 2,000 lines behind is ended, and takes up again
+from the table after the last `seq` it had. Once a run's end is committed, its result recorded by
+`JobEndpoints.Complete` or the run found lost by `RunStore.SweepLost`, `RunLogFeed.End` ends its
+readers too. `RunLogStore.Heard` stores a post, in one transaction that takes the run's row first.
+
+**A run's log as it happens.** `GET /devflow/api/projects/{id}/runs/{run}/log/events`,
+`RunLogStreamEndpoints` in `src/DevFlow/Jobs/`, as the owner, under the `Api` policy, through the
+door as every page route, so another user's run, or a run the project does not have, is `404`. It is
+`TypedResults.ServerSentEvents`, `text/event-stream`: a `start` event at once, data null, since the
+stream's headers go out with its first event and a run with no line yet would otherwise leave the
+page, and any proxy between, waiting for it to open; then a `line` event for each of the last 200
+lines the run stored, after the `seq` in `Last-Event-ID` when the page sent one, since a panel
+shows the last 200, read by `RunLogStore.Since`; then one for each new line from `RunLogFeed` as the log route stores it. A
+line's data is `{"seq", "at", "kind", "text"}` and its event's id its `seq`, and a line already
+sent, by its `seq`, is not sent again. The feed is subscribed before the table is read, so a line
+stored between the two is in one or the other. Once the run has ended, the lines it stored after
+the last one sent and an `end` event, data null, and the stream closes; a run that has ended sends
+them at once. When the feed ends a reader that fell behind, the stream closes without an `end`,
+and `EventSource` opens it again from its `Last-Event-ID`.
+
+**Running now.** `GET /devflow/api/running`, `RunningEndpoints` and `RunningStore` in
+`src/DevFlow/Jobs/`, as the owner, under the `Api` policy, through the door: every run under way of
+the caller's projects, oldest first, each with `run_id`, `project_id` and `project_name`,
+`worker_id` and `worker_name`, the name it said hello with, `kind`, `state`, `running` or `checking`
+once its check runs, `stopping`, true once the owner marked it to stop, `card_number` or
+`feature_number` and `title`, the card's or the feature's as last read, null for a setup's run or a
+check, `fix_round`, `model`, the model its job was handed out with, null for a check, `started_at`,
+`tokens` so far and `cache_reads` so far; and `busy_workers`, how many workers hold them. A token is
+`input_tokens + cache_creation_input_tokens + output_tokens`, `RunningStore.TokensSql`, the one
+definition everywhere Dev flow shows or counts tokens; cache reads are shown beside them, never in
+them. `GET /devflow/api/running/events` is the same list as server-sent events: a `running` event at
+once, and another whenever the list read again every 2 seconds differs from the one last sent, so a
+run starting or ending, a state or its tokens moving is sent and nothing while nothing changes.
+
+Each stream ends when the token it was opened with runs out, its `exp` on Dev flow's clock, so
+nothing is sent on a token past its time; `EventSource` opens it again with the session as it is
+then. Caddy passes `text/event-stream` through unbuffered.
 
 **The result.** `POST /devflow/api/worker/jobs/{id}/result`, once, whatever happened:
 
@@ -3304,7 +3379,7 @@ every page route: `202` once the run under way has `stop_requested_at` set, and 
 already marked, which keeps its first time; `409` "The run has already ended"; `404` for a project or
 run the caller does not have. The worker's next post to the run's log, at most 15 seconds later, is
 answered `stop`, and the worker ends the run as "The answer's `stop`" under "The worker" says. The
-"Stop now" button is "Running now", #448. Its result is recorded `stopped_by_owner`, "Stopped by
+"Stop now" button is on each panel of Running now, see "The pages". Its result is recorded `stopped_by_owner`, "Stopped by
 you", beside `stopped`, which means the agent's report said it stopped. It is never a failure: the
 project's wait, a card's failures in a row and the commit they remember, and its fix rounds are
 untouched, and the commit it names is accounted for by the watch as any result's head commit is. A
@@ -3412,6 +3487,11 @@ the run to stop. From `migrations/0049_stopped_by_owner.sql`, a run's `result` m
 `stopped_by_owner`; `cards` gains `stopped_by_owner`, `stopped_kind`, `build`, `review` or `fix`,
 and `stopped_round`, a fix's round, which describe the card's current stop, so every other way a
 card stops sets them back; and `features` gains `stopped_by_owner_at`, null while it is not held.
+
+From `migrations/0052_run_model.sql`, `runs` gains `model`, `opus`, `sonnet` or `haiku`, the model
+its job was handed out with, written in the transaction that takes the work, as `run_minutes` is, so
+Running now names the model a run uses whatever the setting is changed to meanwhile; null for a
+check, which runs no model, and for every run handed out before it.
 
 ## The pull request Dev flow opens
 
