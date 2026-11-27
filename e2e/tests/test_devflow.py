@@ -53,7 +53,7 @@ from look import (
     assert_nothing_scrolls_sideways,
 )
 
-TABS = ["Waiting for you", "Running now", "Projects"]
+TABS = ["Waiting for you", "Running now", "Projects", "Usage and history"]
 BANNER = "Fake GitHub. Nothing here is real."
 
 
@@ -2680,7 +2680,8 @@ def test_a_card_page_tells_its_story(
     )
     build = entries.nth(1)
     expect(build).to_contain_text("devflow-fake-worker")
-    expect(build).to_contain_text("41 in / 6,113 out")
+    # Tokens by the one definition, 41 + 6,113, with cache reads beside them.
+    expect(build).to_contain_text("6,154 tokens · 0 cache reads")
     expect(build).to_contain_text("logged in with oauth_token")
     expect(build).to_contain_text(f"exit 0 on {ran['head_commit'][:7]}")
     expect(build.get_by_text("Tests: 12 passed")).to_be_hidden()
