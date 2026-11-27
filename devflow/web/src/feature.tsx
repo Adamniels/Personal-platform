@@ -33,6 +33,7 @@ import {
 	RoundRow,
 	RunLog,
 	resultOf,
+	tokensLine,
 	took,
 	verdictWord,
 } from "./card";
@@ -773,9 +774,13 @@ function OwnRuns({
 						<div key={run.id} className={styles.fact}>
 							<dt>{KINDS[run.kind] ?? run.kind}</dt>
 							<dd>
-								{run.duration_ms === null
-									? word
-									: `${word} · ${took(run.duration_ms)}`}
+								{[
+									word,
+									run.duration_ms === null ? null : took(run.duration_ms),
+									tokensLine(run),
+								]
+									.filter((part) => part !== null)
+									.join(" · ")}
 							</dd>
 							{run.reason === null ? null : (
 								<dd className={own.runReason}>

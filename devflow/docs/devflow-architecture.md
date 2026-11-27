@@ -1086,6 +1086,22 @@ and a stream refused with a `401`, which `EventSource` cannot refresh, has the p
 the session first. A stream's headers go out with its first event, so each sends one at once, the
 list, or a log's `start`, and the page and any proxy between see it open.
 
+**Usage counts each run once, where its own columns put it.** Usage and history sums a run into
+its card by `card_number`, its feature by `feature_number`, or, with neither, its project's
+"Setting up", and a card into the feature it is a card of now. A card's page lists its feature's
+readings too, since they read it, but counting them there as well would count one run twice; the
+run's columns are the one attribution, and they never change once it is handed out. A run of a card
+whose label was taken off keeps its number, so its usage stays, shown without a page. The period
+counts the runs that started in it, so a run is in one period or not and the sums add up, while a
+card's elapsed time, fix rounds and sends back are its whole: half a card's span would say nothing.
+The token is one definition, `input_tokens + cache_creation_input_tokens + output_tokens`, held in
+`Tokens` as C# for what a page reads run by run and as SQL for what a query sums, beside each
+other, so Running now, a card's and a feature's page and this tab cannot disagree, and part 8's
+daily budget counts the same thing. Cache reads are shown beside it: on a long run they are most of
+the figures, and cost far less, so in the sum they would drown what was used. The sums are read per
+request from `runs`, grouped by card, feature and project, with no table of their own; one user's
+runs are few enough, and a stored sum would be one more thing to keep right.
+
 **The model and the limits are the project's, carried by the job.** Which model reads, builds and
 reviews, and the minutes and turns a run takes, are settings, as the spec's round 4b has them per
 job per project, each starting on the strongest model; the values are Claude Code's aliases, which

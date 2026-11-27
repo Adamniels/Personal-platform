@@ -106,11 +106,14 @@ program that calls it: everything else the tabs will show arrives with later sli
 - `GET /devflow/api/running`, the caller's runs under way and the cards that come next, and
   `GET /devflow/api/running/events`, the same list as server-sent events, see "Running now" under
   "Jobs". Without a valid token, `401` with an empty body.
+- `GET /devflow/api/usage?period=<7d|30d|all>`, what each of the caller's projects, features and
+  cards used in the period, 30 days without one, see "Usage and history" under "The pages". `422`
+  naming `period` for any other. Without a valid token, `401` with an empty body.
 - `GET /devflow/api/projects/{id}/runs/{run}/log/events`, a run's log as server-sent events,
   `GET /devflow/api/projects/{id}/runs/{run}/log`, a run's log a page at a time, and
   `POST /devflow/api/projects/{id}/runs/{run}/stop`, which marks a run to stop, see "Jobs". Without a
   valid token, `401` with an empty body.
-- `GET /devflow`, `/devflow/running`, `/devflow/projects`, `/devflow/projects/{id}`, a project's page, and
+- `GET /devflow`, `/devflow/running`, `/devflow/projects`, `/devflow/usage`, `/devflow/projects/{id}`, a project's page, and
   `/devflow/projects/{id}/cards/{number}`, a card's page, and
   `/devflow/projects/{id}/features/{number}`, a feature's page, with any query, the page:
   `web/dist/index.html`, revalidated on every load; `{id}` must be a UUID and `{number}` a number. Without a valid token each answers `303` to
@@ -138,11 +141,12 @@ includes the nav's lines from "Navigation" in `High-level/docs/platform-architec
 The page is an `h1`, "Dev flow", a line under it, "What your agents built, and what waits for
 you.", then the package's `Tabs`, one per section, each with its own address:
 
-| Section         | Address             |
-| --------------- | ------------------- |
-| Waiting for you | `/devflow`          |
-| Running now     | `/devflow/running`  |
-| Projects        | `/devflow/projects` |
+| Section           | Address             |
+| ----------------- | ------------------- |
+| Waiting for you   | `/devflow`          |
+| Running now       | `/devflow/running`  |
+| Projects          | `/devflow/projects` |
+| Usage and history | `/devflow/usage`    |
 
 The page names its tab in the top bar's crumb, "Dev flow / " and the tab's name, by setting the
 `crumb` attribute of its `<platform-nav>` whenever the tab changes.
@@ -420,8 +424,9 @@ card is on Waiting for you. Top to bottom:
     its title, its facts on its mono line. A run, a read run among them, is its kind, "Build",
     "Reading" and the others, with its outcome as a status, "Succeeded" `done`, "Running"
     `running`, and "Failed", "Check failed", "The agent stopped", "Report did not match" and "Lost"
-    `failed`; its line says when it started, its worker, how long it took, its tokens in and out
-    and how it logged in; for a failure its reason and whether it lay in the card or outside it,
+    `failed`; its line says when it started, its worker, how long it took, its tokens by the one
+    definition with its cache reads beside them, "24,358 tokens · 512,870 cache reads", see
+    "Running now" under "Jobs", and how it logged in; for a failure its reason and whether it lay in the card or outside it,
     and, when its worker sent any, "Show Claude Code's error output", which opens `stderr_tail`
     in the mono font, kept as written and wrapped; and "Check exit <code> on <commit>" with "Show
     output", which opens the check's tail the same way. A review run that kept a verdict is its
@@ -453,7 +458,8 @@ card is on Waiting for you. Top to bottom:
     then label and value rows, the value in the mono font: "The check", the exit code of the
     newest build's or fix's that succeeded and its commit; "The review", the head's review's
     verdict and "head", or the newest one's and "older commit"; "Runs", their count and total time;
-    "Tokens", in and out over every run; and "Fix rounds", "<used> of <m> used", the highest round
+    "Tokens", their sum over every run by the one definition, and the cache reads beside it,
+    "97,432 · 2,051,480 cache reads"; and "Fix rounds", "<used> of <m> used", the highest round
     number, over the steps bar of section 4 of `design/DESIGN.md`, one pill per round, named
     "Fix rounds: <used> of <m> used".
   - "Screenshots", with `screenshots`: "Taken by the worker of <commit>, after its check passed.",
@@ -616,7 +622,60 @@ cannot open again, a `401` once the session's token has run out among them, has 
 through `src/api/client.ts`, which refreshes the session, and is opened again 2 seconds later.
 "Pause everything" joins the tab with #454.
 
-"Usage and history" joins with the part that builds it, never as an empty tab. The address is the state,
+### Usage and history
+
+The Usage and history tab, `src/usage.tsx`, the last, shows what each project, feature and card
+used, from `GET /devflow/api/usage`: tokens and time, never money. Its period is in the address,
+`/devflow/usage?period=7d`, `30d` or `all`, 30 days without one or with one it does not know, and is
+chosen with the package's `Select`, "Period", "Last 7 days", "Last 30 days" or "All time", which
+pushes the address with the period chosen. The period counts the runs started in it, rolling, 7 or
+30 times 24 hours back from now.
+
+Each project with a run in the period is a `Table` of its own, named "Usage of <name>", most tokens
+first, whose first row is the project, a button with its name and a chevron, `aria-expanded`,
+closed as the page loads. Open, it shows under it its features, most tokens first, then its cards on
+their own, then "Setting up", its checks and its setup's runs, when it had any. A feature's row
+opens the same way, by a chevron alone named "Open #60 <title>" or "Close #60 <title>", into its
+cards, most tokens first, and "The feature's own runs", its readings, reviews, fixes and conflicts.
+A card's and a feature's row is its number in the mono font and its title as a link to its page; a
+card Dev flow no longer holds, its label taken off, has its number alone. Rows sit in by how deep
+they are, a feature's cards past its chevron.
+
+The columns are Runs; Agent time, the sum of the runs' times, each as its worker measured it, or
+from its start to its end when it measured none, or to now while it runs; Elapsed, for a card or a
+feature from its first run's start to its last run's end, or now while one runs; Tokens, by the one
+definition, see "Running now" under "Jobs"; Cache reads, beside them; Fix rounds, for a card the
+rounds its reviews started and for a feature the whole feature's; and Sent back, for a card how many
+times the owner sent it back and for a feature its cards' summed. Elapsed, fix rounds and sends back
+are the card's or the feature's whole, not the period's, and are shown for every card or feature
+with a run in it; a row they do not apply to leaves them empty. Times read in their two largest
+units, "1 h 42 min", "40 d 0 h", and counts with thousands separators, all in the mono font. On a
+phone every number column is priority 2, so each row is its name with its numbers folded on a mono
+line under it, "2 runs · 4 min agent · 0 s elapsed · 25,210 tokens · 512,870 cache reads · 0 fix
+rounds · sent back 0".
+
+With no run in the period, the `EmptyState` "Nothing used in the last 7 days", "Nothing used in the
+last 30 days" or, for all time, "Nothing used yet", "What each project, feature and card uses shows
+here once a worker has run a job."; a list that cannot be read says so as an alert.
+
+**The route.** `GET /devflow/api/usage`, `UsageEndpoints` and `UsageStore` in `src/DevFlow/Usage/`,
+as the owner, under the `Api` policy, through the door, so another user's run never counts, read
+from what Dev flow stored and never from GitHub. It answers `period`, as counted, and `projects`,
+each with a run in the period, most tokens first: `id`, `name`, `runs`, `agent_ms`, `tokens` and
+`cache_reads`; `setting_up`, the same four for its checks and its setup's runs, null with none;
+`features`, each `number`, `title`, the four over its own runs and its cards' together,
+`elapsed_ms`, `fix_rounds`, `features.fix_round`, `sent_back`, `own`, the four for its own runs
+alone or null, and `cards`; and `cards`, its cards on their own. A card is `number`, `title`, null
+for one Dev flow no longer holds, the four, `elapsed_ms`, `fix_rounds`, `cards.fix_rounds`, and
+`sent_back`, `cards.sent_backs`. A run counts where its own columns put it, `card_number` to its
+card and `feature_number` to its feature, so a feature's reading counts to the feature even though
+a card's page lists it, and nothing counts twice; a run with neither, a check or a setup's, counts
+to its project's Setting up; and a card counts to the feature it is a card of now, by
+`cards.feature_id`.
+
+### The address
+
+The address is the state,
 through the History API and no router library (`src/address.ts`): a tab pushes its section's
 address, an item in the inbox its own, see above, Back and Forward come back as `popstate`, and an
 address that names no section shows a not found state under the tabs; a project's name pushes its
@@ -633,7 +692,8 @@ banner and the link, and again after unlinking; its other calls are starting a l
 the projects' four, reading what waits and refreshing a project, merging and sending back,
 merging a card, reading a card's story, reading a feature's story and answering a decision on it,
 a project's workers and making its key, reading, giving and removing the Claude login, and reading
-the runs under way and stopping one, which `src/app.tsx` gives the tabs, with the streams Running
+the runs under way and stopping one, and reading what was used in a period, which `src/app.tsx`
+gives the tabs, with the streams Running
 now opens, so a test gives its own, with its own clock.
 
 ## The schema
@@ -3355,8 +3415,9 @@ once its check runs, `stopping`, true once the owner marked it to stop, `card_nu
 check, `fix_round`, `model`, the model its job was handed out with, null for a check, `started_at`,
 `tokens` so far and `cache_reads` so far; `busy_workers`, how many workers hold them; and `next` and
 `next_more`, "Next up", below. A token is
-`input_tokens + cache_creation_input_tokens + output_tokens`, `RunningStore.TokensSql`, the one
-definition everywhere Dev flow shows or counts tokens; cache reads are shown beside them, never in
+`input_tokens + cache_creation_input_tokens + output_tokens`, a missing figure counted as 0, the one
+definition everywhere Dev flow shows or counts tokens, `Tokens` in `src/DevFlow/Usage/Tokens.cs`,
+`Tokens.Of` in C# and `Tokens.Sql` in a query, so the two cannot differ; cache reads are shown beside them, never in
 them. `GET /devflow/api/running/events` is the same list as server-sent events: a `running` event at
 once, and another whenever the list read again every 2 seconds differs from the one last sent, so a
 run starting or ending, a state or its tokens moving, or a card next coming, going or changing its
@@ -3779,7 +3840,9 @@ story so far, read from what Dev flow stored and never from GitHub, through the 
 hello with, `started_at`, `finished_at`, `duration_ms`, `result`, `reason`, `in_card`, for a
 failure whether it lay in the card, true for `failed_in_card`, `report_invalid`, `stopped` and
 `check_failed` and false for `failed_outside_card` and `lost`, null otherwise, `auth_method`,
-`input_tokens`, `output_tokens`, `check`, `{"exit_code", "output"}` or null when it did not run,
+`tokens`, `input_tokens + cache_creation_input_tokens + output_tokens` by `Tokens.Of`, and
+`cache_reads`, beside them and never in them, each null when Claude gave none of their figures,
+`check`, `{"exit_code", "output"}` or null when it did not run,
 `head_commit`, for a review the commit it reviewed, and `stderr_tail`, for a run that failed the
 last 50 lines of the stderr its worker sent, stored scrubbed as "A project's values" says, so
 nothing is scrubbed again here, empty when it sent none, and null for a run that succeeded or
@@ -3829,8 +3892,8 @@ its watch recorded after the newest change it judged, `branch_watches.last_commi
 was made at before any, null for a watch that began before the column and has judged nothing
 since; `pull_request`, `{"number", "url"}`, its pull request to the default branch, null before
 one is opened; and `cards`, in position order, each `number`, `title`, `web_url`, `state` and
-`reason` as the Cards route answers them, `fix_rounds`, 0 to 3, `input_tokens` and `output_tokens`,
-summed over every run of the card, `screenshots`, as "A card's page" answers them, whose pictures
+`reason` as the Cards route answers them, `fix_rounds`, 0 to 3, `tokens` by the one definition and
+`cache_reads`, summed over every run of the card, `screenshots`, as "A card's page" answers them, whose pictures
 are read through that card's `…/screenshots/{name}`, and `decisions`. A card's `decisions` are those
 its latest report marks for the owner, the report "A card's page" answers as `report`, so the two
 pages never disagree, in the report's order, each `run_id`, the run whose report it is,
@@ -3843,8 +3906,8 @@ many times it was sent back, the pull request `{"number", "url"}` it had landed 
 words, or null when it never was. A project or feature the caller does not have is `404` "No
 such feature". It is `FeatureStory` and `FeatureEndpoints` in `src/DevFlow/Features/`. It also
 answers `runs`, the feature's own runs, none of its cards', a conflict's among them, newest first,
-each as "A card's page" answers a run, a whole feature's review among them, and `input_tokens` and
-`output_tokens`, summed over them, 0 before any; `reviews`, the reviews of the whole feature,
+each as "A card's page" answers a run, a whole feature's review among them, and `tokens` and
+`cache_reads`, summed over them by the same definition, 0 before any; `reviews`, the reviews of the whole feature,
 newest first, each as "A card's page" answers a review, see "Reviewing a feature"; and
 `fix_rounds` and `rounds`, its fix rounds, see "Fixing a feature" under "Reviewing a feature".
 
@@ -3941,7 +4004,9 @@ The side column:
   words, the developer's replies and the commit it left with the review of it. Before any, "The
   whole feature has not been reviewed yet."
 - **"Its own runs"**, only when the feature has a run of its own: label and value rows, the run's
-  kind, "Conflict" or "Review of the feature" among them, and its result and how long it took; a
+  kind, "Conflict" or "Review of the feature" among them, and its result, how long it took and its
+  tokens with their cache reads beside, "3,412 tokens · 51,200 cache reads", as a card's run says
+  them; a
   failed one also why, its cause said to lie in the job, "so the feature waits for you", or outside
   it, "so it runs again"; and under it, the full width, its "Log" or "Its log was kept for 90
   days.", as a card's page shows a run's.

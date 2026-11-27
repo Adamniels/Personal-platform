@@ -80,14 +80,15 @@ internal static class FeaturePage
             cancellationToken: Ct));
     }
 
-    /// <summary>The tokens the card's runs read and wrote, each summed, read past row level
-    /// security.</summary>
-    public static async Task<(long In, long Out)> Tokens(Jobs.Jobs jobs, int card)
+    /// <summary>The card's runs' tokens, input, cache writes and output summed, and their cache
+    /// reads, read past row level security.</summary>
+    public static async Task<(long Tokens, long CacheReads)> Tokens(Jobs.Jobs jobs, int card)
     {
         await using var admin = await jobs.Routes.Database.OpenAdmin(Ct);
         var row = await admin.QuerySingleAsync<(long, long)>(new CommandDefinition(
             """
-            SELECT coalesce(sum(input_tokens), 0)::bigint, coalesce(sum(output_tokens), 0)::bigint
+            SELECT coalesce(sum(coalesce(input_tokens, 0) + coalesce(cache_creation_input_tokens, 0) + coalesce(output_tokens, 0)), 0)::bigint,
+                   coalesce(sum(cache_read_input_tokens), 0)::bigint
             FROM runs WHERE project_id = @project AND card_number = @card
             """,
             new { project = jobs.Project, card },

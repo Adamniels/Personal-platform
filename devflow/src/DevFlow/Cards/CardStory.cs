@@ -36,8 +36,10 @@ public sealed record RunCheck(int ExitCode, string Output);
 /// outside it, so another try may succeed; null for a run that succeeded or still runs.</param>
 /// <param name="AuthMethod">How Claude Code was logged in, as it said, null when it did not
 /// run.</param>
-/// <param name="InputTokens">The tokens it read, null when Claude gave none.</param>
-/// <param name="OutputTokens">The tokens it wrote, null when Claude gave none.</param>
+/// <param name="Tokens">Its tokens by the one definition, <see cref="Usage.Tokens"/>, null when
+/// Claude gave none of their figures.</param>
+/// <param name="CacheReads">Its cache reads, shown beside the tokens and never in them, null when
+/// Claude gave none.</param>
 /// <param name="Check">The check, null when it did not run.</param>
 /// <param name="HeadCommit">The commit the run left on the branch, null when it left none.</param>
 /// <param name="StderrTail">For a run that failed, the last <see cref="CardStory.StderrLines"/> lines of
@@ -58,8 +60,8 @@ public sealed record CardRun(
     string? Reason,
     bool? InCard,
     string? AuthMethod,
-    long? InputTokens,
-    long? OutputTokens,
+    long? Tokens,
+    long? CacheReads,
     RunCheck? Check,
     string? HeadCommit,
     string? StderrTail,
@@ -305,7 +307,8 @@ public static class CardStory
     private const string SelectRuns = """
         SELECT r.id AS Id, r.kind AS Kind, w.name AS Worker, r.started_at AS StartedAt, r.finished_at AS FinishedAt,
                r.duration_ms AS DurationMs, r.result AS Result, r.reason AS Reason, r.auth_method AS AuthMethod,
-               r.input_tokens AS InputTokens, r.output_tokens AS OutputTokens, r.check_exit_code AS CheckExitCode,
+               r.input_tokens AS InputTokens, r.cache_creation_input_tokens AS CacheCreationInputTokens,
+               r.output_tokens AS OutputTokens, r.cache_read_input_tokens AS CacheReadInputTokens, r.check_exit_code AS CheckExitCode,
                r.check_output AS CheckOutput, r.head_commit AS HeadCommit, r.report::text AS Report,
                r.fix_round AS FixRound, r.fix_review_id AS FixReviewId, r.owner_comments::text AS OwnerComments,
                r.screenshots::text AS Screenshots, r.screenshots_note AS ScreenshotsNote, r.stderr AS Stderr,
@@ -399,8 +402,8 @@ public static class CardStory
         : row.Result is { } outside && OutsideCard.Contains(outside, StringComparer.Ordinal) ? false
         : null,
         row.AuthMethod,
-        row.InputTokens,
-        row.OutputTokens,
+        Usage.Tokens.OrNone(row.InputTokens, row.CacheCreationInputTokens, row.OutputTokens),
+        row.CacheReadInputTokens,
         row.CheckExitCode is { } exit ? new RunCheck(exit, row.CheckOutput ?? "") : null,
         row.HeadCommit,
         row.Result is null or "succeeded" ? null : LastLines(row.Stderr ?? "", StderrLines),
@@ -446,7 +449,9 @@ public static class CardStory
         string? Reason,
         string? AuthMethod,
         long? InputTokens,
+        long? CacheCreationInputTokens,
         long? OutputTokens,
+        long? CacheReadInputTokens,
         int? CheckExitCode,
         string? CheckOutput,
         string? HeadCommit,

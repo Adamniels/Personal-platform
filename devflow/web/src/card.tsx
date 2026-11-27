@@ -595,6 +595,15 @@ function HowItGotHere({ story, log }: { story: CardStory; log: LogSource }) {
 	);
 }
 
+/** What a run used: its tokens, input plus cache writes plus output, the one
+ * definition the server sends, and its cache reads beside them, never in
+ * them; null when Claude gave no figures. */
+export function tokensLine(run: Pick<Run, "tokens" | "cache_reads">) {
+	return run.tokens === null
+		? null
+		: `${COUNT.format(run.tokens)} tokens · ${COUNT.format(run.cache_reads ?? 0)} cache reads`;
+}
+
 /** A run's facts on its entry's mono line: when, where it ran, how long it
  * took, what it used and how it logged in. */
 function runLine(run: Run): string {
@@ -602,9 +611,7 @@ function runLine(run: Run): string {
 		when(run.started_at),
 		run.worker,
 		run.duration_ms === null ? null : `took ${took(run.duration_ms)}`,
-		run.input_tokens === null && run.output_tokens === null
-			? null
-			: `${COUNT.format(run.input_tokens ?? 0)} in / ${COUNT.format(run.output_tokens ?? 0)} out`,
+		tokensLine(run),
 		run.auth_method === null ? null : `logged in with ${run.auth_method}`,
 	]
 		.filter((part) => part !== null)
@@ -941,15 +948,10 @@ function AtAGlance({ story }: { story: CardStory }) {
 		(sum, run) => sum + (run.duration_ms ?? 0),
 		0,
 	);
-	const tokens = story.runs.some(
-		(run) => run.input_tokens !== null || run.output_tokens !== null,
-	);
-	const read = story.runs.reduce(
-		(sum, run) => sum + (run.input_tokens ?? 0),
-		0,
-	);
-	const wrote = story.runs.reduce(
-		(sum, run) => sum + (run.output_tokens ?? 0),
+	const tokens = story.runs.some((run) => run.tokens !== null);
+	const used = story.runs.reduce((sum, run) => sum + (run.tokens ?? 0), 0);
+	const cacheReads = story.runs.reduce(
+		(sum, run) => sum + (run.cache_reads ?? 0),
 		0,
 	);
 	return (
@@ -1018,7 +1020,7 @@ function AtAGlance({ story }: { story: CardStory }) {
 						<div className={styles.fact}>
 							<dt>Tokens</dt>
 							<dd>
-								{COUNT.format(read)} in · {COUNT.format(wrote)} out
+								{COUNT.format(used)} · {COUNT.format(cacheReads)} cache reads
 							</dd>
 						</div>
 					) : null}
@@ -1139,19 +1141,12 @@ export function RunRow({
 							: LAY[of].outside}
 				</span>
 			)}
-			{run.auth_method === null &&
-			run.input_tokens === null &&
-			run.output_tokens === null ? null : (
+			{run.auth_method === null && run.tokens === null ? null : (
 				<span className={styles.meta}>
 					{run.auth_method === null ? null : (
 						<span>Logged in with {run.auth_method}</span>
 					)}
-					{run.input_tokens === null && run.output_tokens === null ? null : (
-						<span>
-							Tokens {COUNT.format(run.input_tokens ?? 0)} in,{" "}
-							{COUNT.format(run.output_tokens ?? 0)} out
-						</span>
-					)}
+					{run.tokens === null ? null : <span>{tokensLine(run)}</span>}
 				</span>
 			)}
 			{run.check === null ? null : (

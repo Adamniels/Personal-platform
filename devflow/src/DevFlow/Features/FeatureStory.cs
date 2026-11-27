@@ -58,8 +58,9 @@ public sealed record CardSentBack(int Times, CardPullRequest PullRequest, IReadO
 /// <param name="State">The card's state, as the cards list says it.</param>
 /// <param name="Reason">Why it is there, null when there is nothing to say.</param>
 /// <param name="FixRounds">The fix rounds its reviews have started, 0 to 3.</param>
-/// <param name="InputTokens">The tokens its runs read, every kind, 0 before any.</param>
-/// <param name="OutputTokens">The tokens its runs wrote, every kind, 0 before any.</param>
+/// <param name="Tokens">Its runs' tokens, every kind, by the one definition,
+/// <see cref="Usage.Tokens"/>; 0 before any.</param>
+/// <param name="CacheReads">Its runs' cache reads, shown beside the tokens; 0 before any.</param>
 /// <param name="Screenshots">The pictures of its head commit, as its own page has them, read
 /// through <c>getCardScreenshot</c>; null when its newest build or fix that succeeded tried
 /// none.</param>
@@ -75,8 +76,8 @@ public sealed record FeatureCard(
     string State,
     string? Reason,
     int FixRounds,
-    long InputTokens,
-    long OutputTokens,
+    long Tokens,
+    long CacheReads,
     CardScreenshots? Screenshots,
     IReadOnlyList<FeatureDecision> Decisions,
     bool CanSendBack,
@@ -97,8 +98,9 @@ public sealed record FeatureCard(
 /// <param name="Cards">Its cards, in their sub-issue order.</param>
 /// <param name="Runs">The feature's own runs, a conflict's resolution among them, newest first, as a
 /// card's page shows its runs; none of its cards'.</param>
-/// <param name="InputTokens">The tokens the feature's own runs read, 0 before any.</param>
-/// <param name="OutputTokens">The tokens they wrote, 0 before any.</param>
+/// <param name="Tokens">The feature's own runs' tokens by the one definition,
+/// <see cref="Usage.Tokens"/>; 0 before any.</param>
+/// <param name="CacheReads">Their cache reads, shown beside the tokens; 0 before any.</param>
 /// <param name="Reviews">The reviews of the whole feature, newest first, each as a card's page shows
 /// one; <c>current</c> is whether it is the newest and covers the feature branch's head, its own
 /// commit or one that differs from it only by clean merges of the default branch.</param>
@@ -125,8 +127,8 @@ public sealed record FeatureStoryView(
     CardPullRequest? PullRequest,
     IReadOnlyList<FeatureCard> Cards,
     IReadOnlyList<CardRun> Runs,
-    long InputTokens,
-    long OutputTokens,
+    long Tokens,
+    long CacheReads,
     IReadOnlyList<CardReview> Reviews,
     int FixRounds,
     IReadOnlyList<CardRound> Rounds,
@@ -192,9 +194,9 @@ public static class FeatureStory
             cancellationToken: cancellationToken))).ToList();
         var numbers = cards.Select(card => card.Number).ToArray();
         var runs = (await transaction.Connection!.QueryAsync<RunRow>(new CommandDefinition(
-            """
+            $"""
             SELECT id AS Id, card_number AS CardNumber, kind AS Kind, result AS Result, head_commit AS HeadCommit,
-                   report::text AS Report, input_tokens AS InputTokens, output_tokens AS OutputTokens,
+                   report::text AS Report, {Usage.Tokens.Sql("runs")} AS Tokens, {Usage.Tokens.CacheReadsSql("runs")} AS CacheReads,
                    screenshots::text AS Screenshots, screenshots_note AS ScreenshotsNote
             FROM runs WHERE project_id = @projectId AND card_number = ANY (@numbers)
             ORDER BY started_at DESC, id DESC
@@ -224,8 +226,8 @@ public static class FeatureStory
                 card.State,
                 card.Reason,
                 card.FixRounds,
-                ofCard.Sum(run => run.InputTokens ?? 0),
-                ofCard.Sum(run => run.OutputTokens ?? 0),
+                ofCard.Sum(run => run.Tokens),
+                ofCard.Sum(run => run.CacheReads),
                 CardScreenshots.Of(built?.HeadCommit, built?.Screenshots, built?.ScreenshotsNote),
                 Decisions(ofCard, reviews, answers),
                 card.CanSendBack,
@@ -250,8 +252,8 @@ public static class FeatureStory
             feature.PullRequestNumber is { } pull && feature.PullRequestUrl is { } url ? new CardPullRequest(pull, url) : null,
             shown,
             own,
-            own.Sum(run => run.InputTokens ?? 0),
-            own.Sum(run => run.OutputTokens ?? 0),
+            own.Sum(run => run.Tokens ?? 0),
+            own.Sum(run => run.CacheReads ?? 0),
             [.. featureReviews.Select((review, at) => new CardReview(
                 review.RunId,
                 review.Commit,
@@ -334,5 +336,5 @@ public static class FeatureStory
         int Number, string Title, string WebUrl, string State, string? Reason, int FixRounds, bool CanSendBack, int SentBacks, int? SentBackFrom, string? SentBackFromUrl, string? SentBackComments);
 
     private sealed record RunRow(
-        Guid Id, int CardNumber, string Kind, string? Result, string? HeadCommit, string? Report, long? InputTokens, long? OutputTokens, string? Screenshots, string? ScreenshotsNote);
+        Guid Id, int CardNumber, string Kind, string? Result, string? HeadCommit, string? Report, long Tokens, long CacheReads, string? Screenshots, string? ScreenshotsNote);
 }

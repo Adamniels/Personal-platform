@@ -53,7 +53,7 @@ from look import (
     assert_nothing_scrolls_sideways,
 )
 
-TABS = ["Waiting for you", "Running now", "Projects"]
+TABS = ["Waiting for you", "Running now", "Projects", "Usage and history"]
 BANNER = "Fake GitHub. Nothing here is real."
 
 
@@ -2680,7 +2680,8 @@ def test_a_card_page_tells_its_story(
     )
     build = entries.nth(1)
     expect(build).to_contain_text("devflow-fake-worker")
-    expect(build).to_contain_text("41 in / 6,113 out")
+    # Tokens by the one definition, 41 + 6,113, with cache reads beside them.
+    expect(build).to_contain_text("6,154 tokens · 0 cache reads")
     expect(build).to_contain_text("logged in with oauth_token")
     expect(build).to_contain_text(f"exit 0 on {ran['head_commit'][:7]}")
     expect(build.get_by_text("Tests: 12 passed")).to_be_hidden()
@@ -7134,3 +7135,136 @@ def test_every_item_kind_follows_the_detail_rule(
                 "header => header.scrollIntoView({block: 'start'})"
             )
             page.screenshot(path=str(SCREENSHOTS / f"{shot}-detail-phone.png"))
+
+
+def test_usage_and_history(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    # A labelled feature of two cards, and the project's .devflow/project.json.
+    world = one_repository()
+    add_issue(
+        world, 60, "The feature's branch", labels=["devflow"], sub_issues=[61, 62]
+    )
+    add_issue(world, 61, "Make the feature's branch")
+    add_issue(world, 62, "Close a landed card's issue")
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    _merges_by_itself(page, base_url, project)
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+    _fake_read(page, base_url, project, [_ready(61), _ready(62)])
+
+    def build(usage: dict) -> dict:
+        ran = page.request.post(
+            "/devflow/api/fake/worker/run",
+            data={
+                "project_id": project,
+                "result": {
+                    "outcome": "succeeded",
+                    "report": _report(),
+                    "failure": None,
+                    "check": {"exit_code": 0, "output": "Tests: 12 passed"},
+                    "auth_method": "oauth_token",
+                    "usage": {"usage": usage, "num_turns": 23},
+                    "duration_ms": 184213,
+                    "stderr": "",
+                },
+            },
+            headers={"Origin": base_url},
+        )
+        assert ran.status == 200, ran.text()
+        return ran.json()
+
+    # The fake worker builds the first card, with Claude's usage cache figures
+    # and all: 41 + 18,204 + 6,113 = 24,358 tokens, 512,870 cache reads. CI
+    # passes and the reviewer approves, 12 + 840 = 852 tokens, so it lands in
+    # the feature's branch and the second card is built, 100 + 900 tokens.
+    first = build(
+        {
+            "input_tokens": 41,
+            "cache_creation_input_tokens": 18204,
+            "cache_read_input_tokens": 512870,
+            "output_tokens": 6113,
+        }
+    )
+    assert first["card"] == 61
+    _stage_ci(page, devflow_world, first["head_commit"], [check_run("test")])
+    _fake_review(page, base_url, project, _verdict("approve"))
+    second = build({"input_tokens": 100, "output_tokens": 900})
+    assert second["card"] == 62
+
+    # The tab, last, at its own address, over the last 30 days.
+    page.goto("/devflow/usage")
+    tabs = page.get_by_role("tab")
+    expect(tabs.last).to_have_text("Usage and history")
+    expect(tabs.last).to_have_attribute("aria-selected", "true")
+    expect(page.get_by_label("Period")).to_have_value("30d")
+
+    # The project's table, closed, then open with its feature, which opens into
+    # its cards and its own runs, the reading among them.
+    table = page.get_by_role("region", name=re.compile(r"^Usage of "))
+    expect(table).to_have_count(1)
+    rows = table.get_by_role("row")
+    expect(rows).to_have_count(2)
+    table.locator("tbody tr").first.get_by_role("button").click()
+    table.get_by_role("button", name="Open #60 The feature's branch").click()
+    expect(rows.nth(2)).to_contain_text("#60 The feature's branch")
+    expect(rows.nth(3)).to_contain_text("#61 Make the feature's branch")
+    expect(rows.nth(4)).to_contain_text("#62 Close a landed card's issue")
+    expect(rows.nth(5)).to_contain_text("The feature's own runs")
+
+    # Tokens by the one definition, cache reads beside them: the feature its
+    # cards' and its own together, each card its own runs, the build and its
+    # review for the first.
+    expect(rows.nth(2)).to_contain_text("26,210")
+    expect(rows.nth(2)).to_contain_text("512,870")
+    expect(rows.nth(3)).to_contain_text("25,210")
+    expect(rows.nth(3)).to_contain_text("512,870")
+    expect(rows.nth(4)).to_contain_text("1,000")
+    if viewport == "desktop":
+        # Runs, then agent time, on desktop each in its own column.
+        cells = rows.nth(3).get_by_role("cell")
+        expect(cells.nth(1)).to_have_text("2")
+        expect(cells.nth(4)).to_have_text("25,210")
+    else:
+        # On a phone, each row's numbers fold under its name.
+        expect(rows.nth(3)).to_contain_text("2 runs")
+        expect(rows.nth(3)).to_contain_text("25,210 tokens")
+    expect(
+        table.get_by_role("link", name="Make the feature's branch", exact=True)
+    ).to_have_attribute("href", f"/devflow/projects/{project}/cards/61")
+    expect(
+        table.get_by_role("link", name="The feature's branch", exact=True)
+    ).to_have_attribute("href", f"/devflow/projects/{project}/features/60")
+
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+        assert_nothing_active_is_amber,
+    ):
+        check(page)
+    assert _axe_violations(page) == []
+    # The pointer off the rows, on the page's title, so no row shows hovered.
+    page.get_by_role("heading", name="Dev flow", exact=True).hover()
+    capture(page, "devflow-usage")
+
+    # The period is in the address, and the last 7 days still has them.
+    page.get_by_label("Period").select_option("7d")
+    expect(page).to_have_url(re.compile(r"/devflow/usage\?period=7d$"))
+    expect(page.get_by_role("region", name=re.compile(r"^Usage of "))).to_have_count(1)

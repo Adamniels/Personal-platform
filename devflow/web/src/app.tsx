@@ -38,6 +38,7 @@ import {
 	type SettingsPageApi,
 } from "./settings";
 import { loadStatus as readStatus, type Status, useStatus } from "./status";
+import { type Period, Usage, type UsageApi } from "./usage";
 import { useWaiting, Waiting, type WaitingApi } from "./waiting";
 
 const client = createClient();
@@ -74,6 +75,9 @@ export type AppProps = {
 	/** How Running now reads its list, stops a run and opens its streams,
 	 * the service's by default; a test passes its own. */
 	running?: RunningApi;
+	/** How Usage and history reads what was used, the service's by default;
+	 * a test passes its own. */
+	usage?: UsageApi;
 	/** The time, in milliseconds since the epoch, the page says how old the
 	 * picture is by, and counts a run's time to; a test passes its own. */
 	now?: () => number;
@@ -307,6 +311,12 @@ const waitingApi: WaitingApi = {
 	},
 };
 
+/** Usage and history, through Dev flow's API. */
+const usageApi: UsageApi = {
+	loadUsage: (period: Period) =>
+		client.get(`/usage?period=${period}` as "/usage"),
+};
+
 /** Running now, through Dev flow's API and its streams. */
 const runningApi: RunningApi = {
 	loadRunning: () => client.get("/running"),
@@ -403,6 +413,7 @@ function Frame({
 	card = cardApi,
 	feature = featureApi,
 	running = runningApi,
+	usage = usageApi,
 	now = Date.now,
 }: AppProps) {
 	const pathname = usePathname();
@@ -482,6 +493,8 @@ function Frame({
 								now={now}
 								{...running}
 							/>
+						) : section.key === "usage" ? (
+							<Usage {...usage} />
 						) : section.key === "projects" && settingsOf ? (
 							<SettingsPage
 								key={settingsOf}

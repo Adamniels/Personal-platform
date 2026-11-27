@@ -50,6 +50,21 @@ public sealed class PageTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task UsageIsServed()
+    {
+        // The Usage and history tab has its own address, which answers the page with its period in
+        // the query as every tab's does.
+        foreach (var address in new[] { "/devflow/usage", "/devflow/usage?period=7d" })
+        {
+            var response = await DevFlow.Get(address, Contract.Token);
+
+            Assert.Equal(StatusCodes.Status200OK, response.Response.StatusCode);
+            Assert.StartsWith("text/html", response.Response.ContentType, StringComparison.Ordinal);
+            Assert.Equal(Harness.IndexHtml, await Harness.Body(response));
+        }
+    }
+
+    [Fact]
     public async Task APageWithoutATokenRedirectsToRefresh()
     {
         var response = await DevFlow.Get("/devflow/projects?x=1");

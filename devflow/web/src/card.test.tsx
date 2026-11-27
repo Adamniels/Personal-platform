@@ -40,8 +40,8 @@ function story(overrides: Partial<CardStory> = {}): CardStory {
 				reason: null,
 				in_card: null,
 				auth_method: "oauth_token",
-				input_tokens: 41,
-				output_tokens: 6113,
+				tokens: 24358,
+				cache_reads: 512870,
 				check: { exit_code: 0, output: "Tests: 12 passed" },
 				head_commit: HEAD,
 				stderr_tail: null,
@@ -59,8 +59,8 @@ function story(overrides: Partial<CardStory> = {}): CardStory {
 				reason: "Claude's API did not answer",
 				in_card: false,
 				auth_method: null,
-				input_tokens: null,
-				output_tokens: null,
+				tokens: null,
+				cache_reads: null,
 				check: null,
 				head_commit: null,
 				stderr_tail: "",
@@ -563,7 +563,7 @@ describe("a card's page", () => {
 		const line = items[1]?.textContent ?? "";
 		expect(line).toContain("fodr-worker");
 		expect(line).toContain("took 3 min 4 s");
-		expect(line).toContain("41 in / 6,113 out");
+		expect(line).toContain("24,358 tokens · 512,870 cache reads");
 		expect(line).toContain("logged in with oauth_token");
 		expect(
 			now.getByText("Waiting for CI to report on its commit"),
@@ -1008,8 +1008,8 @@ function run(overrides: Partial<CardStory["runs"][number]>) {
 		reason: null,
 		in_card: null,
 		auth_method: "oauth_token",
-		input_tokens: 41,
-		output_tokens: 6113,
+		tokens: 24358,
+		cache_reads: 512870,
 		check: { exit_code: 0, output: "Tests: 12 passed" },
 		head_commit: HEAD,
 		stderr_tail: null,
@@ -1554,7 +1554,8 @@ describe("a card's page tells its story in order", () => {
 		expect(within(glance).getByText("Approved")).toBeTruthy();
 		// Four runs of 3 min 4 s each.
 		expect(text).toContain("4 · 12 min 17 s");
-		expect(text).toContain("164 in · 24,452 out");
+		// Tokens by the one definition, their cache reads beside them.
+		expect(text).toContain("97,432 · 2,051,480 cache reads");
 		expect(
 			within(glance).getByRole("img", { name: "Fix rounds: 1 of 3 used" }),
 		).toBeTruthy();
