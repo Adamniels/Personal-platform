@@ -28,6 +28,7 @@ import {
 import { describe } from "./actions";
 import { navigate, plainClick } from "./address";
 import type { GetAnswer } from "./api/client";
+import type { components } from "./api/schema";
 import { AGAIN, CLOSED, dataOf, type EventStream } from "./events";
 import styles from "./running.module.css";
 import { cardPath, featurePath } from "./sections";
@@ -36,7 +37,7 @@ export type RunningList = GetAnswer<"/running">;
 export type RunningRun = RunningList["runs"][number];
 
 /** A line of a run's log, as its stream sends it. */
-export type LogLine = { seq: number; at: string; kind: string; text: string };
+export type LogLine = components["schemas"]["RunLogLine"];
 
 /** How the tab reads the list, stops a run and opens a stream, Dev flow's
  * API in the page and a test's own in a test. */
