@@ -13,12 +13,14 @@ import {
 	type ClaudeLoginApi,
 	type ClaudeLoginStatus,
 } from "./claude-login";
+import { openEvents } from "./events";
 import { type FeatureApi, FeaturePage } from "./feature";
 import type { FeatureMergeApi } from "./feature-merge";
 import { type ProjectApi, ProjectPage } from "./project";
 import { type Project, Projects, type ProjectsApi } from "./projects";
 import { GitHubLink } from "./projects-link";
 import type { RunAgainApi } from "./run-again";
+import { Running, type RunningApi, useRunning } from "./running";
 import {
 	cardAt,
 	featureAt,
@@ -68,8 +70,11 @@ export type AppProps = {
 	/** How a feature's page reads its feature and answers a decision, the
 	 * service's by default; a test passes its own. */
 	feature?: FeatureApi;
+	/** How Running now reads its list, stops a run and opens its streams,
+	 * the service's by default; a test passes its own. */
+	running?: RunningApi;
 	/** The time, in milliseconds since the epoch, the page says how old the
-	 * picture is by; a test passes its own. */
+	 * picture is by, and counts a run's time to; a test passes its own. */
 	now?: () => number;
 };
 
@@ -292,6 +297,18 @@ const waitingApi: WaitingApi = {
 	},
 };
 
+/** Running now, through Dev flow's API and its streams. */
+const runningApi: RunningApi = {
+	loadRunning: () => client.get("/running"),
+	stopRun: async (projectId, runId) => {
+		await client.send(
+			"POST",
+			`/projects/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}/stop`,
+		);
+	},
+	openEvents,
+};
+
 /** Merging and sending back, through Dev flow's API, as the caller. */
 const actionsApi: ActionsApi = {
 	...featureMergeApi,
@@ -361,7 +378,8 @@ export function App(props: AppProps = {}) {
 
 /** Dev flow's frame: the fake mode's banner, the page's heading, a tab per
  * section, tied to the address, and the section the address names: what
- * waits, with its count on its tab, and the Projects tab with Connections,
+ * waits, with its count on its tab, the runs under way, with the busy
+ * workers on its tab, and the Projects tab with Connections,
  * the GitHub link and the Claude login one line each, above its projects, or,
  * at a project's address, that project's page. */
 function Frame({
@@ -374,6 +392,7 @@ function Frame({
 	actions = actionsApi,
 	card = cardApi,
 	feature = featureApi,
+	running = runningApi,
 	now = Date.now,
 }: AppProps) {
 	const pathname = usePathname();
@@ -393,6 +412,9 @@ function Frame({
 	// The answer's count, on its tab once it is more than none, as the nav's
 	// dot shows only when something waits.
 	const waitingCount = listed.data?.count || undefined;
+	// The busy workers, on Running now's tab once there is one.
+	const runs = useRunning(running.loadRunning);
+	const busy = runs.data?.busy_workers || undefined;
 	// Read once: the return from the code host sends the browser here with
 	// ?link=failed when it did not link.
 	const [failed] = useState(
@@ -420,7 +442,13 @@ function Frame({
 					<Tab
 						key={section.key}
 						value={section.key}
-						count={section.key === "waiting" ? waitingCount : undefined}
+						count={
+							section.key === "waiting"
+								? waitingCount
+								: section.key === "running"
+									? busy
+									: undefined
+						}
 					>
 						{section.label}
 					</Tab>
@@ -436,6 +464,13 @@ function Frame({
 								now={now}
 								link={status?.github.state}
 								actions={actions}
+							/>
+						) : section.key === "running" ? (
+							<Running
+								list={runs.data}
+								failed={runs.isError}
+								now={now}
+								{...running}
 							/>
 						) : section.key === "projects" && settingsOf ? (
 							<SettingsPage

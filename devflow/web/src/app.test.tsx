@@ -89,6 +89,15 @@ function openAt(path: string) {
 					}),
 				refresh: () => Promise.resolve(),
 			}}
+			running={{
+				loadRunning: () => new Promise(() => {}),
+				stopRun: () => Promise.resolve(),
+				openEvents: () => ({
+					addEventListener: () => {},
+					close: () => {},
+					readyState: 0,
+				}),
+			}}
 		/>,
 	);
 }
@@ -102,11 +111,12 @@ function selectedTab() {
 afterEach(cleanup);
 
 describe("the address decides the tab, and a tab changes the address", () => {
-	test("the two tabs render, in order", () => {
+	test("the three tabs render, in order", () => {
 		openAt("/devflow");
 
 		expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
 			"Waiting for you",
+			"Running now",
 			"Projects",
 		]);
 	});

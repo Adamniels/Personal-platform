@@ -1,7 +1,7 @@
 // Dev flow's sections, in the order of their tabs, each with its own address, and each showing its
 // own content, and a project's page, its settings page, and a card's page and a feature's page under
-// it, which sit under the Projects tab at their own addresses. "Running now" and "Usage and history" join with the
-// parts that build them, never as empty tabs. The addresses the service answers with the page are in
+// it, which sit under the Projects tab at their own addresses. "Usage and history" joins with the
+// part that builds it, never as an empty tab. The addresses the service answers with the page are in
 // src/DevFlow/Pages/PageEndpoints.cs, and the two change together.
 
 export type Section = {
@@ -17,6 +17,11 @@ export const SECTIONS: readonly Section[] = [
 		key: "waiting",
 		label: "Waiting for you",
 		path: "/devflow",
+	},
+	{
+		key: "running",
+		label: "Running now",
+		path: "/devflow/running",
 	},
 	{
 		key: "projects",
