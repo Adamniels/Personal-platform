@@ -78,8 +78,9 @@ public static class RunLogStreamEndpoints
     /// <summary>
     /// <paramref name="stored"/>, then each line of <paramref name="lines"/> past the last seq
     /// sent. When <paramref name="lines"/> ends, the run has ended or the subscription fell behind:
-    /// the table is read once after the last seq sent, and its lines sent, with the end event when
-    /// the run has ended; otherwise the stream closes for the page to open it again. It closes too
+    /// the table is read once after the last seq sent, and its last <see cref="MostSent"/> lines
+    /// sent, since a page shows no more, with the end event when the run has ended; otherwise the
+    /// stream closes for the page to open it again. It closes too
     /// at <paramref name="until"/>, or when the page goes.
     /// </summary>
     internal static async IAsyncEnumerable<SseItem<RunLogLine?>> Events(UserDb database, Guid userId, Guid projectId, Guid runId, long after, StoredLog stored, ChannelReader<RunLogLine> lines, TimeProvider time, DateTimeOffset until, [EnumeratorCancellation] CancellationToken cancellationToken)
@@ -122,7 +123,7 @@ public static class RunLogStreamEndpoints
                 continue;
             }
 
-            if (await RunLogStore.Since(database, userId, projectId, runId, sent, RunLogStore.MostLines + 1, cancellationToken) is not { } rest)
+            if (await RunLogStore.Since(database, userId, projectId, runId, sent, MostSent, cancellationToken) is not { } rest)
             {
                 yield break;
             }

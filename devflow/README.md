@@ -3295,8 +3295,8 @@ lines the run stored, after the `seq` in `Last-Event-ID` when the page sent one,
 shows the last 200, read by `RunLogStore.Since`; then one for each new line from `RunLogFeed` as the log route stores it. A
 line's data is `{"seq", "at", "kind", "text"}` and its event's id its `seq`, and a line already
 sent, by its `seq`, is not sent again. The feed is subscribed before the table is read, so a line
-stored between the two is in one or the other. Once the run has ended, the lines it stored after
-the last one sent and an `end` event, data null, and the stream closes; a run that has ended sends
+stored between the two is in one or the other. Once the run has ended, the last 200 lines it
+stored after the last one sent and an `end` event, data null, and the stream closes; a run that has ended sends
 them at once. When the feed ends a reader that fell behind, the stream closes without an `end`,
 and `EventSource` opens it again from its `Last-Event-ID`.
 
