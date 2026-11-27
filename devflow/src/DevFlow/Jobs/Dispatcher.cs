@@ -57,8 +57,8 @@ public abstract record FreshKey
 /// everything that job needs from the code host is read, as the app, with a key for that kind, a
 /// feature's branch made for its first card, and only then is a card, or for a conflict a feature,
 /// of that kind taken, in one short transaction as the project's user, so no lock is held while
-/// GitHub is asked. That transaction reads the watch's hold again under the project's lock, so a
-/// stop recorded while GitHub was asked still holds the card back. Anything the code host does not
+/// GitHub is asked. That transaction reads the watch's hold and the pauses again under the
+/// project's lock, so a stop or a pause recorded while GitHub was asked still holds the card back. Anything the code host does not
 /// answer is no work now, and the worker asks again. See "Jobs" in devflow/README.md and "Handing
 /// out work" in devflow/docs/devflow-architecture.md.
 /// </summary>
@@ -141,7 +141,7 @@ public sealed partial class Dispatcher(
     /// everything that job needs from the code host is read first, as the app, with a key for that
     /// kind and a feature's branch made for its first card, and only then is a card, or a feature,
     /// of that kind taken, in one short transaction as the project's user that reads the watch's
-    /// hold again under the project's lock. No work when any of it is not there now.
+    /// hold and the pauses again under the project's lock. No work when any of it is not there now.
     /// </summary>
     private async Task<NextJob> HandOut(WorkerCaller caller, Guid workerId, string kind, CancellationToken cancellationToken)
     {
@@ -190,6 +190,7 @@ public sealed partial class Dispatcher(
             // The project's models and limits are read in the transaction that takes the work, so
             // the job carries them as they are now and the run keeps them whatever changes after.
             if (await watch.HoldUnderLock(transaction, projectId, cancellationToken) != ProjectHold.None
+                || await Pauses.HeldUnderLock(transaction, projectId, cancellationToken) != PauseHold.None
                 || await RunSettings.Read(transaction, projectId, cancellationToken) is not { } run)
             {
                 return null;
@@ -219,7 +220,7 @@ public sealed partial class Dispatcher(
         if (job is null)
         {
             // Another worker took the last card of the kind since it was looked for, or the project
-            // was stopped or went unwatched while GitHub was asked; the key made for it is dropped
+            // was stopped, paused or went unwatched while GitHub was asked; the key made for it is dropped
             // unused, and runs out within the hour. The worker asks again.
             return new NextJob.None();
         }
@@ -232,7 +233,7 @@ public sealed partial class Dispatcher(
     /// Hands the worker the check of <paramref name="version"/>: what the job needs is read first,
     /// as the app, outside the lock, the project's <c>project.json</c>, the default branch's head
     /// and a key that only fetches; then the check is taken under the project's lock, while it is
-    /// still due and the project not stopped or unwatched. No work when any of it is not there now.
+    /// still due and the project not stopped, paused or unwatched. No work when any of it is not there now.
     /// </summary>
     private async Task<NextJob> HandOutCheck(WorkerCaller caller, Guid workerId, string version, CancellationToken cancellationToken)
     {
@@ -249,6 +250,7 @@ public sealed partial class Dispatcher(
         var (claimed, carried) = await database.InUserTransaction<(ClaimedCheck?, IReadOnlyList<JobValue>)>(userId, async transaction =>
         {
             if (await watch.HoldUnderLock(transaction, projectId, cancellationToken) != ProjectHold.None
+                || await Pauses.HeldUnderLock(transaction, projectId, cancellationToken) != PauseHold.None
                 || await SetupStore.Claim(transaction, projectId, userId, workerId, version, facts.DefaultBranch, head, facts.Check, now, cancellationToken) is not { } taken)
             {
                 return (null, []);
@@ -259,8 +261,8 @@ public sealed partial class Dispatcher(
         }, cancellationToken);
         if (claimed is null)
         {
-            // Another worker on the version took its check since, or the project was stopped
-            // meanwhile; the key made for it runs out unused.
+            // Another worker on the version took its check since, or the project was stopped or
+            // paused meanwhile; the key made for it runs out unused.
             return new NextJob.None();
         }
 
@@ -293,7 +295,7 @@ public sealed partial class Dispatcher(
     /// first of a new setup among them; nothing when the code host does not answer what the job
     /// needs, the default branch, the clone address, the app's committer and a key, read first as
     /// the app outside the lock. The setup is taken under the project's lock, while the project is
-    /// not stopped or unwatched.
+    /// not stopped, paused or unwatched.
     /// </summary>
     private async Task<NextJob> HandOutSetup(WorkerCaller caller, Guid workerId, string kind, CancellationToken cancellationToken)
     {
@@ -319,6 +321,7 @@ public sealed partial class Dispatcher(
         var job = await database.InUserTransaction<Job?>(userId, async transaction =>
         {
             if (await watch.HoldUnderLock(transaction, projectId, cancellationToken) != ProjectHold.None
+                || await Pauses.HeldUnderLock(transaction, projectId, cancellationToken) != PauseHold.None
                 || await RunSettings.Read(transaction, projectId, cancellationToken) is not { } run)
             {
                 return null;
