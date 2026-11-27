@@ -893,6 +893,19 @@ public static class JobStore
     /// <summary>A commit's first seven characters, or "an unknown commit" when there is none.</summary>
     private static string Short(string? commit) => commit is { Length: >= 7 } ? commit[..7] : "an unknown commit";
 
+    /// <summary>Records on the run the model its job was handed out with, inside the transaction
+    /// that took the work, as its minutes are, so "Running now" names the model the run uses
+    /// whatever the project's setting is changed to after.</summary>
+    public static async Task RecordModel(NpgsqlTransaction transaction, Guid runId, string model, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            "UPDATE runs SET model = @model WHERE id = @runId",
+            new { runId, model },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
     /// <summary>
     /// Takes the project's first card to hand out, by <see cref="CardStore.QueueOrder"/>, inside
     /// <paramref name="transaction"/>, which runs as the project's user: locks its row with

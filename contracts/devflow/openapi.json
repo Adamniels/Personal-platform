@@ -3678,6 +3678,145 @@
         ],
         "type": "object"
       },
+      "RunLogLine": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "seq": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "at",
+          "kind",
+          "text"
+        ],
+        "type": "object"
+      },
+      "RunningList": {
+        "properties": {
+          "busy_workers": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/RunningRun"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "runs",
+          "busy_workers"
+        ],
+        "type": "object"
+      },
+      "RunningRun": {
+        "properties": {
+          "cache_reads": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "card_number": {
+            "format": "int32",
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "feature_number": {
+            "format": "int32",
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "fix_round": {
+            "format": "int32",
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "model": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "project_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "project_name": {
+            "type": "string"
+          },
+          "run_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "stopping": {
+            "type": "boolean"
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "tokens": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "worker_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "worker_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "project_id",
+          "project_name",
+          "worker_id",
+          "worker_name",
+          "kind",
+          "state",
+          "stopping",
+          "card_number",
+          "feature_number",
+          "title",
+          "fix_round",
+          "model",
+          "started_at",
+          "tokens",
+          "cache_reads"
+        ],
+        "type": "object"
+      },
       "ScreenshotGroup": {
         "properties": {
           "images": {
@@ -4288,6 +4427,60 @@
           "name",
           "why"
         ],
+        "type": "object"
+      },
+      "SseItemOfRunLogLine": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RunLogLine"
+          },
+          "event_id": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "event_type": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "reconnection_interval": {
+            "pattern": "^-?(\\d+\\.)?\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,7})?$",
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "SseItemOfRunningList": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RunningList"
+          },
+          "event_id": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "event_type": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "reconnection_interval": {
+            "pattern": "^-?(\\d+\\.)?\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,7})?$",
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
         "type": "object"
       },
       "StoppedCard": {
@@ -6388,6 +6581,61 @@
         ]
       }
     },
+    "/devflow/api/projects/{id}/runs/{run}/log/events": {
+      "get": {
+        "description": "Server-sent events, text/event-stream: a start event at once, data null, then a line event for each of the last 200 lines the run stored, after the seq in Last-Event-ID when one is sent, then one for each new line as the worker's log route stores it, its data the line, seq, at, kind and text, and its id the seq; each text is shown as text, never as HTML. Once the run has ended, its last lines and then an end event, data null, and the stream closes; a run that has ended sends them at once. It ends without one when the token it was opened with runs out, or when it falls too far behind, and EventSource opens it again from its Last-Event-ID. 404 for a project or run the caller does not have. Without a valid token, 401 with an empty body.",
+        "operationId": "streamRunLog",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/SseItemOfRunLogLine"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "A run's log, as it happens",
+        "tags": [
+          "RunLogStreamEndpoints"
+        ]
+      }
+    },
     "/devflow/api/projects/{id}/runs/{run}/stop": {
       "post": {
         "description": "Marks the run to stop. Its worker's next post to the run's log, at most 15 seconds later, is answered stop: it ends Claude Code, or the check or the project's start while one runs, SIGTERM to the process and everything it started and SIGKILL 10 seconds later; a build, a fix, a conflict, a feature's fix and a setup run commit what the working copy holds and push their branch when it has a commit beyond its base; and the result comes back with the outcome stopped. The run is recorded stopped_by_owner, never a failure: a card's build, review or fix leaves the card stopped, \"Stopped by you\"; a feature's review, fix or conflict holds the feature, \"Stopped by you\"; a reading, a setup run or a check is put back to run again. 202 once marked, and again for a run already marked, which changes nothing. In order: 404 for a project or run the caller does not have; 409 when the run has already ended. Without a valid token, 401 with an empty body; a change from another origin, 403.",
@@ -7191,6 +7439,56 @@
         ]
       }
     },
+    "/devflow/api/running": {
+      "get": {
+        "description": "Every run under way of the caller's projects, oldest first, as Running now shows each: its project, its worker by the name it said hello with, its kind, state, running or checking once its check runs, stopping when the caller marked it to stop and its worker has not ended it yet, its card's or its feature's number and title, null for a setup's run or a check, a fix's round, the model its job was handed out with, null for a check, when it started, its tokens so far, input_tokens + cache_creation_input_tokens + output_tokens, and its cache reads so far beside them; and busy_workers, how many workers hold them. Without a valid token, 401 with an empty body.",
+        "operationId": "listRunning",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunningList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "The caller's runs under way",
+        "tags": [
+          "DevFlow"
+        ]
+      }
+    },
+    "/devflow/api/running/events": {
+      "get": {
+        "description": "Server-sent events, text/event-stream: a running event at once, its data what GET /devflow/api/running answers, and another whenever that changed, a run started or ended, its state or its tokens moved, read again every 2 seconds; nothing while nothing changes. It ends when the token it was opened with runs out, and EventSource opens it again. Without a valid token, 401 with an empty body.",
+        "operationId": "streamRunning",
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/SseItemOfRunningList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "The caller's runs under way, as they change",
+        "tags": [
+          "DevFlow"
+        ]
+      }
+    },
     "/devflow/api/status": {
       "get": {
         "description": "code_host is fake when GitHub is faked, which every Dev flow page then says in a banner, and github otherwise. github.state is none, linked or needs_relink, with the login it was linked as, null with none. Without a valid token, 401 with an empty body.",
@@ -7947,6 +8245,9 @@
     },
     {
       "name": "StopEndpoints"
+    },
+    {
+      "name": "RunLogStreamEndpoints"
     },
     {
       "name": "OwnerStopEndpoints"

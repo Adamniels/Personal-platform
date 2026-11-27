@@ -208,7 +208,13 @@ public sealed partial class Dispatcher(
                 Job.Read => ReadJob(await Readings.ReadingStore.Claim(transaction, projectId, userId, workerId, run, facts.DefaultBranch, now, cancellationToken), repository, facts, run, token, key),
                 _ => BuildJob(await JobStore.Claim(transaction, projectId, userId, workerId, run, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, run, token, key),
             };
-            return handed is null ? null : handed with { Values = carried };
+            if (handed is null)
+            {
+                return null;
+            }
+
+            await JobStore.RecordModel(transaction, handed.JobId, handed.Model, cancellationToken);
+            return handed with { Values = carried };
         }, cancellationToken);
         if (job is null)
         {
@@ -321,9 +327,13 @@ public sealed partial class Dispatcher(
             if (kind == SetupRunStore.ReviewKind)
             {
                 // A setup's review runs none of the project's code, so it carries none of its values.
-                return await SetupRunStore.ClaimReview(transaction, projectId, userId, workerId, run, defaultBranch, now, cancellationToken) is { } review
-                    ? SetupReviewJob(review, where, run, token, key, by) with { Values = [] }
-                    : null;
+                if (await SetupRunStore.ClaimReview(transaction, projectId, userId, workerId, run, defaultBranch, now, cancellationToken) is not { } review)
+                {
+                    return null;
+                }
+
+                await JobStore.RecordModel(transaction, review.RunId, run.ModelFor(Job.Review), cancellationToken);
+                return SetupReviewJob(review, where, run, token, key, by) with { Values = [] };
             }
 
             var claimed = kind == Job.Fix
@@ -337,6 +347,7 @@ public sealed partial class Dispatcher(
             var fix = claimed.FromCommit is not null || claimed.Comments.Count > 0
                 ? new FixInput(claimed.FromCommit is null ? null : claimed.Round, claimed.Report, claimed.Review, claimed.Comments, run.FixRoundsCard)
                 : null;
+            await JobStore.RecordModel(transaction, claimed.RunId, run.ModelFor(Job.Setup), cancellationToken);
             return new Job(
                 claimed.RunId,
                 Job.Setup,

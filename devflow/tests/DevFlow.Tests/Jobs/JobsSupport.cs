@@ -158,10 +158,11 @@ internal sealed class Jobs : IAsyncDisposable
         Assert.DoesNotContain("failed", returned.Response.Headers.Location.ToString(), StringComparison.Ordinal);
     }
 
-    /// <summary>The worker says hello in the project, on <paramref name="image"/>.</summary>
-    public async Task SayHello(Guid worker, string image = Image)
+    /// <summary>The worker says hello in the project, on <paramref name="image"/>, by
+    /// <paramref name="name"/>.</summary>
+    public async Task SayHello(Guid worker, string image = Image, string name = "fodr-worker")
     {
-        var hello = new JsonObject { ["worker_id"] = worker, ["name"] = "fodr-worker", ["recipe_version"] = "1", ["base_image"] = image };
+        var hello = new JsonObject { ["worker_id"] = worker, ["name"] = name, ["recipe_version"] = "1", ["base_image"] = image };
         var response = await Workers.Workers.AsWorker(Routes.App, Workers.Workers.HelloPath, hello.ToJsonString(), null, Workers.Workers.Bearer(Key));
         Assert.Equal(StatusCodes.Status204NoContent, response.Response.StatusCode);
     }

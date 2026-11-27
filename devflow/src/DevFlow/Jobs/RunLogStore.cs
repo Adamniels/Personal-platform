@@ -17,6 +17,10 @@ public sealed record RunLogLine(long Seq, DateTimeOffset At, string Kind, string
 /// whether the owner marked the run to stop, which the route answers the worker.</summary>
 public sealed record HeardPost(IReadOnlyList<RunLogLine> Stored, bool Stop);
 
+/// <summary>Lines of a run's log as <see cref="RunLogStore.Since"/> read them, in the order stored,
+/// and whether the run has ended.</summary>
+public sealed record StoredLog(IReadOnlyList<RunLogLine> Lines, bool Ended);
+
 /// <summary>A run's token figures so far, each checked to be 0 or more.</summary>
 public sealed record RunUsageSoFar(long InputTokens, long CacheCreationInputTokens, long CacheReadInputTokens, long OutputTokens);
 
@@ -140,6 +144,42 @@ public static class RunLogStore
                 transaction,
                 cancellationToken: cancellationToken));
             return new HeardPost(stored, stop);
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// The run's lines after <paramref name="after"/>, the last <paramref name="most"/> of them in
+    /// the order stored, and whether it has ended, read together through the door as
+    /// <paramref name="userId"/>, so a run that has ended holds every line it will; null when the
+    /// project has no such run of theirs.
+    /// </summary>
+    public static async Task<StoredLog?> Since(UserDb database, Guid userId, Guid projectId, Guid runId, long after, int most, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        return await database.InUserTransaction<StoredLog?>(userId, async transaction =>
+        {
+            var ended = await transaction.Connection!.QuerySingleOrDefaultAsync<bool?>(new CommandDefinition(
+                "SELECT finished_at IS NOT NULL FROM runs WHERE id = @runId AND project_id = @projectId",
+                new { runId, projectId },
+                transaction,
+                cancellationToken: cancellationToken));
+            if (ended is not { } finished)
+            {
+                return null;
+            }
+
+            var lines = await transaction.Connection!.QueryAsync<(long Seq, DateTime At, string Kind, string Text)>(new CommandDefinition(
+                """
+                SELECT seq, at, kind, text FROM (
+                    SELECT seq, at, kind, text FROM run_log_lines
+                    WHERE run_id = @runId AND seq > @after
+                    ORDER BY seq DESC LIMIT @most
+                ) last ORDER BY seq
+                """,
+                new { runId, after, most },
+                transaction,
+                cancellationToken: cancellationToken));
+            return new StoredLog([.. lines.Select(line => new RunLogLine(line.Seq, new DateTimeOffset(DateTime.SpecifyKind(line.At, DateTimeKind.Utc)), line.Kind, line.Text))], finished);
         }, cancellationToken);
     }
 

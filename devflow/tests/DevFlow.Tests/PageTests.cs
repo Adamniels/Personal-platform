@@ -39,6 +39,17 @@ public sealed class PageTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task RunningIsServed()
+    {
+        // The Running now tab has its own address, which answers the page as every tab's does.
+        var response = await DevFlow.Get("/devflow/running", Contract.Token);
+
+        Assert.Equal(StatusCodes.Status200OK, response.Response.StatusCode);
+        Assert.StartsWith("text/html", response.Response.ContentType, StringComparison.Ordinal);
+        Assert.Equal(Harness.IndexHtml, await Harness.Body(response));
+    }
+
+    [Fact]
     public async Task APageWithoutATokenRedirectsToRefresh()
     {
         var response = await DevFlow.Get("/devflow/projects?x=1");

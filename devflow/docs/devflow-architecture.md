@@ -1060,12 +1060,31 @@ run has used before it ends.
 
 **Lines reach a live page from memory, never by polling.** The lines a post stored are handed to
 `RunLogFeed` once their transaction has committed, so a reader never sees a line the table does not
-hold, and the live pages, #448, read them from it. Dev flow runs as one replica, so every line
+hold, and the live pages read them from it. Dev flow runs as one replica, so every line
 passes through it. A reader that falls 2,000 lines behind is ended rather than handed lines with a
 hole in them, and takes up again from the table after the last `seq` it had, which the browser's
 `EventSource` does by itself with `Last-Event-ID`; publishing never waits for a reader, so a slow
 page never slows a worker's post. The feed holds nothing a reader has not asked for, and nothing
 once its readers are gone.
+
+**Live pages are server-sent events.** Running now's list and each run's log reach the page as
+`TypedResults.ServerSentEvents` of .NET 10, `text/event-stream`, which the browser's `EventSource`
+reads: no new dependency, no socket to hold open both ways, since the page only listens, and
+Caddy passes the stream through unbuffered. `EventSource` opens a stream again by itself and sends
+the `Last-Event-ID` it last had, which for a log is the last line's `seq`, so a page that loses its
+connection takes up where it was rather than reading the whole log again. A log stream is fed by
+`RunLogFeed`, and its end by the same feed: the result being recorded, or the run being found lost,
+ends its readers once committed, and a reader whose lines end reads the table once to tell the
+run's end from having fallen behind. Both rely on Dev flow being **one replica**: a line stored or a
+run ended by another process would never reach this one's feed. A second replica would need the
+feed carried between processes, Postgres's `LISTEN` and `NOTIFY` the likely way, and this is where
+to change it. Running now's list is the one stream that reads the database, every 2 seconds for
+each open page, since what it shows, a run starting, ending or using tokens, comes from several
+places; it sends only when the list changed. A stream is let in by the token it opened with and
+ends when that token runs out, so nothing is sent on a token past its time; the page opens it again,
+and a stream refused with a `401`, which `EventSource` cannot refresh, has the page's client refresh
+the session first. A stream's headers go out with its first event, so each sends one at once, the
+list, or a log's `start`, and the page and any proxy between see it open.
 
 **The model and the limits are the project's, carried by the job.** Which model reads, builds and
 reviews, and the minutes and turns a run takes, are settings, as the spec's round 4b has them per
@@ -2836,3 +2855,12 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   then by the review of the whole feature, which reads the resolution apart as its remerge diff, the
   text a worker sent and data. The files in conflict in the brief are paths the code host listed,
   fenced as every other text from outside is.
+- **A live stream ends with the token that let it in.** A server-sent events stream is checked
+  once, as it opens, like any request; one left open would otherwise go on sending after the
+  session it was opened with was ended or ran out. Each ends at its token's `exp`, on Dev flow's
+  clock, and the page opens it again, which checks the session afresh. Each reads through the door
+  as the caller, so another user's run, its log among it, is `404` and never streamed.
+- **A worker's log line is shown as text.** A line is what an agent, a tool or a check wrote, which
+  can hold anything a repository or a web page put in front of it, so Running now renders it as a
+  text node, a tool's name split off by its first space and nothing parsed, never as HTML or
+  Markdown, as every other text from a worker is.

@@ -128,6 +128,14 @@ PAGES = [
         text("Connect a repository under Projects to see what waits for you."),
         shot="look-devflow",
     ),
+    # A fresh account runs nothing; the tab with two busy workers is held to
+    # the look in test_devflow.py.
+    Entry(
+        "dev flow: running now",
+        "/devflow/running",
+        True,
+        text("Your workers are waiting for work."),
+    ),
     Entry(
         "dev flow: projects",
         "/devflow/projects",

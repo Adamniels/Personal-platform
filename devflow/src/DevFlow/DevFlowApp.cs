@@ -106,7 +106,8 @@ public static class DevFlowApp
         // and the loop that asks for every project's. See "Reading and the snapshot" in
         // devflow/docs/devflow-architecture.md.
         builder.Services.AddSingleton(provider => new ProjectReader(
-            database, provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<ILogger<ProjectReader>>()));
+            database, provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<ILogger<ProjectReader>>(),
+            provider.GetRequiredService<RunLogFeed>()));
         builder.Services.AddSingleton(provider => new ProjectRefresher(
             provider.GetRequiredService<ProjectReader>(), provider.GetRequiredService<ILogger<ProjectRefresher>>()));
         builder.Services.AddSingleton(provider => new WaitingStore(database, provider.GetRequiredService<TimeProvider>()));
@@ -250,6 +251,8 @@ public static class DevFlowApp
         app.MapWatch();
         app.MapJobs();
         app.MapStops();
+        app.MapRunning();
+        app.MapRunLogStream();
         app.MapOwnerStops();
         app.MapCards();
         app.MapCardScreenshots();

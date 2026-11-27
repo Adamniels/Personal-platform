@@ -283,7 +283,7 @@ public sealed class CheckJobTests
 
         // A check lost with its worker is put back the same way.
         jobs.Routes.Time.Advance(TimeSpan.FromMinutes(45));
-        Assert.Equal(1, await DevFlow.Jobs.RunStore.SweepLost(jobs.Routes.Door, Jobs.User, jobs.Project, jobs.Routes.Time.GetUtcNow(), Ct));
+        Assert.Single(await DevFlow.Jobs.RunStore.SweepLost(jobs.Routes.Door, Jobs.User, jobs.Project, jobs.Routes.Time.GetUtcNow(), Ct));
         Assert.Empty(await Checks(jobs));
         Assert.Equal("lost", (await Runs(jobs))[^1].Result);
     }

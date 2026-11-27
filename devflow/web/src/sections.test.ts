@@ -1,7 +1,29 @@
 import { describe, expect, test } from "vitest";
-import { projectAt, settingsAt, settingsPath } from "./sections";
+import {
+	projectAt,
+	SECTIONS,
+	sectionAt,
+	settingsAt,
+	settingsPath,
+} from "./sections";
 
 const ID = "0190a8f0-0000-7000-8000-000000000001";
+
+describe("the sections", () => {
+	test("the tabs are Waiting for you, Running now, Projects", () => {
+		expect(
+			SECTIONS.map((section) => [section.key, section.label, section.path]),
+		).toEqual([
+			["waiting", "Waiting for you", "/devflow"],
+			["running", "Running now", "/devflow/running"],
+			["projects", "Projects", "/devflow/projects"],
+		]);
+		// Running now has its own address, a trailing slash aside.
+		expect(sectionAt("/devflow/running")?.key).toBe("running");
+		expect(sectionAt("/devflow/running/")?.key).toBe("running");
+		expect(sectionAt("/devflow/running/more")).toBeUndefined();
+	});
+});
 
 describe("a project's settings page has its own address", () => {
 	test("settingsAt reads a settings address and settingsPath makes one", () => {

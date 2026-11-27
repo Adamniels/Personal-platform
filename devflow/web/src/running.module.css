@@ -1,0 +1,174 @@
+/* The "Running now" tab. Tokens only, design/DESIGN.md. */
+
+/* The panels in a grid, two to a row on desktop and one on a phone, as the
+ * mockup's "Running now" has them. */
+.panels {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+	gap: var(--space-4);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.item {
+	display: flex;
+	min-width: 0;
+}
+
+/* A panel: "Card" in section 4, surface fill, 1px border, radius-lg,
+ * card-pad, its parts --space-3 apart. */
+.panel {
+	box-sizing: border-box;
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	gap: var(--space-3);
+	min-width: 0;
+	padding: var(--card-pad);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	background: var(--surface);
+}
+
+/* The project's badge, the card's number and title, and the state on the
+ * right, wrapping under them where the panel is narrow. */
+.header {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+/* The panel's title in the UI font, never in capitals: page.css gives a
+ * page's h2 the heading font, so this class says the face and the transform
+ * outright. */
+.title {
+	flex: 1 1 200px;
+	min-width: 0;
+	margin: 0;
+	overflow-wrap: anywhere;
+	color: var(--text);
+	font-family: var(--font-ui);
+	font-size: var(--text-body-size);
+	line-height: var(--text-body-line);
+	font-weight: 500;
+	letter-spacing: normal;
+	text-transform: none;
+}
+
+.number {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+}
+
+.state {
+	flex: none;
+}
+
+/* Who runs it, the model and the time; and the tokens: mono, hard rule 8. */
+.meta {
+	margin: 0;
+	overflow-wrap: anywhere;
+	color: var(--text-2);
+	font-family: var(--font-mono);
+	font-size: var(--text-small-size);
+	line-height: var(--text-small-line);
+	font-variant-numeric: tabular-nums;
+}
+
+/* The log: an inset on --surface-2, 13/20, as the agents' detail panel has
+ * it in section 6, of a fixed height, scrolling inside itself. */
+.logFrame {
+	position: relative;
+	min-width: 0;
+}
+
+.log {
+	box-sizing: border-box;
+	height: 240px;
+	overflow-y: auto;
+	padding: 8px 12px;
+	border-radius: var(--radius-md);
+	background: var(--surface-2);
+	color: var(--text);
+	font-size: var(--text-small-size);
+	line-height: 20px;
+}
+
+.log:focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: var(--focus-offset);
+}
+
+.lines {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.line {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/* A tool's answer, quiet. */
+.muted {
+	color: var(--text-3);
+}
+
+/* The check's output and the worker's own lines, in the mono face. */
+.mono {
+	font-family: var(--font-mono);
+}
+
+.empty {
+	margin: 0;
+	color: var(--text-3);
+}
+
+/* "Jump to latest", over the log's bottom right while the owner reads
+ * further up. */
+.jump {
+	position: absolute;
+	right: var(--space-2);
+	bottom: var(--space-2);
+}
+
+.actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: flex-end;
+	gap: var(--space-2);
+	margin-top: auto;
+}
+
+/* "Open card", a link that looks like the ghost button of "Button" in
+ * section 4, since it opens an address rather than doing something. */
+.open {
+	display: inline-flex;
+	align-items: center;
+	box-sizing: border-box;
+	min-height: var(--control-h);
+	padding: 0 14px;
+	border-radius: var(--radius-full);
+	color: var(--text-2);
+	font-size: var(--text-body-size);
+	line-height: var(--text-body-line);
+	font-weight: 500;
+	text-decoration: none;
+}
+
+.open:hover {
+	background: var(--surface-2);
+}
+
+.open:focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: var(--focus-offset);
+}

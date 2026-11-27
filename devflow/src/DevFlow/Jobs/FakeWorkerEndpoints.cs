@@ -160,7 +160,7 @@ public static class FakeWorkerEndpoints
         {
             // Not the job the test prepared a result for: the check passes, as a recipe that works
             // would, and the worker asks again.
-            await JobEndpoints.Complete(database, values, caller, job.JobId, WorkerId, PassedCheck(job.Branch), Now(time), cancellationToken);
+            await JobEndpoints.Complete(database, values, feed, caller, job.JobId, WorkerId, PassedCheck(job.Branch), Now(time), cancellationToken);
             if (await dispatcher.Next(caller, WorkerId, cancellationToken) is not NextJob.Handed { Job: var next })
             {
                 return TypedResults.NoContent();
@@ -178,7 +178,7 @@ public static class FakeWorkerEndpoints
 
             // A check reads the commit it was handed and pushes nothing, so it names no commit.
             var checkedOne = request.Result! with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = null };
-            await JobEndpoints.Complete(database, values, caller, job.JobId, WorkerId, JobEndpoints.Read(checkedOne, Job.RecipeCheck)!, Now(time), cancellationToken);
+            await JobEndpoints.Complete(database, values, feed, caller, job.JobId, WorkerId, JobEndpoints.Read(checkedOne, Job.RecipeCheck)!, Now(time), cancellationToken);
             return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, null, job.Branch, null, job.Brief));
         }
 
@@ -198,7 +198,7 @@ public static class FakeWorkerEndpoints
         {
             // A reading reads the code and changes nothing, so it names no commit.
             var read = prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = null };
-            await JobEndpoints.Complete(database, values, caller, job.JobId, WorkerId, JobEndpoints.Read(read)!, now, cancellationToken);
+            await JobEndpoints.Complete(database, values, feed, caller, job.JobId, WorkerId, JobEndpoints.Read(read)!, now, cancellationToken);
             // The questions' comment is posted, a refused card marked and a stopped card marked, on
             // the next minute for a real worker; the fake worker waits for each, and the label of a
             // card queued again comes off.
@@ -212,7 +212,7 @@ public static class FakeWorkerEndpoints
         {
             // A review reads the commit it was handed and changes nothing.
             var reviewed = prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = prepared.Outcome == ResultRequest.Succeeded ? toReview.Commit : null };
-            await JobEndpoints.Complete(database, values, caller, job.JobId, WorkerId, JobEndpoints.Read(reviewed)!, now, cancellationToken);
+            await JobEndpoints.Complete(database, values, feed, caller, job.JobId, WorkerId, JobEndpoints.Read(reviewed)!, now, cancellationToken);
             // Its copy is posted, an approved card checked for a merge, its decisions' issues opened,
             // a landed card's issue told, the end of a feature whose cards are now all done run, and
             // a stopped card marked, on the next minute or right after for a real worker; the fake
@@ -232,7 +232,7 @@ public static class FakeWorkerEndpoints
         {
             // A whole feature's review reads the commit it was handed and changes nothing.
             var reviewed = prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = prepared.Outcome == ResultRequest.Succeeded ? toReviewFeature.Commit : null };
-            await JobEndpoints.Complete(database, values, caller, job.JobId, WorkerId, JobEndpoints.Read(reviewed)!, now, cancellationToken);
+            await JobEndpoints.Complete(database, values, feed, caller, job.JobId, WorkerId, JobEndpoints.Read(reviewed)!, now, cancellationToken);
             // Its copy is posted and whether the feature is ready read, on the next minute for a
             // real worker; the fake worker waits for both.
             await poster.PostPending(projectId, userId, cancellationToken);
@@ -262,7 +262,7 @@ public static class FakeWorkerEndpoints
                 return TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "The fake did not answer", detail: "what the setup pushed could not be read to validate it; the job is left running");
             }
 
-            await JobEndpoints.Complete(database, values, caller, job.JobId, WorkerId, validated, now, cancellationToken);
+            await JobEndpoints.Complete(database, values, feed, caller, job.JobId, WorkerId, validated, now, cancellationToken);
             await setups.TendPending(projectId, userId, cancellationToken);
             return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, null, job.Branch, setupCommit, job.Brief));
         }
@@ -280,7 +280,7 @@ public static class FakeWorkerEndpoints
             var resolved = passed && merged is null
                 ? prepared with { WorkerId = WorkerId, Outcome = ResultRequest.Failed, Report = null, Failure = new RunFailure(NoCommit, false), Check = null, Branch = job.Branch, HeadCommit = null, RemergeDiff = null }
                 : prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = merged, RemergeDiff = merged is null ? null : prepared.RemergeDiff };
-            await JobEndpoints.Complete(database, values, caller, job.JobId, WorkerId, JobEndpoints.Read(resolved)!, now, cancellationToken);
+            await JobEndpoints.Complete(database, values, feed, caller, job.JobId, WorkerId, JobEndpoints.Read(resolved)!, now, cancellationToken);
             // The feature's end goes on, and its review is decided, on the next minute for a real
             // worker; the fake waits for both.
             await ends.EndPending(projectId, userId, cancellationToken);
@@ -319,7 +319,7 @@ public static class FakeWorkerEndpoints
             var answered = lost
                 ? prepared with { WorkerId = WorkerId, Outcome = ResultRequest.Failed, Report = null, Failure = new RunFailure(NoCommit, false), Check = null, Branch = job.Branch, HeadCommit = null }
                 : prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = pushed };
-            await JobEndpoints.Complete(database, values, caller, job.JobId, WorkerId, JobEndpoints.Read(answered)!, now, cancellationToken);
+            await JobEndpoints.Complete(database, values, feed, caller, job.JobId, WorkerId, JobEndpoints.Read(answered)!, now, cancellationToken);
             // Whether the feature is reviewed again is decided on the minute, once its watch has
             // read the push; the fake worker runs it, as for a review.
             await readiness.DecidePending(projectId, userId, cancellationToken);
@@ -342,7 +342,7 @@ public static class FakeWorkerEndpoints
                 PutPictures(result, fixedUp);
             }
 
-            await JobEndpoints.Complete(database, values, caller, job.JobId, WorkerId, JobEndpoints.Read(result)!, now, cancellationToken);
+            await JobEndpoints.Complete(database, values, feed, caller, job.JobId, WorkerId, JobEndpoints.Read(result)!, now, cancellationToken);
             await marker.MarkPending(projectId, userId, cancellationToken);
             return fixedUp is null
                 ? TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "The fake's git failed", detail: "no commit was made on the job's branch, so the job ended as a failure outside the card and the card is fixing again")
@@ -362,7 +362,7 @@ public static class FakeWorkerEndpoints
             // Nothing pushed, as a run that failed before it got that far: the branch stays where
             // it was, and the result names no commit.
             var unpushed = prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = null };
-            await JobEndpoints.Complete(database, values, caller, job.JobId, WorkerId, JobEndpoints.Read(unpushed)!, now, cancellationToken);
+            await JobEndpoints.Complete(database, values, feed, caller, job.JobId, WorkerId, JobEndpoints.Read(unpushed)!, now, cancellationToken);
             await marker.MarkPending(projectId, userId, cancellationToken);
             return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card?.Number, job.Branch, null, job.Brief));
         }
@@ -379,7 +379,7 @@ public static class FakeWorkerEndpoints
             PutPictures(sent, commit);
         }
 
-        await JobEndpoints.Complete(database, values, caller, job.JobId, WorkerId, JobEndpoints.Read(sent)!, now, cancellationToken);
+        await JobEndpoints.Complete(database, values, feed, caller, job.JobId, WorkerId, JobEndpoints.Read(sent)!, now, cancellationToken);
         // A real worker's result is answered without waiting for GitHub, and its pull request opens
         // on the next minute; the fake worker waits for it, so a test sees it as soon as it answers.
         await opener.OpenPending(projectId, userId, cancellationToken);

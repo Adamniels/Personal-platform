@@ -502,6 +502,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/projects/{id}/runs/{run}/log/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A run's log, as it happens
+         * @description Server-sent events, text/event-stream: a start event at once, data null, then a line event for each of the last 200 lines the run stored, after the seq in Last-Event-ID when one is sent, then one for each new line as the worker's log route stores it, its data the line, seq, at, kind and text, and its id the seq; each text is shown as text, never as HTML. Once the run has ended, its last lines and then an end event, data null, and the stream closes; a run that has ended sends them at once. It ends without one when the token it was opened with runs out, or when it falls too far behind, and EventSource opens it again from its Last-Event-ID. 404 for a project or run the caller does not have. Without a valid token, 401 with an empty body.
+         */
+        get: operations["streamRunLog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/projects/{id}/runs/{run}/stop": {
         parameters: {
             query?: never;
@@ -742,6 +762,46 @@ export interface paths {
          * @description Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; start_command, the command that builds and starts the project's worker; and held, why the project hands out no work whichever worker asks, the first that applies: stopped, when something landed on its default branch that Dev flow did not put there, unwatched, when its default branch has not been read for five minutes, no_claude_login when its user has given no Claude login, claude_login_expired when it is past its renewal, or null; and cannot_run, once six runs in a row have failed outside their cards, "Dev flow cannot run <project>'s cards: <the last reason>", until a run succeeds, or null. The key itself is never in it. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         get: operations["listWorkers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/running": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's runs under way
+         * @description Every run under way of the caller's projects, oldest first, as Running now shows each: its project, its worker by the name it said hello with, its kind, state, running or checking once its check runs, stopping when the caller marked it to stop and its worker has not ended it yet, its card's or its feature's number and title, null for a setup's run or a check, a fix's round, the model its job was handed out with, null for a check, when it started, its tokens so far, input_tokens + cache_creation_input_tokens + output_tokens, and its cache reads so far beside them; and busy_workers, how many workers hold them. Without a valid token, 401 with an empty body.
+         */
+        get: operations["listRunning"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/running/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's runs under way, as they change
+         * @description Server-sent events, text/event-stream: a running event at once, its data what GET /devflow/api/running answers, and another whenever that changed, a run started or ended, its state or its tokens moved, read again every 2 seconds; nothing while nothing changes. It ends when the token it was opened with runs out, and EventSource opens it again. Without a valid token, 401 with an empty body.
+         */
+        get: operations["streamRunning"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1896,6 +1956,46 @@ export interface components {
             resets_at?: null | string;
             timed_out?: null | boolean;
         };
+        RunLogLine: {
+            /** Format: date-time */
+            at: string;
+            kind: string;
+            /** Format: int64 */
+            seq: number;
+            text: string;
+        };
+        RunningList: {
+            /** Format: int32 */
+            busy_workers: number;
+            runs: components["schemas"]["RunningRun"][];
+        };
+        RunningRun: {
+            /** Format: int64 */
+            cache_reads: number;
+            /** Format: int32 */
+            card_number: null | number;
+            /** Format: int32 */
+            feature_number: null | number;
+            /** Format: int32 */
+            fix_round: null | number;
+            kind: string;
+            model: null | string;
+            /** Format: uuid */
+            project_id: string;
+            project_name: string;
+            /** Format: uuid */
+            run_id: string;
+            /** Format: date-time */
+            started_at: string;
+            state: string;
+            stopping: boolean;
+            title: null | string;
+            /** Format: int64 */
+            tokens: number;
+            /** Format: uuid */
+            worker_id: string;
+            worker_name: string;
+        };
         ScreenshotGroup: {
             images: string[];
             name: string;
@@ -2034,6 +2134,18 @@ export interface components {
         SetupVariable: {
             name: string;
             why: string;
+        };
+        SseItemOfRunLogLine: {
+            data?: components["schemas"]["RunLogLine"];
+            event_id?: null | string;
+            event_type?: null | string;
+            reconnection_interval?: null | string;
+        };
+        SseItemOfRunningList: {
+            data?: components["schemas"]["RunningList"];
+            event_id?: null | string;
+            event_type?: null | string;
+            reconnection_interval?: null | string;
         };
         StoppedCard: {
             /** Format: int32 */
@@ -3504,6 +3616,45 @@ export interface operations {
             };
         };
     };
+    streamRunLog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                run: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["SseItemOfRunLogLine"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     stopRun: {
         parameters: {
             query?: never;
@@ -4152,6 +4303,60 @@ export interface operations {
                 content: {
                     "application/problem+json": components["schemas"]["ProblemDetails"];
                 };
+            };
+        };
+    };
+    listRunning: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunningList"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    streamRunning: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["SseItemOfRunningList"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
