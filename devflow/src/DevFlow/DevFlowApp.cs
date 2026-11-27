@@ -211,6 +211,10 @@ public static class DevFlowApp
                 provider.GetRequiredService<TimeProvider>(),
                 interval,
                 provider.GetRequiredService<ILogger<OpeningLoop>>()));
+            // Deleting the lines of each run finished 90 days ago or more, once a day. See "Jobs"
+            // in devflow/README.md.
+            builder.Services.AddHostedService(provider => new RunLogPruner(
+                database, provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<ILogger<RunLogPruner>>()));
             builder.Services.AddHostedService(provider => new MergeRequestLoop(
                 provider.GetRequiredService<MergeRequests>(),
                 provider.GetRequiredService<MergeChecker>(),

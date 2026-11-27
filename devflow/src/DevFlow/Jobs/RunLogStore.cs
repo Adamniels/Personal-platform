@@ -231,6 +231,35 @@ public static class RunLogStore
         }, cancellationToken);
     }
 
+    /// <summary>How long a run's lines are kept after it finished; the run itself, its result, its
+    /// figures and its reason are kept for ever.</summary>
+    public static readonly TimeSpan Kept = TimeSpan.FromDays(90);
+
+    /// <summary>
+    /// Deletes the lines of each of the project's runs finished <see cref="Kept"/> or more before
+    /// <paramref name="now"/>, and marks each such run pruned at <paramref name="now"/>, in one
+    /// transaction through the door as <paramref name="userId"/>; a run under way is never pruned,
+    /// and a run with no lines is left as it is. How many runs it pruned.
+    /// </summary>
+    public static async Task<int> Prune(UserDb database, Guid userId, Guid projectId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        return await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            """
+            WITH pruned AS (
+                DELETE FROM run_log_lines l USING runs r
+                WHERE l.run_id = r.id AND l.project_id = @projectId AND r.project_id = @projectId
+                  AND r.finished_at IS NOT NULL AND r.finished_at <= @before
+                RETURNING l.run_id
+            )
+            UPDATE runs SET log_pruned_at = @now
+            WHERE project_id = @projectId AND id IN (SELECT run_id FROM pruned)
+            """,
+            new { projectId, before = now - Kept, now },
+            transaction,
+            cancellationToken: cancellationToken)), cancellationToken);
+    }
+
     /// <summary><paramref name="time"/> to the microsecond, as Postgres keeps it, so a line handed
     /// on is the line stored.</summary>
     public static DateTimeOffset Microseconds(DateTimeOffset time) => time.AddTicks(-(time.Ticks % 10));
