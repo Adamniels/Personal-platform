@@ -90,11 +90,28 @@ internal sealed class UsageWorld : IAsyncDisposable
     /// or under way when that is null; with the time its worker measured, and Claude's figures, each
     /// null when not given.
     /// </summary>
-    public async Task Run(
+    public Task Run(
         Guid project,
         string kind,
         TimeSpan startedAgo,
         TimeSpan? endedAgo,
+        int? card = null,
+        int? feature = null,
+        long? durationMs = null,
+        long? input = null,
+        long? cacheCreation = null,
+        long? cacheRead = null,
+        long? output = null) =>
+        RunAt(project, kind, Now - startedAgo, endedAgo is { } ago ? Now - ago : null, card, feature, durationMs, input, cacheCreation, cacheRead, output);
+
+    /// <summary>As <see cref="Run"/>, started at <paramref name="started"/> and ended at
+    /// <paramref name="ended"/>, whatever the app's clock says, for a test that reads the store at a
+    /// time of its own.</summary>
+    public async Task RunAt(
+        Guid project,
+        string kind,
+        DateTimeOffset started,
+        DateTimeOffset? ended,
         int? card = null,
         int? feature = null,
         long? durationMs = null,
@@ -138,8 +155,8 @@ internal sealed class UsageWorld : IAsyncDisposable
                 feature,
                 worker = _workers[project],
                 kind,
-                started = Now - startedAgo,
-                ended = endedAgo is { } ago ? Now - ago : (DateTimeOffset?)null,
+                started,
+                ended,
                 durationMs,
                 input,
                 cacheCreation,

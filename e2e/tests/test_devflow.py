@@ -7,7 +7,9 @@ import json
 import re
 import struct
 import zlib
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 from playwright.sync_api import Browser, Locator, Page, expect
@@ -7137,6 +7139,58 @@ def test_every_item_kind_follows_the_detail_rule(
             page.screenshot(path=str(SCREENSHOTS / f"{shot}-detail-phone.png"))
 
 
+def _fake_build(page: Page, base_url: str, project: str, usage: dict) -> dict:
+    """The fake worker takes the project's next job, a card's build, and ends
+    it succeeded with Claude's `usage` figures. What it answered."""
+    ran = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={
+            "project_id": project,
+            "result": {
+                "outcome": "succeeded",
+                "report": _report(),
+                "failure": None,
+                "check": {"exit_code": 0, "output": "Tests: 12 passed"},
+                "auth_method": "oauth_token",
+                "usage": {"usage": usage, "num_turns": 23},
+                "duration_ms": 184213,
+                "stderr": "",
+            },
+        },
+        headers={"Origin": base_url},
+    )
+    assert ran.status == 200, ran.text()
+    return ran.json()
+
+
+def _used(page: Page, base_url: str, project: str, days: dict[int, int]) -> None:
+    """Gives the project a day of use for each entry of `days`, so many days
+    before today and its tokens, through the fake, which copies the project's
+    last finished run onto that day."""
+    staged = page.request.post(
+        "/devflow/api/fake/usage-history",
+        data={
+            "project_id": project,
+            "days": [
+                {"days_ago": ago, "tokens": tokens} for ago, tokens in days.items()
+            ],
+        },
+        headers={"Origin": base_url},
+    )
+    assert staged.status == 204, staged.text()
+
+
+def _stockholm_date(days_ago: int) -> date:
+    """The day so many days before today in Dev flow's zone."""
+    return datetime.now(ZoneInfo("Europe/Stockholm")).date() - timedelta(days=days_ago)
+
+
+def _chart_day(days_ago: int) -> str:
+    """`_stockholm_date` as the chart says it: "27 Nov"."""
+    day = _stockholm_date(days_ago)
+    return f"{day.day} {day.strftime('%b')}"
+
+
 def test_usage_and_history(
     page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
 ):
@@ -7169,25 +7223,7 @@ def test_usage_and_history(
     _fake_read(page, base_url, project, [_ready(61), _ready(62)])
 
     def build(usage: dict) -> dict:
-        ran = page.request.post(
-            "/devflow/api/fake/worker/run",
-            data={
-                "project_id": project,
-                "result": {
-                    "outcome": "succeeded",
-                    "report": _report(),
-                    "failure": None,
-                    "check": {"exit_code": 0, "output": "Tests: 12 passed"},
-                    "auth_method": "oauth_token",
-                    "usage": {"usage": usage, "num_turns": 23},
-                    "duration_ms": 184213,
-                    "stderr": "",
-                },
-            },
-            headers={"Origin": base_url},
-        )
-        assert ran.status == 200, ran.text()
-        return ran.json()
+        return _fake_build(page, base_url, project, usage)
 
     # The fake worker builds the first card, with Claude's usage cache figures
     # and all: 41 + 18,204 + 6,113 = 24,358 tokens, 512,870 cache reads. CI
@@ -7268,3 +7304,171 @@ def test_usage_and_history(
     page.get_by_label("Period").select_option("7d")
     expect(page).to_have_url(re.compile(r"/devflow/usage\?period=7d$"))
     expect(page.get_by_role("region", name=re.compile(r"^Usage of "))).to_have_count(1)
+
+
+def test_tokens_per_day(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    """Under each project's table on Usage and history, its tokens per day
+    over the last 30 days: two projects with a month of use, each day's
+    tokens shown on hover and from the keyboard. See "Usage and history" in
+    devflow/README.md."""
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    add_issue(world, 61, "Make the feature's branch", labels=["devflow"])
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+    _another_repository(world, FODR, "fodr", 12, "Dark mode")
+    _open_project(page, base_url, devflow_world, world)
+    platform = page.url.rsplit("/", 1)[1]
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    _read(page, base_url, platform)
+    fodr = _connect(page, base_url, FODR)
+
+    # Each project's card is read and built today: 41 + 18,204 + 6,113 =
+    # 24,358 tokens for Personal-platform's, 1,200 + 800 for fodr's.
+    _fake_read(page, base_url, platform, [_ready(61)])
+    assert (
+        _fake_build(
+            page,
+            base_url,
+            platform,
+            {
+                "input_tokens": 41,
+                "cache_creation_input_tokens": 18204,
+                "cache_read_input_tokens": 512870,
+                "output_tokens": 6113,
+            },
+        )["card"]
+        == 61
+    )
+    _fake_read(page, base_url, fodr, [_ready(12)])
+    assert (
+        _fake_build(page, base_url, fodr, {"input_tokens": 1200, "output_tokens": 800})[
+            "card"
+        ]
+        == 12
+    )
+
+    # A month of use before today: Personal-platform most days, with days of
+    # none between, its most 3 days ago; fodr now and then, its most 9 days
+    # ago. The 99,999 of 30 days ago is a day before the 30, so never shown.
+    _used(
+        page,
+        base_url,
+        platform,
+        {
+            ago: tokens
+            for ago, tokens in zip(
+                range(1, 31),
+                [
+                    31_200,
+                    18_400,
+                    52_000,
+                    0,
+                    0,
+                    27_900,
+                    12_300,
+                    40_100,
+                    22_800,
+                    9_600,
+                    0,
+                    0,
+                    35_400,
+                    28_100,
+                    16_700,
+                    44_900,
+                    19_200,
+                    0,
+                    0,
+                    30_300,
+                    11_800,
+                    25_600,
+                    38_700,
+                    14_400,
+                    0,
+                    0,
+                    21_100,
+                    33_300,
+                    8_900,
+                    99_999,
+                ],
+                strict=True,
+            )
+            if tokens
+        },
+    )
+    _used(page, base_url, fodr, {2: 6_400, 9: 12_800, 16: 3_200, 23: 9_600, 29: 4_100})
+
+    page.goto("/devflow/usage")
+    platform_table = page.get_by_role("region", name="Usage of Personal-platform")
+    expect(platform_table).to_be_visible()
+
+    # A chart under each project's table, named for screen readers with its
+    # highest day, 30 bars each, the first and last dates under them.
+    chart = page.get_by_role(
+        "img",
+        name=f"Personal-platform: tokens per day, the last 30 days, most on {_chart_day(3)}, 52,000",
+    )
+    expect(chart).to_be_visible()
+    other = page.get_by_role(
+        "img",
+        name=f"fodr: tokens per day, the last 30 days, most on {_chart_day(9)}, 12,800",
+    )
+    expect(other).to_be_visible()
+    expect(chart.locator("[data-day]")).to_have_count(30)
+    expect(other.locator("[data-day]")).to_have_count(30)
+    table_box = platform_table.bounding_box()
+    chart_box = chart.bounding_box()
+    assert chart_box["y"] >= table_box["y"] + table_box["height"], (
+        table_box,
+        chart_box,
+    )
+    figure = page.locator("figure").filter(has=chart)
+    expect(figure).to_contain_text("52,000")
+    expect(figure).to_contain_text(_chart_day(29))
+    expect(figure).to_contain_text(_chart_day(0))
+
+    # Pointed at, the bar of 3 days ago shows its day and tokens.
+    day = figure.get_by_role("slider", name="A day of Personal-platform's tokens")
+    box = day.bounding_box()
+    page.mouse.move(box["x"] + box["width"] * 26.5 / 30, box["y"] + box["height"] / 2)
+    expect(figure).to_contain_text(f"{_chart_day(3)}: 52,000 tokens")
+    expect(chart.locator("[data-active='true']")).to_have_attribute(
+        "data-day", _stockholm_date(3).isoformat()
+    )
+
+    # From the keyboard: today's at focus, then the arrows move along the days.
+    page.get_by_role("heading", name="Dev flow", exact=True).hover()
+    day.focus()
+    expect(figure).to_contain_text(f"{_chart_day(0)}: 24,358 tokens")
+    for _ in range(3):
+        page.keyboard.press("ArrowLeft")
+    expect(figure).to_contain_text(f"{_chart_day(3)}: 52,000 tokens")
+    expect(day).to_have_attribute("aria-valuetext", f"{_chart_day(3)}: 52,000 tokens")
+    page.keyboard.press("Home")
+    expect(figure).to_contain_text(f"{_chart_day(29)}: 8,900 tokens")
+
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+        assert_nothing_active_is_amber,
+    ):
+        check(page)
+    assert _axe_violations(page) == []
+
+    # Shown with the day of most use pointed at.
+    page.keyboard.press("End")
+    for _ in range(3):
+        page.keyboard.press("ArrowLeft")
+    capture(page, "devflow-usage-per-day")

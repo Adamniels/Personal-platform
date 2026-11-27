@@ -1102,6 +1102,18 @@ the figures, and cost far less, so in the sum they would drown what was used. Th
 request from `runs`, grouped by card, feature and project, with no table of their own; one user's
 runs are few enough, and a stored sum would be one more thing to keep right.
 
+**Days are counted in one zone, read through `DevFlowTime`.** A day Dev flow counts, the tokens per
+day on Usage and history today and part 8's daily budget and schedules next, is a day in
+Europe/Stockholm, `DevFlowTime.Zone` in `src/DevFlow/DevFlowTime.cs`, never a day in UTC or in the
+server's own zone, which would put a run at 00:30 in the owner's night on the day before. It is the
+one place the zone is read, through .NET's own IANA zones with no dependency, so #455 makes it each
+user's setting by changing that one place. `DevFlowTime` turns an instant into its day and a day
+into its bounds, so a day across a change of summer time is 23 or 25 hours, and a query is handed
+those bounds rather than a zone name: Postgres's time zone rules never decide a day, and C# and SQL
+cannot disagree about one. The chart is always the last 30 days, whatever the period, since the
+period rolls by 24 hours and a day does not; mixing the two would leave a half day at the chart's
+start.
+
 **The model and the limits are the project's, carried by the job.** Which model reads, builds and
 reviews, and the minutes and turns a run takes, are settings, as the spec's round 4b has them per
 job per project, each starting on the strongest model; the values are Claude Code's aliases, which

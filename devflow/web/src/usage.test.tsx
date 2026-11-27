@@ -15,6 +15,17 @@ import { duration, type UsageApi, type UsageView } from "./usage";
 const PROJECT = "11111111-1111-1111-1111-111111111111";
 const OTHER = "22222222-2222-2222-2222-222222222222";
 
+/** 30 days ending 27 November 2026, each with the tokens `used` names for it
+ * and 0 for any other, as the service sends them. */
+function days(used: Record<string, number> = {}) {
+	return Array.from({ length: 30 }, (_, back) => {
+		const date = new Date(Date.UTC(2026, 10, 27 - 29 + back))
+			.toISOString()
+			.slice(0, 10);
+		return { date, tokens: used[date] ?? 0 };
+	});
+}
+
 function view(overrides: Partial<UsageView> = {}): UsageView {
 	return {
 		period: "30d",
@@ -95,6 +106,11 @@ function view(overrides: Partial<UsageView> = {}): UsageView {
 						sent_back: 0,
 					},
 				],
+				days: days({
+					"2026-10-29": 300,
+					"2026-11-20": 24_358,
+					"2026-11-26": 1_000,
+				}),
 			},
 			{
 				id: OTHER,
@@ -106,6 +122,7 @@ function view(overrides: Partial<UsageView> = {}): UsageView {
 				setting_up: null,
 				features: [],
 				cards: [],
+				days: days(),
 			},
 		],
 		...overrides,
@@ -302,6 +319,98 @@ describe("Usage and history", () => {
 		expect(
 			await screen.findByText("Usage could not be read. Try again."),
 		).toBeTruthy();
+	});
+});
+
+describe("tokens per day", () => {
+	test("each project shows 30 bars with the day's tokens on hover and focus, and a label for screen readers", async () => {
+		open("/devflow/usage", () => Promise.resolve(view()));
+
+		// The chart, under the project's table, named for screen readers with
+		// the project, the span and its highest day.
+		const chart = await screen.findByRole("img", {
+			name: "Personal-platform: tokens per day, the last 30 days, most on 20 Nov, 24,358",
+		});
+		const figure = chart.closest("figure") as HTMLElement;
+		const table = screen.getByRole("region", {
+			name: "Usage of Personal-platform",
+		});
+		expect(
+			table.compareDocumentPosition(figure) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+
+		// 30 bars, one a day ending today, oldest first, each as high as its
+		// tokens against the highest day's.
+		const bars = [...chart.querySelectorAll<SVGElement>("[data-day]")];
+		expect(bars).toHaveLength(30);
+		expect(bars[0]?.dataset.day).toBe("2026-10-29");
+		expect(bars.at(-1)?.dataset.day).toBe("2026-11-27");
+		const height = (day: string) =>
+			Number(
+				chart
+					.querySelector(`[data-day="${day}"] [data-bar]`)
+					?.getAttribute("height") ?? 0,
+			);
+		expect(height("2026-11-20")).toBeGreaterThan(height("2026-11-26"));
+		expect(height("2026-11-26")).toBeGreaterThan(0);
+		expect(height("2026-11-27")).toBe(0);
+
+		// The highest day's figure at the top, the first and last dates under
+		// it, and no day's figure until one is pointed at or chosen.
+		expect(within(figure).getByText("24,358")).toBeTruthy();
+		expect(within(figure).getByText("29 Oct")).toBeTruthy();
+		expect(within(figure).getByText("27 Nov")).toBeTruthy();
+		const shown = () =>
+			within(figure).queryByText(/^\d+ \w+: [\d,]+ tokens$/)?.textContent ??
+			null;
+		expect(shown()).toBeNull();
+
+		// A day is chosen with a range input over the bars, a real control,
+		// named for the project and saying the day it holds, today at first.
+		const day = within(figure).getByRole("slider", {
+			name: "A day of Personal-platform's tokens",
+		}) as HTMLInputElement;
+		expect([day.min, day.max, day.value]).toEqual(["0", "29", "29"]);
+		expect(day.getAttribute("aria-valuetext")).toBe("27 Nov: 0 tokens");
+
+		// On hover, the day under the pointer and its tokens; gone when the
+		// pointer leaves.
+		day.getBoundingClientRect = () => new DOMRect(0, 0, 300, 64);
+		fireEvent.mouseMove(day, { clientX: 285 });
+		expect(shown()).toBe("26 Nov: 1,000 tokens");
+		expect(bars[28]?.dataset.active).toBe("true");
+		fireEvent.mouseMove(day, { clientX: 5 });
+		expect(shown()).toBe("29 Oct: 300 tokens");
+		fireEvent.mouseLeave(day);
+		expect(shown()).toBeNull();
+
+		// On keyboard focus, the day it holds; the keys move it, as a browser
+		// does on a range input, and leaving it clears the figure.
+		fireEvent.focus(day);
+		expect(shown()).toBe("27 Nov: 0 tokens");
+		fireEvent.change(day, { target: { value: "28" } });
+		expect(shown()).toBe("26 Nov: 1,000 tokens");
+		expect(day.getAttribute("aria-valuetext")).toBe("26 Nov: 1,000 tokens");
+		expect(bars[28]?.dataset.active).toBe("true");
+		fireEvent.blur(day);
+		expect(shown()).toBeNull();
+
+		// A project with no tokens in the 30 days says so, its bars empty.
+		const none = screen.getByRole("img", {
+			name: "fodr: tokens per day, the last 30 days, none",
+		});
+		expect(none.querySelectorAll("[data-day]")).toHaveLength(30);
+	});
+
+	test("the chart is the last 30 days whatever the period", async () => {
+		const loadUsage = vi.fn((period: string) =>
+			Promise.resolve(view({ period })),
+		);
+		open("/devflow/usage?period=7d", loadUsage);
+		const chart = await screen.findByRole("img", {
+			name: /^Personal-platform: tokens per day, the last 30 days/,
+		});
+		expect(chart.querySelectorAll("[data-day]")).toHaveLength(30);
 	});
 });
 

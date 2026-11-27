@@ -22,6 +22,15 @@
 	max-width: 100%;
 }
 
+/* A project's table and, under it, its tokens per day, closer to each other
+ * than to the next project's. */
+.project {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
 .table {
 	min-width: 0;
 }
