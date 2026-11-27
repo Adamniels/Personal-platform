@@ -22,6 +22,7 @@ using DevFlow.Settings;
 using DevFlow.Setup;
 using DevFlow.Status;
 using DevFlow.Stops;
+using DevFlow.Usage;
 using DevFlow.Values;
 using DevFlow.Watching;
 using DevFlow.Workers;
@@ -256,6 +257,7 @@ public static class DevFlowApp
         app.MapJobs();
         app.MapStops();
         app.MapRunning();
+        app.MapUsage();
         app.MapRunLogStream();
         app.MapRunLog();
         app.MapOwnerStops();

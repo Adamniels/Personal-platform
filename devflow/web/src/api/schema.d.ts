@@ -850,6 +850,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the caller's projects, features and cards used
+         * @description Counts the runs started in period, 7d or 30d, rolling, so many times 24 hours back from now, or all, 30d without one. period, as counted, and projects, each of the caller's projects with a run in it, most tokens first: its id and name; runs, agent_ms, the sum of the runs' times, each as its worker measured it, or from its start to its end, or to now while it runs; tokens, input_tokens + cache_creation_input_tokens + output_tokens; and cache_reads beside them, never in them; setting_up, the same for its checks and its setup's runs, null with none; features, each with a run in the period of its own or of one of its cards, most tokens first, with its number, title, the same figures over its own runs and its cards', elapsed_ms, from the first start of any of them to the last end, or now while one runs, fix_rounds, the rounds of the whole feature its reviews started, sent_back, how many times its cards were sent back, own, the same figures for its own runs alone, its readings, reviews, fixes and conflicts, null with none, and cards, its cards with a run in the period; and cards, its cards on their own with a run in the period. A card, most tokens first, has its number, title, null for one Dev flow no longer holds, the same figures, elapsed_ms over all its runs, fix_rounds, the rounds its reviews started, and sent_back, how many times it was sent back; elapsed, fix rounds and sends back are the card's or the feature's whole, not the period's. Read from what Dev flow stored, never from GitHub. 422 naming period for any other. Without a valid token, 401 with an empty body.
+         */
+        get: operations["getUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/waiting": {
         parameters: {
             query?: never;
@@ -2229,6 +2249,76 @@ export interface components {
         TrustedLogin: {
             login: string;
             mine: boolean;
+        };
+        UsageCard: {
+            /** Format: int64 */
+            agent_ms: number;
+            /** Format: int64 */
+            cache_reads: number;
+            /** Format: int64 */
+            elapsed_ms: number;
+            /** Format: int32 */
+            fix_rounds: number;
+            /** Format: int32 */
+            number: number;
+            /** Format: int32 */
+            runs: number;
+            /** Format: int32 */
+            sent_back: number;
+            title: null | string;
+            /** Format: int64 */
+            tokens: number;
+        };
+        UsageFeature: {
+            /** Format: int64 */
+            agent_ms: number;
+            /** Format: int64 */
+            cache_reads: number;
+            cards: components["schemas"]["UsageCard"][];
+            /** Format: int64 */
+            elapsed_ms: number;
+            /** Format: int32 */
+            fix_rounds: number;
+            /** Format: int32 */
+            number: number;
+            own: null | components["schemas"]["UsageFigures"];
+            /** Format: int32 */
+            runs: number;
+            /** Format: int32 */
+            sent_back: number;
+            title: string;
+            /** Format: int64 */
+            tokens: number;
+        };
+        UsageFigures: {
+            /** Format: int64 */
+            agent_ms: number;
+            /** Format: int64 */
+            cache_reads: number;
+            /** Format: int32 */
+            runs: number;
+            /** Format: int64 */
+            tokens: number;
+        };
+        UsageProject: {
+            /** Format: int64 */
+            agent_ms: number;
+            /** Format: int64 */
+            cache_reads: number;
+            cards: components["schemas"]["UsageCard"][];
+            features: components["schemas"]["UsageFeature"][];
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: int32 */
+            runs: number;
+            setting_up: null | components["schemas"]["UsageFigures"];
+            /** Format: int64 */
+            tokens: number;
+        };
+        UsageView: {
+            period: string;
+            projects: components["schemas"]["UsageProject"][];
         };
         WaitingItem: {
             can_merge: boolean;
@@ -4468,6 +4558,44 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    getUsage: {
+        parameters: {
+            query?: {
+                period?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UsageView"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
             };
         };
     };
