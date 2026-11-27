@@ -268,6 +268,47 @@ describe("Running now", () => {
 		).toBeNull();
 	});
 
+	test("a card outside its schedule says when, with Edit schedules", async () => {
+		openRunning(
+			list(
+				[run()],
+				[
+					nextCard({
+						number: 60,
+						title: "Night work",
+						reason: "Outside its schedule, runs again Fri 22:00",
+						link: "schedules",
+						link_card: null,
+					}),
+					nextCard({
+						number: 61,
+						title: "Nothing on",
+						reason: "No schedule is on",
+						link: "schedules",
+						link_card: null,
+					}),
+				],
+			),
+		);
+		await screen.findByRole("article", { name: "#51 Share a plan by link" });
+
+		// The sentence is said, and what to do is its own link, to the settings
+		// page's card.
+		for (const [row, reason] of [
+			["#60 Night work", "Outside its schedule, runs again Fri 22:00"],
+			["#61 Nothing on", "No schedule is on"],
+		] as const) {
+			const shown = nextRow(row);
+			expect(within(shown).getAllByText(reason).length).toBeGreaterThan(0);
+			expect(within(shown).queryByRole("link", { name: reason })).toBeNull();
+			linksTo(
+				shown,
+				"Edit schedules",
+				`/devflow/projects/${PROJECT}/settings#settings-schedules`,
+			);
+		}
+	});
+
 	test("next up lists cards with their reason and its link", async () => {
 		const { events } = openRunning(
 			list(

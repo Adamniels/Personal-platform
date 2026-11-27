@@ -2,12 +2,16 @@
 // schedule, its windows, each with its days and times, a switch for on and off, Edit and Remove,
 // "Add a schedule", and the user's time zone, which every window is wall clock in, with Change.
 // Every change saves at once through the schedules' and the time zone's own routes, never the
-// settings page's Save, and a refusal shows under its field. See "Schedules" in devflow/README.md.
+// settings page's Save, and a refusal shows under its field. And the card "When it runs" on the
+// project's page: always, or each window with its switch and when it runs next. See "The pages"
+// and "Schedules" in devflow/README.md.
 import { Button, Card, Select, Switch, TextField } from "@platform/ui";
 import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
 import { describe } from "./actions";
+import { navigate, plainClick } from "./address";
 import { ApiError, type GetAnswer } from "./api/client";
 import styles from "./schedules.module.css";
+import { settingsPath } from "./sections";
 
 export type ProjectSchedules = GetAnswer<"/projects/{id}/schedules">;
 export type Schedule = ProjectSchedules["schedules"][number];
@@ -73,6 +77,164 @@ export function daysLine(days: readonly string[]): string {
 /** A window's line under its name: its days and its times. */
 export const windowLine = (entry: Pick<Schedule, "days" | "from" | "to">) =>
 	`${daysLine(entry.days)} · ${entry.from}–${entry.to}`;
+
+/** The settings page's card, where "Edit schedules" goes. */
+export const SCHEDULES_ANCHOR = "settings-schedules";
+
+/** Where "Edit schedules" goes: the settings page, at its card. */
+export const schedulesPath = (id: string) =>
+	`${settingsPath(id)}#${SCHEDULES_ANCHOR}`;
+
+/** An instant as wall clock in the user's zone: its short day and its time,
+ * "Fri 22:00", as Dev flow's own sentences say it. */
+export const dayTime = (at: string, zone: string) =>
+	new Intl.DateTimeFormat("en-GB", {
+		timeZone: zone,
+		weekday: "short",
+		hour: "2-digit",
+		minute: "2-digit",
+		hourCycle: "h23",
+	}).format(new Date(at));
+
+/** An instant's time alone, in the user's zone. */
+const timeOf = (at: string, zone: string) =>
+	new Intl.DateTimeFormat("en-GB", {
+		timeZone: zone,
+		hour: "2-digit",
+		minute: "2-digit",
+		hourCycle: "h23",
+	}).format(new Date(at));
+
+/** What the project page's card says of when it runs: always; running now,
+ * until when; when it runs next; or that nothing runs. */
+export function whenLine(schedules: ProjectSchedules): string {
+	if (schedules.runs_by !== "schedule") return "Always";
+	if (schedules.running_until !== null)
+		return `Running now, until ${timeOf(schedules.running_until, schedules.time_zone)}`;
+	if (schedules.next_start !== null)
+		return `Runs next ${dayTime(schedules.next_start, schedules.time_zone)}`;
+	return "No schedule is on, so nothing runs";
+}
+
+/** "Edit schedules": a link to the settings page's card, opened in place on
+ * a plain click, drawn as a secondary button. */
+export function EditSchedules({ id }: { id: string }) {
+	const to = schedulesPath(id);
+	return (
+		<a
+			className={styles.editSchedules}
+			href={to}
+			onClick={(event) => {
+				if (plainClick(event)) {
+					event.preventDefault();
+					navigate(to);
+				}
+			}}
+		>
+			Edit schedules
+		</a>
+	);
+}
+
+/** The card "When it runs" in the project page's side column: always, or
+ * each window with its switch, saved at once, and when it runs next or
+ * until when; with "Edit schedules". Nothing before the schedules answer. */
+export function WhenItRunsCard({
+	id,
+	loadSchedules,
+	saveSchedules,
+	className,
+}: Pick<SchedulesApi, "loadSchedules" | "saveSchedules"> & {
+	id: string;
+	className?: string;
+}) {
+	const [schedules, setSchedules] = useState<ProjectSchedules | null>();
+	const [busy, setBusy] = useState(false);
+	const [failed, setFailed] = useState<string | null>(null);
+
+	useEffect(() => {
+		let current = true;
+		loadSchedules(id).then(
+			(answer) => {
+				if (current) setSchedules(answer);
+			},
+			() => {
+				if (current) setSchedules(null);
+			},
+		);
+		return () => {
+			current = false;
+		};
+	}, [id, loadSchedules]);
+
+	if (schedules === undefined) return null;
+	const list = schedules?.schedules.map(toRequest) ?? [];
+
+	/** Switches a window, which moves at once and goes back if Dev flow
+	 * refuses it. */
+	const toggle = async (place: number, active: boolean) => {
+		if (!schedules) return;
+		const before = schedules;
+		const next = before.schedules.map((entry, at) =>
+			at === place ? { ...entry, active } : entry,
+		);
+		setBusy(true);
+		setFailed(null);
+		setSchedules({ ...before, schedules: next });
+		try {
+			setSchedules(
+				await saveSchedules(id, {
+					runs_by: before.runs_by,
+					schedules: next.map(toRequest),
+				}),
+			);
+		} catch (error) {
+			setSchedules(before);
+			setFailed(`Not saved: ${describe(error)}`);
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	return (
+		<Card
+			title="When it runs"
+			className={[styles.card, className].filter(Boolean).join(" ")}
+			footer={<EditSchedules id={id} />}
+		>
+			{schedules === null ? (
+				<p className={styles.error} role="alert">
+					{NOT_READ}
+				</p>
+			) : (
+				<div className={styles.group}>
+					<p className={styles.when}>{whenLine(schedules)}</p>
+					{schedules.runs_by !== "schedule" || list.length === 0 ? null : (
+						<ul className={styles.windows} aria-label="Schedules">
+							{list.map((entry, place) => (
+								<li key={entry.id} className={styles.window}>
+									<Switch
+										className={styles.switch}
+										label={entry.name}
+										help={windowLine(entry)}
+										checked={entry.active}
+										disabled={busy}
+										onChange={(event) => toggle(place, event.target.checked)}
+									/>
+								</li>
+							))}
+						</ul>
+					)}
+					{failed === null ? null : (
+						<p className={styles.error} role="alert">
+							{failed}
+						</p>
+					)}
+				</div>
+			)}
+		</Card>
+	);
+}
 
 /** The zones the select offers: the browser's IANA zones, with UTC and the
  * one saved, whichever the browser does not list. */

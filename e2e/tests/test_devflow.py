@@ -7574,3 +7574,78 @@ def test_i_pause_everything(
     page.goto("/devflow/running")
     expect(page.get_by_role("switch", name="Pause everything")).not_to_be_checked()
     expect(strip).to_have_count(0)
+
+
+def test_i_give_a_project_a_schedule(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    """On the settings page I choose "By schedule" and add "Night", Monday to
+    Friday 22:00 to 06:00, and "Weekend", which I switch off; the project's
+    page shows Night on, with when it runs next, and switching it off there
+    says nothing runs. See "The pages" and "Schedules" in devflow/README.md."""
+    register_and_log_in(page, invite_code, base_url)
+    _open_project(page, base_url, devflow_world)
+    content = _edit_settings(page)
+    card = content.get_by_role("article", name="When it runs", exact=True)
+    expect(card.get_by_role("radio", name="Always")).to_be_checked()
+    expect(card.get_by_text("Times are in Europe/Stockholm")).to_be_visible()
+
+    # By schedule, saved at once.
+    card.get_by_role("radio", name="By schedule").check()
+    expect(card.get_by_role("radio", name="By schedule")).to_be_checked()
+    expect(card.get_by_text("Saved.", exact=True)).to_be_visible()
+
+    def add(name: str, days: list[str], start: str, end: str) -> None:
+        card.get_by_role("button", name="Add a schedule").click()
+        editor = card.get_by_role("form", name="A new schedule")
+        editor.get_by_label("Name").fill(name)
+        for day in days:
+            editor.get_by_role("checkbox", name=day, exact=True).check()
+        editor.get_by_label("From").fill(start)
+        editor.get_by_label("To").fill(end)
+        editor.get_by_role("button", name="Add", exact=True).click()
+        expect(card.get_by_role("switch", name=name, exact=True)).to_be_checked()
+
+    add("Night", ["Mon", "Tue", "Wed", "Thu", "Fri"], "22:00", "06:00")
+    expect(card.get_by_text("Mon–Fri · 22:00–06:00")).to_be_visible()
+    add("Weekend", ["Sat", "Sun"], "10:00", "14:00")
+    weekend = card.get_by_role("switch", name="Weekend", exact=True)
+    weekend.uncheck()
+    expect(weekend).not_to_be_checked()
+    # Disabled while it saves, so enabled again once Dev flow has it.
+    expect(weekend).to_be_enabled()
+    expect(card.get_by_text("Sat, Sun · 10:00–14:00")).to_be_visible()
+
+    # Saved as Dev flow holds it, without the page's Save.
+    project_id = page.url.split("/")[-2]
+    saved = page.request.get(f"/devflow/api/projects/{project_id}/schedules").json()
+    assert saved["runs_by"] == "schedule"
+    assert [(each["name"], each["active"]) for each in saved["schedules"]] == [
+        ("Night", True),
+        ("Weekend", False),
+    ]
+    card.scroll_into_view_if_needed()
+    _looks_right(page)
+    capture(page, "devflow-settings-schedules")
+
+    # The project's page: Night on, and when it runs next, or until when.
+    _back_to_project(page)
+    when = page.get_by_role("article", name="When it runs", exact=True)
+    expect(when.get_by_role("switch", name="Night", exact=True)).to_be_checked()
+    expect(when.get_by_role("switch", name="Weekend", exact=True)).not_to_be_checked()
+    expect(
+        when.get_by_text(
+            re.compile(
+                r"^(Runs next (Mon|Tue|Wed|Thu|Fri) 22:00|Running now, until 06:00)$"
+            )
+        )
+    ).to_be_visible()
+    expect(when.get_by_role("link", name="Edit schedules")).to_have_attribute(
+        "href", f"/devflow/projects/{project_id}/settings#settings-schedules"
+    )
+    _looks_right(page)
+    capture(page, "devflow-project-when-it-runs")
+
+    # Switched off there, nothing runs.
+    when.get_by_role("switch", name="Night", exact=True).uncheck()
+    expect(when.get_by_text("No schedule is on, so nothing runs")).to_be_visible()

@@ -35,6 +35,7 @@ import type { GetAnswer } from "./api/client";
 import { AGAIN, CLOSED, dataOf, type EventStream } from "./events";
 import { type LogLine, LogLines, logStyles } from "./run-log";
 import styles from "./running.module.css";
+import { schedulesPath } from "./schedules";
 import { cardPath, featurePath, projectPath, SECTIONS } from "./sections";
 
 export type RunningList = GetAnswer<"/running">;
@@ -285,8 +286,9 @@ export function nextState(card: NextCard): string {
 }
 
 /** Where a card's reason is acted on, or null where it has no place: the
- * card it waits for, "Waiting for you", its project's page, or the Projects
- * tab, whose Connections hold the Claude login. */
+ * card it waits for, "Waiting for you", its project's page, the Projects
+ * tab, whose Connections hold the Claude login, or its project's schedules,
+ * the card "When it runs" on its settings page. */
 export function reasonPath(card: NextCard): string | null {
 	switch (card.link) {
 		case "card":
@@ -299,6 +301,8 @@ export function reasonPath(card: NextCard): string | null {
 			return projectPath(card.project_id);
 		case "settings":
 			return sectionPath("projects");
+		case "schedules":
+			return schedulesPath(card.project_id);
 		default:
 			return null;
 	}
@@ -311,11 +315,22 @@ function sectionPath(key: string): string {
 }
 
 /** Why a card is not running yet, the rule's own sentence, linked to where it
- * is acted on; for a card that runs as soon as a worker asks, so it says. */
+ * is acted on; outside its schedule, the sentence said and "Edit schedules"
+ * the link, since the sentence is when, not what to do; for a card that runs
+ * as soon as a worker asks, so it says. */
 function Reason({ card }: { card: NextCard }) {
 	if (card.reason === null)
 		return <span className={styles.starts}>Next to start</span>;
 	const href = reasonPath(card);
+	if (card.link === "schedules" && href !== null)
+		return (
+			<span className={styles.reason}>
+				{card.reason}{" "}
+				<PageLink className={styles.reasonLink} href={href}>
+					Edit schedules
+				</PageLink>
+			</span>
+		);
 	return href === null ? (
 		<span className={styles.reason}>{card.reason}</span>
 	) : (

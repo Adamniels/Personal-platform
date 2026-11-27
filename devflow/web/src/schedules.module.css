@@ -236,6 +236,39 @@
 	color: var(--text-2);
 }
 
+/* What the project page's card says of when it runs, its hero line. */
+.when {
+	margin: 0;
+	font-weight: 500;
+}
+
+/* "Edit schedules", a link drawn as a secondary button, as the project
+ * page's "Edit settings" is. */
+.editSchedules {
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	height: var(--control-h);
+	padding: 0 18px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-full);
+	color: var(--text);
+	font-size: 14px;
+	font-weight: 500;
+	text-decoration: none;
+	white-space: nowrap;
+}
+
+.editSchedules:hover {
+	background: var(--surface-2);
+}
+
+.editSchedules:focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: var(--focus-offset);
+}
+
 @media (max-width: 639.98px) {
 	.track {
 		align-self: stretch;

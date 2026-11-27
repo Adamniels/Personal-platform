@@ -2104,3 +2104,109 @@ describe("a project's page, cards first", () => {
 		).toBeTruthy();
 	});
 });
+
+describe("when it runs", () => {
+	const NIGHT = {
+		id: "0190a8f0-0000-7000-8000-000000000020",
+		name: "Night",
+		days: ["mon", "tue", "wed", "thu", "fri"],
+		from: "22:00",
+		to: "06:00",
+		active: true,
+	};
+	const WEEKEND = {
+		id: "0190a8f0-0000-7000-8000-000000000021",
+		name: "Weekend",
+		days: ["sat", "sun"],
+		from: "10:00",
+		to: "14:00",
+		active: false,
+	};
+	const BY_SCHEDULE: ProjectSchedules = {
+		runs_by: "schedule",
+		time_zone: "Europe/Stockholm",
+		schedules: [NIGHT, WEEKEND],
+		next_start: "2027-01-15T22:00:00+01:00",
+		running_until: null,
+	};
+	const whenItRuns = () =>
+		screen.findByRole("article", { name: "When it runs" });
+
+	test("when it runs shows the next start and each window's switch", async () => {
+		const { saveSchedules } = renderPage({
+			schedules: BY_SCHEDULE,
+		});
+		const card = within(await whenItRuns());
+
+		// Outside every window: when it runs next, as wall clock in the
+		// user's zone, and each window with its switch, its days and times.
+		expect(await card.findByText("Runs next Fri 22:00")).toBeTruthy();
+		const night = card.getByRole("switch", { name: "Night" });
+		const weekend = card.getByRole("switch", { name: "Weekend" });
+		expect((night as HTMLInputElement).checked).toBe(true);
+		expect((weekend as HTMLInputElement).checked).toBe(false);
+		expect(card.getByText("Mon–Fri · 22:00–06:00")).toBeTruthy();
+
+		// "Edit schedules" opens the settings page's card.
+		expect(
+			card.getByRole("link", { name: "Edit schedules" }).getAttribute("href"),
+		).toBe(`/devflow/projects/${ID}/settings#settings-schedules`);
+
+		// A switch saves at once, the whole list with that window on, and the
+		// card shows what Dev flow answered; it moves as it is clicked.
+		fireEvent.click(weekend);
+		expect((weekend as HTMLInputElement).checked).toBe(true);
+		await waitFor(() =>
+			expect(saveSchedules).toHaveBeenCalledWith(ID, {
+				runs_by: "schedule",
+				schedules: [NIGHT, { ...WEEKEND, active: true }],
+			}),
+		);
+		expect(
+			(card.getByRole("switch", { name: "Weekend" }) as HTMLInputElement)
+				.checked,
+		).toBe(true);
+	});
+
+	test("it says running until, or that nothing runs, or always", async () => {
+		renderPage({
+			schedules: {
+				...BY_SCHEDULE,
+				next_start: "2027-01-18T22:00:00+01:00",
+				running_until: "2027-01-16T06:00:00+01:00",
+			},
+		});
+		expect(
+			await within(await whenItRuns()).findByText("Running now, until 06:00"),
+		).toBeTruthy();
+		cleanup();
+
+		renderPage({
+			schedules: {
+				...BY_SCHEDULE,
+				schedules: [{ ...NIGHT, active: false }, WEEKEND],
+				next_start: null,
+			},
+		});
+		expect(
+			await within(await whenItRuns()).findByText(
+				"No schedule is on, so nothing runs",
+			),
+		).toBeTruthy();
+		cleanup();
+
+		renderPage();
+		const always = within(await whenItRuns());
+		expect(await always.findByText("Always")).toBeTruthy();
+		expect(always.queryByRole("switch")).toBeNull();
+	});
+
+	test("the card sits in the side column above Settings", async () => {
+		renderPage({ schedules: BY_SCHEDULE });
+		const card = await whenItRuns();
+		const settings = await screen.findByRole("article", { name: "Settings" });
+		expect(
+			card.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+	});
+});
