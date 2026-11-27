@@ -3643,6 +3643,179 @@ def test_running_now_shows_the_log(
     expect(card.get_by_text("Stopped by you", exact=True)).to_be_visible()
 
 
+BLOCKED = 90
+BLOCKED_TITLE = "Revoke a shared link"
+BUILDING = 91
+BUILDING_TITLE = "Share a plan by link"
+BUSY = 92
+BUSY_TITLE = "Scheduling"
+FODR = 1002
+TICK = 1003
+
+
+def _another_repository(
+    world: dict, repository_id: int, name: str, number: int, title: str
+) -> dict:
+    """Adds a repository of the owner's to the world's installation, holding
+    project.json and one card on its own, `number`, labelled. Returns it."""
+    added = {
+        "id": repository_id,
+        "owner": OWNER,
+        "name": name,
+        "pull_requests": [],
+        "conversations": [],
+        "commits": [],
+        "files": [
+            {
+                "path": ".devflow/project.json",
+                "branch": "main",
+                "content": base64.b64encode(
+                    json.dumps(
+                        {"version": 1, "check": CHECK, "start": "", "url": ""}
+                    ).encode()
+                ).decode("ascii"),
+            }
+        ],
+        "issues": [
+            {
+                "number": number,
+                "title": title,
+                "author": "octo-owner",
+                "labels": ["devflow"],
+                "body": f"The card {title}.",
+                "url": f"https://github.com/{OWNER}/{name}/issues/{number}",
+                "created_at": "2026-11-15T09:30:00+00:00",
+                "open": True,
+                "blocked_by": [],
+                "edits": [],
+            }
+        ],
+    }
+    world["installations"][0]["repositories"].append(added)
+    return added
+
+
+def _connect(page: Page, base_url: str, repository_id: int) -> str:
+    """Connects a staged repository and reads it now, as the loop would.
+    Answers the project's id."""
+    connected = page.request.post(
+        "/devflow/api/projects",
+        data={"installation_id": INSTALLATION, "repository_id": repository_id},
+        headers={"Origin": base_url},
+    )
+    assert connected.status == 201, connected.text()
+    project = connected.json()["id"]
+    _read(page, base_url, project)
+    return project
+
+
+def test_next_up_says_why(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    """Under the panels of Running now, the cards that come next, each with
+    why it is not running yet, linked to where that is acted on: a card
+    blocked by the one being built, one next for the busy worker, one of a
+    stopped project and one of a project with no worker. See "The pages" in
+    devflow/README.md."""
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    add_issue(world, BLOCKED, BLOCKED_TITLE, labels=["devflow"], blocked_by=[BUILDING])
+    add_issue(world, BUILDING, BUILDING_TITLE, labels=["devflow"])
+    add_issue(world, BUSY, BUSY_TITLE, labels=["devflow"])
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+    _another_repository(world, FODR, "fodr", 12, "Dark mode")
+    _another_repository(world, TICK, "tick", 9, "Sync conflict on wake")
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    _read(page, base_url, project)
+    fodr = _connect(page, base_url, FODR)
+    stopped = _connect(page, base_url, TICK)
+
+    # tick stops: a push on its main that Dev flow did not make.
+    staged = page.request.get("/devflow/api/fake/world").json()
+    tick = next(
+        each
+        for each in staged["installations"][0]["repositories"]
+        if each["id"] == TICK
+    )
+    tick["activity"] = [
+        {
+            "id": 1,
+            "branch": "main",
+            "before": "0" * 40,
+            "after": LANDED,
+            "at": LATER,
+            "kind": "push",
+            "actor": "mallory",
+        }
+    ]
+    devflow_world(staged)
+    _read(page, base_url, stopped)
+
+    # Personal-platform's free cards are read, and the fake worker takes the
+    # first and keeps it running, so the other waits for it.
+    assert _fake_read(page, base_url, project, [_ready(BUILDING)])["card"] == BUILDING
+    assert _fake_read(page, base_url, project, [_ready(BUSY)])["card"] == BUSY
+    taken = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={"project_id": project, "keep_running": True},
+        headers={"Origin": base_url},
+    )
+    assert taken.status == 200, taken.text()
+    assert (taken.json()["kind"], taken.json()["card"]) == ("build", BUILDING)
+
+    page.goto("/devflow/running")
+    expect(_running_panel(page, BUILDING, BUILDING_TITLE)).to_be_visible()
+    next_up = page.get_by_role("article", name=re.compile("^Next up"))
+    expect(next_up.get_by_role("heading", name="Next up 4")).to_be_visible()
+    table = next_up.get_by_role("table", name="Next up")
+    expect(table.get_by_role("link", name=re.compile(r"^#\d+ "))).to_have_count(4)
+
+    # A card blocked by another says so, linked to the card it waits for.
+    waits = table.get_by_role(
+        "link", name=f"Waits for #{BUILDING}, which it depends on"
+    )
+    expect(waits).to_have_attribute(
+        "href", f"/devflow/projects/{project}/cards/{BUILDING}"
+    )
+    expect(
+        table.get_by_text("Next for devflow-fake-worker, after its current run").filter(
+            visible=True
+        )
+    ).to_be_visible()
+    expect(
+        table.get_by_role("link", name="The project is stopped: resume it")
+    ).to_have_attribute("href", f"/devflow/projects/{stopped}")
+    # One of a project with no worker says so, with a link to its page.
+    no_worker = table.get_by_role("link", name="No worker is running for fodr")
+    expect(no_worker).to_have_attribute("href", f"/devflow/projects/{fodr}")
+    if viewport == "desktop":
+        expect(table.get_by_role("columnheader")).to_have_text(
+            ["Card", "Project", "State", "Why it is not running"]
+        )
+    else:
+        # On a phone a list: the card, its project and state, then why.
+        expect(table.get_by_role("columnheader")).to_have_text(["Card"])
+        expect(table.get_by_text("fodr · To read").filter(visible=True)).to_be_visible()
+
+    _looks_right(page)
+    capture(page, "devflow-next-up")
+
+    no_worker.click()
+    expect(page).to_have_url(f"{base_url}/devflow/projects/{fodr}")
+    expect(page.get_by_role("heading", name="fodr", exact=True)).to_be_visible()
+
+
 def _thin(number: int, missing: list[str]) -> dict:
     """A card read as too thin to build, lacking `missing`."""
     return {
