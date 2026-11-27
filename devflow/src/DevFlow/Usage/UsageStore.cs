@@ -73,6 +73,8 @@ public sealed record UsageFeature(
 /// <param name="Features">Its features with a run in the period, of their own or of a card, by tokens,
 /// most first.</param>
 /// <param name="Cards">Its cards on their own with a run in the period, by tokens, most first.</param>
+/// <param name="Days">Its tokens per day, the last <see cref="UsageStore.DayCount"/> days ending today
+/// in <see cref="DevFlowTime.Zone"/>, oldest first, whatever the period.</param>
 public sealed record UsageProject(
     Guid Id,
     string Name,
@@ -82,7 +84,14 @@ public sealed record UsageProject(
     long CacheReads,
     UsageFigures? SettingUp,
     IReadOnlyList<UsageFeature> Features,
-    IReadOnlyList<UsageCard> Cards);
+    IReadOnlyList<UsageCard> Cards,
+    IReadOnlyList<UsageDay> Days);
+
+/// <summary>A day of a project's last 30.</summary>
+/// <param name="Date">The day, in <see cref="DevFlowTime.Zone"/>.</param>
+/// <param name="Tokens">The tokens, by the one definition, of every run of the project started on it,
+/// 0 with none.</param>
+public sealed record UsageDay(DateOnly Date, long Tokens);
 
 /// <summary>What <c>GET /devflow/api/usage</c> answers.</summary>
 /// <param name="Period">The period counted, <c>7d</c>, <c>30d</c> or <c>all</c>.</param>
@@ -110,13 +119,18 @@ public static class UsageStore
     /// <summary>The period without one in the address.</summary>
     public const string DefaultPeriod = "30d";
 
+    /// <summary>How many days, ending today, each project's tokens per day covers.</summary>
+    public const int DayCount = 30;
+
     /// <summary>What <paramref name="userId"/>'s runs started in <paramref name="period"/>, one of
     /// <see cref="Periods"/>, before <paramref name="now"/> used.</summary>
     public static async Task<UsageView> For(UserDb database, Guid userId, string period, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
         var since = Periods[period] is { } span ? now - span : (DateTimeOffset?)null;
-        var (groups, cards, features, projects) = await database.InUserTransaction(userId, async transaction =>
+        var today = DevFlowTime.DayOf(now);
+        var days = Enumerable.Range(0, DayCount).Select(back => today.AddDays(back - (DayCount - 1))).ToArray();
+        var (groups, cards, features, projects, perDay) = await database.InUserTransaction(userId, async transaction =>
         {
             // Every card, feature and project's own runs, each a group: what it used in the period,
             // null figures when none started in it, and its whole span.
@@ -150,7 +164,19 @@ public static class UsageStore
                 "SELECT id AS Id, name AS Name FROM projects",
                 transaction: transaction,
                 cancellationToken: cancellationToken))).ToDictionary(project => project.Id);
-            return (groups, cards, features, projects);
+            // Each project's tokens on each of the days, whose bounds DevFlowTime gives, so Postgres
+            // never reads a zone of its own; a day is the 1-based place of its bounds.
+            var perDay = (await transaction.Connection!.QueryAsync<DayRow>(new CommandDefinition(
+                $"""
+                SELECT r.project_id AS ProjectId, d.place::int AS Place, sum({Tokens.Sql("r")})::bigint AS Tokens
+                FROM unnest(@starts::timestamptz[], @ends::timestamptz[]) WITH ORDINALITY AS d(starts, ends, place)
+                JOIN runs r ON r.started_at >= d.starts AND r.started_at < d.ends
+                GROUP BY r.project_id, d.place
+                """,
+                new { starts = days.Select(DevFlowTime.StartOf).ToArray(), ends = days.Select(DevFlowTime.EndOf).ToArray() },
+                transaction,
+                cancellationToken: cancellationToken))).ToDictionary(day => (day.ProjectId, day.Place), day => day.Tokens);
+            return (groups, cards, features, projects, perDay);
         }, cancellationToken);
 
         var shown = new List<UsageProject>();
@@ -217,7 +243,8 @@ public static class UsageStore
                 total.CacheReads,
                 settingUp,
                 [.. shownFeatures.OrderByDescending(feature => feature.Tokens).ThenBy(feature => feature.Number)],
-                alone));
+                alone,
+                [.. days.Select((day, index) => new UsageDay(day, perDay.GetValueOrDefault((project.Id, index + 1))))]));
         }
 
         return new UsageView(period, [.. shown.OrderByDescending(project => project.Tokens).ThenBy(project => project.Name, StringComparer.Ordinal)]);
@@ -256,4 +283,6 @@ public static class UsageStore
     private sealed record FeatureRow(Guid ProjectId, int Number, string Title, int FixRound);
 
     private sealed record ProjectRow(Guid Id, string Name);
+
+    private sealed record DayRow(Guid ProjectId, int Place, long Tokens);
 }

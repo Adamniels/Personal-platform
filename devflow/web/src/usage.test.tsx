@@ -95,6 +95,7 @@ function view(overrides: Partial<UsageView> = {}): UsageView {
 						sent_back: 0,
 					},
 				],
+				days: [],
 			},
 			{
 				id: OTHER,
@@ -106,6 +107,7 @@ function view(overrides: Partial<UsageView> = {}): UsageView {
 				setting_up: null,
 				features: [],
 				cards: [],
+				days: [],
 			},
 		],
 		...overrides,
