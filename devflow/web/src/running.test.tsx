@@ -9,7 +9,12 @@ import {
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { App } from "./app";
 import { fakeEvents } from "./events.testing";
-import type { RunningApi, RunningList, RunningRun } from "./running";
+import {
+	amount,
+	type RunningApi,
+	type RunningList,
+	type RunningRun,
+} from "./running";
 
 const NOW = Date.parse("2027-01-15T12:00:00Z");
 const PROJECT = "11111111-1111-1111-1111-111111111111";
@@ -225,5 +230,16 @@ describe("Running now", () => {
 		expect(await screen.findByText("Nothing is running")).toBeTruthy();
 		expect(screen.getByText("Your workers are waiting for work.")).toBeTruthy();
 		expect(tabNames()).toEqual(["Waiting for you", "Running now", "Projects"]);
+	});
+});
+
+describe("amount", () => {
+	test("a count is short, and one that rounds to 1000 k reads 1 M", () => {
+		expect(amount(950)).toBe("950");
+		expect(amount(1500)).toBe("1.5 k");
+		expect(amount(120_000)).toBe("120 k");
+		expect(amount(999_499)).toBe("999 k");
+		expect(amount(999_500)).toBe("1 M");
+		expect(amount(2_100_000)).toBe("2.1 M");
 	});
 });

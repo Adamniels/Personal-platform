@@ -224,7 +224,8 @@ export function amount(n: number): string {
 	const one = (value: number) => value.toFixed(1).replace(/\.0$/, "");
 	if (n < 1000) return String(n);
 	if (n < 10_000) return `${one(n / 1000)} k`;
-	if (n < 1_000_000) return `${Math.round(n / 1000)} k`;
+	// Below 999,500, so a count that rounds to 1000 k reads "1 M".
+	if (n < 999_500) return `${Math.round(n / 1000)} k`;
 	return `${one(n / 1_000_000)} M`;
 }
 
