@@ -9,43 +9,46 @@ import { type FormEvent, type ReactNode, useId, useState } from "react";
 import { ApiError } from "./api/client";
 import type { FeatureMergeApi } from "./feature-merge";
 import { askNavAgain } from "./nav-attention";
+import type { RunAgainApi } from "./run-again";
 import type { SendBackFeature } from "./send-back-feature";
 import type { Status } from "./status";
 import type { WaitingItem } from "./waiting";
 import styles from "./waiting.module.css";
 
-/** How an item is merged and sent back, a stopped project resumed, and a
- * feature merged, Dev flow's API in the page and a test's own in a test. */
-export type ActionsApi = FeatureMergeApi & {
-	merge: (id: string, headCommit: string) => Promise<void>;
-	sendBack: (id: string, comment: string) => Promise<void>;
-	/** Resumes a stopped project, accepting the commit the page showed. */
-	resume: (projectId: string, commit: string) => Promise<void>;
-	/** Merges a card's pull request, naming the commit the page showed. */
-	mergeCard: (
-		projectId: string,
-		number: number,
-		headCommit: string,
-	) => Promise<void>;
-	/** Sends a card back with the owner's comment, posted as him on its pull
-	 * request, which starts its fix. */
-	sendBackCard: (
-		projectId: string,
-		number: number,
-		comment: string,
-	) => Promise<void>;
-	/** Sends a whole feature back with the owner's comment, posted as him on
-	 * its pull request, which starts its fix. */
-	sendBackFeature: SendBackFeature;
-	/** Sends the owner's answers to a card's questions, one for each in
-	 * order, for the reading the page showed; posted as him on its issue,
-	 * which queues it. */
-	answerCard: (
-		cardId: string,
-		readingId: string,
-		answers: GivenAnswer[],
-	) => Promise<void>;
-};
+/** How an item is merged and sent back, a stopped project resumed, a
+ * feature merged, and a card or feature the owner stopped run again or
+ * dropped, Dev flow's API in the page and a test's own in a test. */
+export type ActionsApi = FeatureMergeApi &
+	RunAgainApi & {
+		merge: (id: string, headCommit: string) => Promise<void>;
+		sendBack: (id: string, comment: string) => Promise<void>;
+		/** Resumes a stopped project, accepting the commit the page showed. */
+		resume: (projectId: string, commit: string) => Promise<void>;
+		/** Merges a card's pull request, naming the commit the page showed. */
+		mergeCard: (
+			projectId: string,
+			number: number,
+			headCommit: string,
+		) => Promise<void>;
+		/** Sends a card back with the owner's comment, posted as him on its pull
+		 * request, which starts its fix. */
+		sendBackCard: (
+			projectId: string,
+			number: number,
+			comment: string,
+		) => Promise<void>;
+		/** Sends a whole feature back with the owner's comment, posted as him on
+		 * its pull request, which starts its fix. */
+		sendBackFeature: SendBackFeature;
+		/** Sends the owner's answers to a card's questions, one for each in
+		 * order, for the reading the page showed; posted as him on its issue,
+		 * which queues it. */
+		answerCard: (
+			cardId: string,
+			readingId: string,
+			answers: GivenAnswer[],
+		) => Promise<void>;
+	};
 
 /** One answer as it is sent: the recommendation accepted, or the owner's
  * own text. */

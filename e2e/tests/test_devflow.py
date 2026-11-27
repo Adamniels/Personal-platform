@@ -3283,6 +3283,175 @@ def test_a_stopped_card_tells_me_why_and_i_run_it_again(
     )
 
 
+# The fake worker's id, the same in every project, which holds a job it keeps
+# running; FakeWorkerEndpoints.WorkerId.
+FAKE_WORKER = "0190a8f0-0000-7000-8000-00000000fa4e"
+ON_ITS_OWN = 70
+ON_ITS_OWN_TITLE = "Sort the list by name"
+
+
+def _stopped_result() -> dict:
+    """What a worker sends for a run the owner stopped: nothing judged, no
+    report, failure or check."""
+    return {
+        "outcome": "stopped",
+        "report": None,
+        "failure": None,
+        "check": None,
+        "auth_method": "oauth_token",
+        "usage": {"usage": {"input_tokens": 12, "output_tokens": 34}},
+        "duration_ms": 5000,
+        "stderr": "",
+    }
+
+
+def _looks_right(page: Page) -> None:
+    """The look checks every page is held to, and no accessibility
+    violation, once the fonts are in."""
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+        assert_nothing_active_is_amber,
+    ):
+        check(page)
+    assert _axe_violations(page) == []
+
+
+def test_i_stop_and_run_again(
+    page: Page,
+    invite_code: str,
+    base_url: str,
+    viewport: str,
+    devflow_world,
+    playwright,
+):
+    """A run I stop leaves its card "Stopped by you" under Stopped, beside a
+    feature whose review I stopped, with Run again and Drop in place of a
+    comment; Run again queues the card where its run started, and releases
+    the feature. See "Stops" in devflow/README.md."""
+    register_and_log_in(page, invite_code, base_url)
+    # A feature whose whole review I stopped: its worker ended it stopped.
+    project, _ = _published_feature(page, base_url, devflow_world)
+    held = _fake_run(page, base_url, project, _stopped_result())
+    assert (held["kind"], held["card"]) == ("feature_review", 60), held
+
+    # A card on its own beside it, read as ready, whose build the fake worker
+    # takes and keeps running.
+    staged = page.request.get("/devflow/api/fake/world").json()
+    add_issue(staged, ON_ITS_OWN, ON_ITS_OWN_TITLE, labels=["devflow"])
+    devflow_world(staged)
+    _read(page, base_url, project)
+    _fake_read(page, base_url, project, [_ready(ON_ITS_OWN)])
+    taken = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={"project_id": project, "keep_running": True},
+        headers={"Origin": base_url},
+    )
+    assert taken.status == 200, taken.text()
+    assert (taken.json()["kind"], taken.json()["card"]) == ("build", ON_ITS_OWN)
+    run = taken.json()["job_id"]
+
+    # I stop it through the route; the worker's next post to the run's log is
+    # answered stop, and it ends the run stopped.
+    stop = page.request.post(
+        f"/devflow/api/projects/{project}/runs/{run}/stop",
+        headers={"Origin": base_url},
+    )
+    assert stop.status == 202, stop.text()
+    made = page.request.post(
+        f"/devflow/api/projects/{project}/worker-key", headers={"Origin": base_url}
+    )
+    assert made.status == 200, made.text()
+    key = made.json()["key"]
+    worker = playwright.request.new_context(base_url=base_url, ignore_https_errors=True)
+    try:
+        posted = worker.post(
+            f"/devflow/api/worker/jobs/{run}/log",
+            data={"worker_id": FAKE_WORKER, "lines": []},
+            headers={"Authorization": f"Bearer {key}"},
+        )
+        assert posted.status == 200, posted.text()
+        assert posted.json() == {"stop": True}
+        ended = worker.post(
+            f"/devflow/api/worker/jobs/{run}/result",
+            data={
+                **_stopped_result(),
+                "worker_id": FAKE_WORKER,
+                "branch": taken.json()["branch"],
+                "head_commit": None,
+            },
+            headers={"Authorization": f"Bearer {key}"},
+        )
+        assert ended.status == 204, ended.text()
+    finally:
+        worker.dispose()
+
+    # Both wait under Stopped, said to be mine, and nothing is marked on the
+    # card's issue.
+    page.goto("/devflow")
+    expect(page.get_by_role("tab", name="Waiting for you 2")).to_be_visible()
+    stopped = _stopped_region(page)
+    expect(
+        stopped.get_by_role("link", name=re.compile("stopped by you"))
+    ).to_have_count(2)
+    if viewport == "phone":
+        # On a phone the queue is a screen of its own, and it lists both.
+        _looks_right(page)
+        capture(page, "devflow-stopped-by-you")
+    feature = _item(page, "The feature's branch", re.compile("^Stopped"))
+    expect(feature.get_by_text("Stopped by you", exact=True)).to_be_visible()
+    expect(feature.get_by_text("You stopped its review")).to_be_visible()
+    expect(feature.get_by_role("button", name="Run again")).to_be_visible()
+    expect(feature.get_by_role("button", name="Drop")).to_have_count(0)
+    page.goto("/devflow")
+    card = _item(page, ON_ITS_OWN_TITLE, re.compile("^Stopped"))
+    expect(card.get_by_text("Stopped by you", exact=True)).to_be_visible()
+    expect(card.get_by_role("button", name="Run again")).to_be_visible()
+    expect(card.get_by_role("button", name="Drop")).to_be_enabled()
+    expect(card.get_by_role("button", name="Comment to run again")).to_have_count(0)
+    expect(card.get_by_role("button", name="Merge")).to_have_count(0)
+    world = repository(page.request.get("/devflow/api/fake/world").json())
+    issue = next(each for each in world["issues"] if each["number"] == ON_ITS_OWN)
+    assert "devflow-attention" not in issue["labels"]
+    if viewport == "desktop":
+        # The queue with both, and the card I stopped open beside it.
+        _looks_right(page)
+        capture(page, "devflow-stopped-by-you")
+    else:
+        _looks_right(page)
+
+    # Drop asks first; cancelled, nothing is sent.
+    card.get_by_role("button", name="Drop").click()
+    dialog = page.get_by_role("dialog", name=f"Drop #{ON_ITS_OWN}?")
+    expect(
+        dialog.get_by_text("Dev flow takes its label off and leaves its branch.")
+    ).to_be_visible()
+    dialog.get_by_role("button", name="Cancel").click()
+    expect(dialog).to_have_count(0)
+
+    # Run again queues the card where its build started.
+    card.get_by_role("button", name="Run again").click()
+    expect(page.get_by_text(f"Running #{ON_ITS_OWN} again")).to_be_visible()
+    expect(page.get_by_role("tab", name="Waiting for you 1")).to_be_visible()
+    cards = page.request.get(f"/devflow/api/projects/{project}/cards").json()["cards"]
+    assert [each["state"] for each in cards if each["number"] == ON_ITS_OWN] == [
+        "queued"
+    ]
+
+    # And the feature, from its page, says so and is released too.
+    page.goto(f"/devflow/projects/{project}/features/60")
+    expect(
+        page.get_by_text(
+            "Stopped by you. None of its jobs is handed out until you run it again."
+        )
+    ).to_be_visible()
+    page.get_by_role("button", name="Run again").click()
+    expect(page.get_by_text("Running #60 again")).to_be_visible()
+    expect(page.get_by_text("Stopped by you.")).to_have_count(0)
+
+
 def _thin(number: int, missing: list[str]) -> dict:
     """A card read as too thin to build, lacking `missing`."""
     return {
@@ -6381,6 +6550,19 @@ def _a_stopped_card(page: Page, base_url: str, devflow_world) -> str:
     return CARD_TITLE
 
 
+def _a_card_stopped_by_me(page: Page, base_url: str, devflow_world) -> str:
+    project = _card_project(page, base_url, devflow_world)
+    _fake_run(page, base_url, project, _stopped_result())
+    return CARD_TITLE
+
+
+def _a_feature_stopped_by_me(page: Page, base_url: str, devflow_world) -> str:
+    project, _ = _published_feature(page, base_url, devflow_world)
+    held = _fake_run(page, base_url, project, _stopped_result())
+    assert held["kind"] == "feature_review", held
+    return "The feature's branch"
+
+
 def _a_stopped_project(page: Page, base_url: str, devflow_world) -> str:
     devflow_world(one_repository())
     project = _connect_and_read(page, base_url)
@@ -6451,6 +6633,8 @@ DETAIL_KINDS = {
     "feature": (_a_feature, 1, "devflow-item-feature"),
     "question-card": (_a_question_card, 1, "devflow-item-questions"),
     "stopped-card": (_a_stopped_card, 1, "devflow-item-stopped"),
+    "card-stopped-by-me": (_a_card_stopped_by_me, 1, None),
+    "feature-stopped-by-me": (_a_feature_stopped_by_me, 1, None),
     "stopped-project": (_a_stopped_project, 1, None),
     "decision": (_a_decision, 0, None),
     "refused-card": (_a_refused_card, 0, None),

@@ -238,6 +238,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/projects/{id}/cards/{number}/drop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Drop a card the caller stopped, taking its pick-up label off as them
+         * @description Takes the project's pick-up label off the card's issue as the caller's linked GitHub account, never as the app, and leaves the card ignored, "Dropped by you", its branch, any pull request and its issue otherwise as they were. A read of the project keeps it so while the label is off; putting the label back picks it up again, as any card. In order: 404 for a project or card the caller does not have; 409 when the card is not stopped by the caller; 409 when it is a card of a feature, whose pick-up label is its feature's; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once the label is off, or GitHub says the issue does not carry it, and the card is dropped. 409 when GitHub refuses, with its reason; 503 when GitHub did not answer, with nothing changed in Dev flow. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["dropCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/projects/{id}/cards/{number}/merge": {
         parameters: {
             query?: never;
@@ -252,6 +272,26 @@ export interface paths {
          * @description Merges a card of Dev flow's own, from Waiting for you, with a merge commit, as the caller's linked GitHub account and never as the app, only while its pull request's head is head_commit, the commit its run built and checked and the page showed. In order: 404 for a project or card the caller does not have; 422 without head_commit; 409 when the card is not waiting for the caller with a pull request; 409 when the project is stopped, since something landed on its default branch that Dev flow did not put there; 409 when head_commit is not the commit the run built, after the project is read again; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once merged and the project read again, which makes the card done. 409 when GitHub says the head moved, after the project is read again, and when GitHub will not merge it or refuses, with its reason; 503 when GitHub did not answer. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         post: operations["mergeCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/projects/{id}/cards/{number}/run-again": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run a card the caller stopped again
+         * @description Puts a card the caller stopped back where the run they stopped started from: a build's in queued, a review's in reviewing, a fix's in fixing in the same round, with the reason that state has. Nothing counts against it: its failures in a row and its fix rounds are as they were. In order: 404 for a project or card the caller does not have; 409 when the card is not stopped by the caller, one Dev flow stopped included, which their comment runs again. 204 once it is back. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["runCardAgain"];
         delete?: never;
         options?: never;
         head?: never;
@@ -376,6 +416,26 @@ export interface paths {
          * @description Merges the feature's pull request into the default branch with a merge commit, as the caller's linked GitHub account and never as the app, only while its head is head_commit, the commit the page showed. In order: 404 for a project or feature the caller does not have; 422 without head_commit; 409 when the feature is not ready or waiting for the caller with its pull request; 409 when the project is stopped; 409 when CI has not passed on the feature's head, as the minute last read it; 409 when head_commit is not that head, after the project is read again; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once merged and the project read again, which makes the feature merged. 409 when GitHub says the head moved, after the project is read again, and when GitHub will not merge it or refuses, with its reason; 503 when GitHub did not answer. The review's verdict is not among the refusals: the confirmation says it. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         post: operations["mergeFeature"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/projects/{id}/features/{number}/run-again": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run a feature the caller stopped again
+         * @description Clears the hold the caller's stop of one of the feature's own runs, a review, a fix or a conflict, put on it, so its next job is handed out, and it says what its state says. In order: 404 for a project or feature the caller does not have; 409 when the feature is not held by the caller's stop. 204 once it is released. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["runFeatureAgain"];
         delete?: never;
         options?: never;
         head?: never;
@@ -719,7 +779,7 @@ export interface paths {
         };
         /**
          * What waits for the caller, as last read
-         * @description Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; own_items are Dev flow's own, read from its own tables, in this part each a project stopped because something landed on its default branch that Dev flow did not put there, with the commit, who did it, when, and the commit's address on GitHub, by project; cards are Dev flow's own cards whose pull requests wait for the caller, each with its pull request, the head commit its run built and checked, the branch it merges into, the report's summary, the decisions the agent marked for the caller with the count of the others, the check Dev flow ran, review, the reviewer's verdict on its head commit with its summary and how many findings block, null when it has none, and can_merge, false while the project is stopped, by project and number; stopped_cards are Dev flow's own cards that stopped, each with its issue's address, where a comment runs it again, why it stopped, when, and its pull request's address or null, by project and number; refused_cards are Dev flow's own cards refused as too thin to build, each with its issue's address, where an edit or a comment reads it again, what is missing, each a line, and when it was refused, by project and number; question_cards are Dev flow's own cards whose reading found questions, with the project's questions on, that wait for the caller's answers, each with its id, which the answers route names, its issue's address, its feature, number and title, or null for a card on its own, reading_id, the reading that asked them, each question with the reader's recommendation and why, in order, and when it was read, by project and number; failing_projects are the projects whose runs have failed outside their cards six times in a row, each with message, "Dev flow cannot run <project>'s cards: <the last reason>", the reason, how many failures, since when and until when it hands out no job, shown until a run succeeds, by project; decisions are the open issues Dev flow opened for the decisions the agent marked for the caller on cards it merged, each with what was chosen, the alternative, why and the reviewer's view, by project, oldest first, until the caller closes it on GitHub; setup_projects are the projects whose newest check of their setup failed with no other asked for since, so that version's workers get nothing, each with its state, setting_up or registered, the version, the check's exit code and when it failed, by project, its output and Check again being on the project's page; count is the items not sent back, the own items, the cards, the stopped and refused cards, the failing projects, the decisions, the features, the question cards and the setup projects, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.
+         * @description Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; own_items are Dev flow's own, read from its own tables, in this part each a project stopped because something landed on its default branch that Dev flow did not put there, with the commit, who did it, when, and the commit's address on GitHub, by project; cards are Dev flow's own cards whose pull requests wait for the caller, each with its pull request, the head commit its run built and checked, the branch it merges into, the report's summary, the decisions the agent marked for the caller with the count of the others, the check Dev flow ran, review, the reviewer's verdict on its head commit with its summary and how many findings block, null when it has none, and can_merge, false while the project is stopped, by project and number; stopped_cards are Dev flow's own cards that stopped, each with its issue's address, where a comment runs it again, why it stopped, when, its pull request's address or null, stopped_by_owner, true for a card the caller stopped, which Run again and Drop act on in place of a comment, and feature_number, its feature's number or null for a card on its own, by project and number; stopped_features are Dev flow's own features held because the caller stopped one of their own runs, a review, a fix or a conflict, each with its parent's address, the state it is held in, its reason and when it was stopped, which Run again releases, by project and number; refused_cards are Dev flow's own cards refused as too thin to build, each with its issue's address, where an edit or a comment reads it again, what is missing, each a line, and when it was refused, by project and number; question_cards are Dev flow's own cards whose reading found questions, with the project's questions on, that wait for the caller's answers, each with its id, which the answers route names, its issue's address, its feature, number and title, or null for a card on its own, reading_id, the reading that asked them, each question with the reader's recommendation and why, in order, and when it was read, by project and number; failing_projects are the projects whose runs have failed outside their cards six times in a row, each with message, "Dev flow cannot run <project>'s cards: <the last reason>", the reason, how many failures, since when and until when it hands out no job, shown until a run succeeds, by project; decisions are the open issues Dev flow opened for the decisions the agent marked for the caller on cards it merged, each with what was chosen, the alternative, why and the reviewer's view, by project, oldest first, until the caller closes it on GitHub; setup_projects are the projects whose newest check of their setup failed with no other asked for since, so that version's workers get nothing, each with its state, setting_up or registered, the version, the check's exit code and when it failed, by project, its output and Check again being on the project's page; count is the items not sent back, the own items, the cards, the stopped and refused cards, the stopped features, the failing projects, the decisions, the features, the question cards and the setup projects, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.
          */
         get: operations["listWaiting"];
         put?: never;
@@ -1359,6 +1419,7 @@ export interface components {
             rounds: components["schemas"]["CardRound"][];
             runs: components["schemas"]["CardRun"][];
             state: string;
+            stopped_by_owner: boolean;
             title: string;
             web_url: string;
         };
@@ -1976,6 +2037,8 @@ export interface components {
         };
         StoppedCard: {
             /** Format: int32 */
+            feature_number: null | number;
+            /** Format: int32 */
             number: number;
             owner: string;
             /** Format: uuid */
@@ -1984,6 +2047,22 @@ export interface components {
             /** Format: uri */
             pull_request_url: null | string;
             reason: string;
+            /** Format: date-time */
+            stopped_at: string;
+            stopped_by_owner: boolean;
+            title: string;
+            /** Format: uri */
+            web_url: string;
+        };
+        StoppedFeature: {
+            /** Format: int32 */
+            number: number;
+            owner: string;
+            /** Format: uuid */
+            project_id: string;
+            project_name: string;
+            reason: string;
+            state: string;
             /** Format: date-time */
             stopped_at: string;
             title: string;
@@ -2041,6 +2120,7 @@ export interface components {
             setup_projects: components["schemas"]["SetupProject"][];
             setup_runs: components["schemas"]["SetupRunItem"][];
             stopped_cards: components["schemas"]["StoppedCard"][];
+            stopped_features: components["schemas"]["StoppedFeature"][];
         };
         WhoAmI: {
             /** Format: uuid */
@@ -2639,6 +2719,61 @@ export interface operations {
             };
         };
     };
+    dropCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     mergeCard: {
         parameters: {
             query?: never;
@@ -2698,6 +2833,52 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    runCardAgain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3099,6 +3280,52 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    runFeatureAgain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

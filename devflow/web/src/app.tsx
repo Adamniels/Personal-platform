@@ -18,6 +18,7 @@ import type { FeatureMergeApi } from "./feature-merge";
 import { type ProjectApi, ProjectPage } from "./project";
 import { type Project, Projects, type ProjectsApi } from "./projects";
 import { GitHubLink } from "./projects-link";
+import type { RunAgainApi } from "./run-again";
 import {
 	cardAt,
 	featureAt,
@@ -205,10 +206,34 @@ const featureMergeApi: FeatureMergeApi = {
 	},
 };
 
+/** Running again what the owner stopped, and dropping a card he stopped,
+ * as the caller. */
+const runAgainApi: RunAgainApi = {
+	runCardAgain: async (projectId, number) => {
+		await client.send(
+			"POST",
+			`/projects/${encodeURIComponent(projectId)}/cards/${number}/run-again`,
+		);
+	},
+	dropCard: async (projectId, number) => {
+		await client.send(
+			"POST",
+			`/projects/${encodeURIComponent(projectId)}/cards/${number}/drop`,
+		);
+	},
+	runFeatureAgain: async (projectId, number) => {
+		await client.send(
+			"POST",
+			`/projects/${encodeURIComponent(projectId)}/features/${number}/run-again`,
+		);
+	},
+};
+
 /** A feature's story and its answers, through Dev flow's API; a feature the
  * caller does not have answers 404, which the page shows as none. */
 const featureApi: FeatureApi = {
 	...featureMergeApi,
+	runFeatureAgain: runAgainApi.runFeatureAgain,
 	loadFeature: async (project, number) => {
 		try {
 			return await client.get(
@@ -270,6 +295,7 @@ const waitingApi: WaitingApi = {
 /** Merging and sending back, through Dev flow's API, as the caller. */
 const actionsApi: ActionsApi = {
 	...featureMergeApi,
+	...runAgainApi,
 	merge: async (id, headCommit) => {
 		await client.send("POST", `/waiting/${encodeURIComponent(id)}/merge`, {
 			head_commit: headCommit,

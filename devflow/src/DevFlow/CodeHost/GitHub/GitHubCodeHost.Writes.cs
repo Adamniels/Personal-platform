@@ -5,10 +5,11 @@ using System.Text.Json;
 namespace DevFlow.CodeHost.GitHub;
 
 /// <summary>
-/// The adapter's two writes, as GitHub documents them, made only with a person's own token, a
-/// <see cref="UserAccessToken"/>, so what they do is recorded on GitHub as done by that person.
-/// Neither can be made as the app: they never ask <see cref="InstallationTokens"/> for a token, and
-/// their token's type is not the string an installation's token is. Nothing is retried, since a
+/// The adapter's three writes as a person, as GitHub documents them, made only with a person's own
+/// token, a <see cref="UserAccessToken"/>, so what they do is recorded on GitHub as done by that
+/// person: a merge, a comment, and a label taken off an issue. None can be made as the app: they
+/// never ask <see cref="InstallationTokens"/> for a token, and their token's type is not the string
+/// an installation's token is. Nothing is retried, since a
 /// person pressed a button and is told what happened. See "Acting from the page" in
 /// devflow/docs/devflow-architecture.md.
 /// </summary>
@@ -71,6 +72,24 @@ public sealed partial class GitHubCodeHost
         return answer.Status == HttpStatusCode.Created
             ? new CommentResult.Posted(Parse<PostedAnswer>(answer.Body) is { Id: > 0 } posted ? posted.Id : null)
             : new CommentResult.Refused((int)answer.Status, Message(answer.Body));
+    }
+
+    /// <summary><c>DELETE /repos/{owner}/{repo}/issues/{number}/labels/{name}</c>, the name escaped.
+    /// <c>200</c> is removed, any other status refused with it, <c>404</c> among them for a label
+    /// the issue does not carry, and no answer unavailable.</summary>
+    public async Task<UnlabelResult> Unlabel(Guid userId, UserAccessToken token, Repository repository, int number, string label, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(token);
+        ArgumentException.ThrowIfNullOrEmpty(label);
+        var answer = await Send<object>(HttpMethod.Delete, Invariant($"{Repo(repository)}/issues/{number}/labels/") + Escape(label), null, token.Value, cancellationToken);
+        if (answer is null)
+        {
+            return new UnlabelResult.Unavailable(RetryAt: null);
+        }
+
+        return answer.Status == HttpStatusCode.OK
+            ? new UnlabelResult.Removed()
+            : new UnlabelResult.Refused((int)answer.Status, Message(answer.Body));
     }
 
     /// <summary>A request with <paramref name="body"/> as JSON, as the person whose token

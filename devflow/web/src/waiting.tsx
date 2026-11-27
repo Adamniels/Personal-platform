@@ -34,7 +34,7 @@ import {
 	WaitingSetupRun,
 } from "./setup";
 import { StoppedProject, stoppedTitle } from "./stopped";
-import { FailingProject, StoppedCard } from "./stopped-card";
+import { FailingProject, StoppedCard, StoppedFeature } from "./stopped-card";
 import styles from "./waiting.module.css";
 import { WaitingCard } from "./waiting-card";
 import { WaitingFeature } from "./waiting-feature";
@@ -44,6 +44,7 @@ export type WaitingItem = WaitingList["items"][number];
 export type OwnItem = WaitingList["own_items"][number];
 export type CardItem = WaitingList["cards"][number];
 export type StoppedCardItem = WaitingList["stopped_cards"][number];
+export type StoppedFeatureItem = WaitingList["stopped_features"][number];
 export type RefusedCardItem = WaitingList["refused_cards"][number];
 export type QuestionCardItem = WaitingList["question_cards"][number];
 export type FailingProjectItem = WaitingList["failing_projects"][number];
@@ -115,8 +116,9 @@ const plural = (count: number, word: string) =>
  * owner's answers before they start; Dev flow's waiting cards and the
  * waiting items not sent back; Dev flow's features ready for the owner's
  * review, or waiting for him; what stopped, Dev flow's stopped projects
- * first, then the projects that cannot run their cards, its stopped cards and
- * the runner's stopped items not sent back; Dev flow's projects whose setup
+ * first, then the projects that cannot run their cards, its stopped cards,
+ * the features the owner stopped and the runner's stopped items not sent
+ * back; Dev flow's projects whose setup
  * run waits or stopped, and those whose newest check of their setup failed;
  * Dev flow's cards refused as too thin; the decisions to look at on cards Dev
  * flow merged; and every item sent back. Only groups with an item. */
@@ -259,13 +261,38 @@ function groups(list: WaitingList, name: (item: WaitingItem) => string) {
 					(card): Entry => ({
 						key: `card/${card.project_id}/${card.number}`,
 						title: card.title,
-						meta: [card.project_name, `card #${card.number}`, "stopped"],
-						tone: "failed",
+						meta: [
+							card.project_name,
+							`card #${card.number}`,
+							card.stopped_by_owner ? "stopped by you" : "stopped",
+						],
+						// One he stopped waits for his choice; nothing failed in it.
+						tone: card.stopped_by_owner ? "needs-you" : "failed",
 						detail: (act) => (
 							<StoppedCard
 								card={card}
 								link={act.link}
 								api={act.api}
+								reload={act.reload}
+								linkable={linkable}
+							/>
+						),
+					}),
+				),
+				...list.stopped_features.map(
+					(feature): Entry => ({
+						key: `stopped-feature/${feature.project_id}/${feature.number}`,
+						title: feature.title,
+						meta: [
+							feature.project_name,
+							`feature #${feature.number}`,
+							"stopped by you",
+						],
+						tone: "needs-you",
+						detail: (act) => (
+							<StoppedFeature
+								feature={feature}
+								run={act.api.runFeatureAgain}
 								reload={act.reload}
 								linkable={linkable}
 							/>

@@ -799,15 +799,15 @@ public sealed partial class FakeCodeHost : IDisposable
     }
 
     /// <summary>The issue with <paramref name="after"/> its labels, and the change on its
-    /// timeline as the app's when it changed them, as GitHub records it; adding a label it carries
-    /// changes nothing.</summary>
-    private FakeIssue Relabelled(FakeIssue issue, IReadOnlyList<string> after, string label, bool add) =>
+    /// timeline as <paramref name="actor"/>'s, the app's unless a person made it, when it changed
+    /// them, as GitHub records it; adding a label it carries changes nothing.</summary>
+    private FakeIssue Relabelled(FakeIssue issue, IReadOnlyList<string> after, string label, bool add, string actor = AppLogin) =>
         add && issue.Labels.Contains(label, StringComparer.Ordinal)
             ? issue
             : issue with
             {
                 Labels = after,
-                LabelEvents = [.. issue.LabelHistory(), new LabelEvent(label, add ? LabelChange.Added : LabelChange.Removed, AppLogin, _time.GetUtcNow())],
+                LabelEvents = [.. issue.LabelHistory(), new LabelEvent(label, add ? LabelChange.Added : LabelChange.Removed, actor, _time.GetUtcNow())],
             };
 
     /// <summary>

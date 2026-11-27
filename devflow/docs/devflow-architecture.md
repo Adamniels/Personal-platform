@@ -238,6 +238,17 @@ the page asks the owner to link again; GitHub not answering ends nothing.
 like every table, and its tokens are sealed in the vault under that user, so one user's token is
 never reachable as another's.
 
+**Drop takes a label off as him.** Dropping a card he stopped takes the project's pick-up label off
+its issue with his token, `ICodeHost.Unlabel`, never with an app key, though the app could: the
+label is his own signal that a card is for Dev flow, put on by him or a trusted account, and the
+issue's timeline should show him taking it off, as it shows him putting it on. The app takes off
+only what it put on, its attention label. A label GitHub says is not there is as good as taken off,
+for the same reason it is when the app takes its own off. Dev flow keeps the card, ignored, rather
+than forgetting it as it forgets a card whose label someone took off on GitHub, so its story stays
+on its page; and since a read could reach GitHub's list before the label is gone, only a read that
+began after the drop may pick it up again. How it is done is "Stopped by you" under "Stops" in
+`devflow/README.md`.
+
 ## Projects
 
 A project is one connected repository with its settings, as the spec defines it. Part 5 built the

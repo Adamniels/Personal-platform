@@ -33,6 +33,10 @@ public static class CardStore
     /// </list>
     /// Then each feature is merged as a card is, see <see cref="StoreFeatures"/>, and each card:
     /// <list type="bullet">
+    /// <item>A card the owner dropped stays as it is, ignored, while it is not found, and when it is
+    /// found by a read that began at <paramref name="readFrom"/>, before it was dropped, since that
+    /// read saw the label the drop took off. Found by a read that began after, its label put back,
+    /// it is deleted and picked afresh, as any card.</item>
     /// <item>A card not found any more is deleted, unless its run is under way, when it is marked
     /// unlabelled and finishes first.</item>
     /// <item>A new card is inserted where picking put it.</item>
@@ -50,7 +54,8 @@ public static class CardStore
     /// found any more is deleted once no card refers to it, and marked unlabelled until then, so a
     /// closed feature labelled again later is a new one.
     /// </summary>
-    public static async Task Store(NpgsqlTransaction transaction, Guid projectId, Guid userId, PickedProject found, DateTimeOffset now, CancellationToken cancellationToken)
+    /// <param name="readFrom">When the read began, before it asked the code host anything.</param>
+    public static async Task Store(NpgsqlTransaction transaction, Guid projectId, Guid userId, PickedProject found, DateTimeOffset readFrom, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(transaction);
         ArgumentNullException.ThrowIfNull(found);
@@ -58,7 +63,8 @@ public static class CardStore
             $"""
             SELECT number AS Number, state AS State, reason AS Reason, waits_for AS WaitsFor, unlabelled AS Unlabelled,
                    pull_request_number AS PullRequestNumber, feature_id AS FeatureId, sent_backs AS SentBacks,
-                   coalesce({Features.SendingBack.Sendable} AND landing_told_for = pull_request_number, false) AS ToldLanded
+                   coalesce({Features.SendingBack.Sendable} AND landing_told_for = pull_request_number, false) AS ToldLanded,
+                   dropped_at AS DroppedAt
             FROM cards WHERE project_id = @projectId
             """,
             new { projectId },
@@ -103,6 +109,25 @@ public static class CardStore
         placed.AddRange(onTheirOwn.Select(card => (card, (Guid?)null, (int?)null)));
         placed = [.. placed.DistinctBy(entry => entry.Card.Number)];
 
+        // A card the owner dropped is left as it is, unless a read that began after the drop finds
+        // its label put back: then it goes, and is picked afresh below, as any card new to Dev flow.
+        foreach (var card in stored.Values.Where(card => card.DroppedAt is not null).ToList())
+        {
+            if (placed.Any(entry => entry.Card.Number == card.Number) && readFrom.UtcDateTime > card.DroppedAt!.Value)
+            {
+                await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                    "DELETE FROM cards WHERE project_id = @projectId AND number = @number AND dropped_at IS NOT NULL",
+                    new { projectId, number = card.Number },
+                    transaction,
+                    cancellationToken: cancellationToken));
+                stored.Remove(card.Number);
+            }
+            else
+            {
+                placed.RemoveAll(entry => entry.Card.Number == card.Number);
+            }
+        }
+
         // A feature whose pull request was closed without merging, its cards told, that is no
         // longer found gives its cards up, so labelled again later it starts afresh: what was built
         // for it never reached the default branch.
@@ -116,7 +141,7 @@ public static class CardStore
             cancellationToken: cancellationToken))).ToHashSet();
 
         var numbers = placed.Select(entry => entry.Card.Number).ToHashSet();
-        foreach (var gone in stored.Values.Where(card => !numbers.Contains(card.Number)))
+        foreach (var gone in stored.Values.Where(card => !numbers.Contains(card.Number) && card.DroppedAt is null))
         {
             // A card Dev flow carried to a merged pull request is kept: the pull request's Closes
             // line closed its issue as it merged, which takes it off the list, and the card is the
@@ -518,6 +543,9 @@ public static class CardStore
         /// by <see cref="Features.SendingBack.Sendable"/>, so an open issue was opened again by
         /// someone.</summary>
         public bool ToldLanded { get; init; }
+
+        /// <summary>When the owner dropped it, null unless he did.</summary>
+        public DateTime? DroppedAt { get; init; }
     }
 
     /// <summary>A feature as stored, what merging it needs.</summary>

@@ -74,6 +74,7 @@ function openAt(path: string) {
 						count: 0,
 						needs_relink: false,
 						stopped_cards: [],
+						stopped_features: [],
 						refused_cards: [],
 						question_cards: [],
 						failing_projects: [],

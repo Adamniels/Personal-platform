@@ -111,6 +111,9 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         IReadOnlyList<TakenComments> featureCommented = [];
         IReadOnlyList<ReadAgainComments> readAgain = [];
         IReadOnlyList<OpenDecisions> decisions = [];
+        // Before the code host is asked anything, so a card dropped after it is known to have been
+        // read with the label the drop took off.
+        var readFrom = Now();
         try
         {
             (items, cards, followed, features, commented, featureCommented, readAgain, failure) = await Fetch(projectId, target, userId, cancellationToken);
@@ -130,7 +133,7 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         {
             try
             {
-                if (!await Store(projectId, userId, items, cards, followed, features, commented, featureCommented, readAgain, decisions, now, cancellationToken))
+                if (!await Store(projectId, userId, items, cards, followed, features, commented, featureCommented, readAgain, decisions, readFrom, now, cancellationToken))
                 {
                     return ReadResult.NoSuchProject;
                 }
@@ -492,7 +495,7 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
     /// for the transaction, and a project disconnected before it stores nothing.
     /// </summary>
     /// <returns>Whether the project was still there.</returns>
-    private async Task<bool> Store(Guid projectId, Guid userId, IReadOnlyList<RunnerItem> items, PickedProject cards, IReadOnlyList<FollowedPull> followed, IReadOnlyList<FollowedFeature> features, IReadOnlyList<TakenComments> commented, IReadOnlyList<TakenComments> featureCommented, IReadOnlyList<ReadAgainComments> readAgain, IReadOnlyList<OpenDecisions> decisions, DateTimeOffset now, CancellationToken cancellationToken) =>
+    private async Task<bool> Store(Guid projectId, Guid userId, IReadOnlyList<RunnerItem> items, PickedProject cards, IReadOnlyList<FollowedPull> followed, IReadOnlyList<FollowedFeature> features, IReadOnlyList<TakenComments> commented, IReadOnlyList<TakenComments> featureCommented, IReadOnlyList<ReadAgainComments> readAgain, IReadOnlyList<OpenDecisions> decisions, DateTimeOffset readFrom, DateTimeOffset now, CancellationToken cancellationToken) =>
         await database.InUserTransaction(userId, async transaction =>
         {
             if (await transaction.Connection!.ExecuteScalarAsync<int?>(new CommandDefinition(
@@ -511,7 +514,7 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
                 await Upsert(transaction, projectId, userId, item, now, cancellationToken);
             }
 
-            await CardStore.Store(transaction, projectId, userId, cards, now, cancellationToken);
+            await CardStore.Store(transaction, projectId, userId, cards, readFrom, now, cancellationToken);
             foreach (var pull in followed)
             {
                 await CardStore.Follow(transaction, projectId, pull, now, cancellationToken);

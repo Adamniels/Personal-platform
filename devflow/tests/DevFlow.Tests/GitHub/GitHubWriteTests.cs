@@ -62,6 +62,30 @@ public sealed class GitHubWriteTests
     }
 
     [Fact]
+    public async Task UnlabelMatchesGitHubsDocumentedForm()
+    {
+        using var host = new GitHubHost();
+        host.Stub.Answer = _ => StubGitHub.Json("""[{"id":208045946,"name":"bug"}]""");
+
+        // Taken off as the person, the label's name escaped in the address.
+        Assert.IsType<UnlabelResult.Removed>(await host.CodeHost.Unlabel(GitHubHost.User, Token, GitHubHost.Platform, 12, "dev flow", Ct));
+        Assert.Empty(host.Stub.TokenRequests);
+        var request = Assert.Single(host.Stub.Reads);
+        Assert.Equal(HttpMethod.Delete, request.Method);
+        Assert.Equal("/repos/Adamniels/Personal-platform/issues/12/labels/dev%20flow", request.Path);
+        Assert.Equal($"Bearer {UserToken}", request.Header("Authorization"));
+        Assert.Null(request.Body);
+
+        // A label the issue does not carry is 404, refused with GitHub's words; no answer is
+        // unavailable.
+        host.Stub.Answer = _ => Message(HttpStatusCode.NotFound, "Label does not exist");
+        Assert.Equal(new UnlabelResult.Refused(404, "Label does not exist"), await host.CodeHost.Unlabel(GitHubHost.User, Token, GitHubHost.Platform, 12, "devflow", Ct));
+        host.Stub.Answer = _ => throw new HttpRequestException("the network is down");
+        Assert.IsType<UnlabelResult.Unavailable>(await host.CodeHost.Unlabel(GitHubHost.User, Token, GitHubHost.Platform, 12, "devflow", Ct));
+        Assert.DoesNotContain(UserToken, string.Join('\n', host.Logs.Lines), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A409IsHeadMovedAndA405IsNotMergeable()
     {
         using var host = new GitHubHost();
@@ -106,14 +130,14 @@ public sealed class GitHubWriteTests
     [Fact]
     public void AWriteTakesAUserTokenAndNothingElseThatCouldAuthoriseIt()
     {
-        // The two writes take a UserAccessToken, and no string, a type an installation's token
-        // is, apart from the commit and the text.
-        foreach (var name in new[] { nameof(ICodeHost.Merge), nameof(ICodeHost.Comment) })
+        // The three writes take a UserAccessToken, and no string, a type an installation's token
+        // is, apart from the commit, the text and the label.
+        foreach (var name in new[] { nameof(ICodeHost.Merge), nameof(ICodeHost.Comment), nameof(ICodeHost.Unlabel) })
         {
             var parameters = typeof(ICodeHost).GetMethod(name)!.GetParameters();
             Assert.Single(parameters, parameter => parameter.ParameterType == typeof(UserAccessToken));
             Assert.Equal(
-                name == nameof(ICodeHost.Merge) ? ["commit"] : ["body"],
+                name switch { nameof(ICodeHost.Merge) => ["commit"], nameof(ICodeHost.Comment) => ["body"], _ => ["label"] },
                 parameters.Where(parameter => parameter.ParameterType == typeof(string)).Select(parameter => parameter.Name));
         }
 
