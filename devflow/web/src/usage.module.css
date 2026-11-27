@@ -27,7 +27,8 @@
 }
 
 /* A row's name, set in by how deep it sits: a project's features, cards and
- * Setting up one step, a feature's cards and own runs two. */
+ * Setting up one step; a feature's cards and own runs one step past the
+ * feature's chevron, so they sit under its name. */
 .name {
 	min-width: 0;
 	overflow-wrap: anywhere;
@@ -38,7 +39,7 @@
 }
 
 .name[data-depth="2"] {
-	padding-left: calc(var(--space-5) * 2);
+	padding-left: calc(var(--space-5) * 2 + var(--control-h));
 }
 
 /* The button that opens a project: its name beside the chevron. */

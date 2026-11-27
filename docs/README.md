@@ -111,7 +111,7 @@ features" in `High-level/docs/platform-architecture.md`.
 
 **Dev flow**
 
-- `devflow/README.md` — what Dev flow serves, its pages and its two tabs,
+- `devflow/README.md` — what Dev flow serves, its pages and its tabs, usage and history among them,
   a project's settings page, what Waiting for you
   shows, the schema it pins, how to run it and its tests, its settings, its database and roles, migrating, the door, the vault that
   seals a user's secrets and its key, the code host's interface, its fake and how a test stages a

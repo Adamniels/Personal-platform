@@ -142,6 +142,14 @@ PAGES = [
         True,
         lambda page: page.get_by_role("button", name="Link GitHub"),
     ),
+    # A fresh account has used nothing; the tab with a project open on its
+    # feature and cards is held to the look in test_devflow.py.
+    Entry(
+        "dev flow: usage and history",
+        "/devflow/usage",
+        True,
+        text("Nothing used in the last 30 days"),
+    ),
     # A fresh account has no feature, so its page is opened in the state it
     # shows one it does not have; the page with a feature's cards and decisions
     # is held to the look in test_devflow.py.
