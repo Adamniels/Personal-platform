@@ -46,8 +46,8 @@ function story(overrides: Partial<FeatureStory> = {}): FeatureStory {
 				state: "done",
 				reason: null,
 				fix_rounds: 1,
-				input_tokens: 41,
-				output_tokens: 6113,
+				tokens: 24358,
+				cache_reads: 512870,
 				screenshots: {
 					commit: COMMIT,
 					groups: [{ name: "plan", images: ["plan-desktop", "plan-phone"] }],
@@ -74,8 +74,8 @@ function story(overrides: Partial<FeatureStory> = {}): FeatureStory {
 				state: "building",
 				reason: null,
 				fix_rounds: 0,
-				input_tokens: 0,
-				output_tokens: 0,
+				tokens: 0,
+				cache_reads: 0,
 				screenshots: null,
 				decisions: [],
 				can_send_back: false,
@@ -83,8 +83,8 @@ function story(overrides: Partial<FeatureStory> = {}): FeatureStory {
 			},
 		],
 		runs: [],
-		input_tokens: 0,
-		output_tokens: 0,
+		tokens: 0,
+		cache_reads: 0,
 		reviews: [],
 		...overrides,
 	};
@@ -363,8 +363,8 @@ describe("a feature's page", () => {
 								reason: null,
 								in_card: null,
 								auth_method: "oauth_token",
-								input_tokens: 12,
-								output_tokens: 3400,
+								tokens: 3412,
+								cache_reads: 51200,
 								check: { exit_code: 0, output: "Tests: 40 passed" },
 								head_commit: COMMIT,
 								stderr_tail: null,
@@ -382,8 +382,8 @@ describe("a feature's page", () => {
 								reason: "Claude's API did not answer",
 								in_card: false,
 								auth_method: null,
-								input_tokens: null,
-								output_tokens: null,
+								tokens: null,
+								cache_reads: null,
 								check: null,
 								head_commit: null,
 								stderr_tail: "",
@@ -404,14 +404,15 @@ describe("a feature's page", () => {
 				.getAllByRole("term")
 				.map((term) => term.textContent),
 		).toEqual(["Conflict", "Conflict"]);
-		// Each its result and how long it took; a failed one also why, and
-		// where its failure lay in a feature's own words.
+		// Each its result, how long it took and its tokens with their cache
+		// reads beside; a failed one also why, and where its failure lay in a
+		// feature's own words.
 		expect(
 			within(runs)
 				.getAllByRole("definition")
 				.map((value) => value.textContent),
 		).toEqual([
-			"Succeeded · 12 min 0 s",
+			"Succeeded · 12 min 0 s · 3,412 tokens · 51,200 cache reads",
 			"Failed · 1 min 0 s",
 			"Claude's API did not answer It lay outside the job, so it runs again.",
 		]);
@@ -432,8 +433,8 @@ describe("a feature's page", () => {
 			reason: null,
 			in_card: null,
 			auth_method: "oauth_token",
-			input_tokens: 12,
-			output_tokens: 3400,
+			tokens: 3412,
+			cache_reads: 0,
 			check: null,
 			head_commit: COMMIT,
 			stderr_tail: null,
@@ -1225,8 +1226,8 @@ function run(overrides: Partial<Run> = {}): Run {
 		reason: null,
 		in_card: null,
 		auth_method: "oauth_token",
-		input_tokens: 30,
-		output_tokens: 1200,
+		tokens: 1230,
+		cache_reads: 0,
 		check: null,
 		head_commit: COMMIT,
 		stderr_tail: null,
@@ -1354,8 +1355,8 @@ describe("the page puts merging and the decisions first", () => {
 			state: "done",
 			reason: null,
 			fix_rounds: 0,
-			input_tokens: 10,
-			output_tokens: 900,
+			tokens: 910,
+			cache_reads: 0,
 			screenshots: null,
 			decisions: [
 				{
@@ -1429,8 +1430,8 @@ describe("the page puts merging and the decisions first", () => {
 			state: "queued",
 			reason: null,
 			fix_rounds: 0,
-			input_tokens: 0,
-			output_tokens: 0,
+			tokens: 0,
+			cache_reads: 0,
 			screenshots: null,
 			decisions: [],
 			can_send_back: false,
@@ -1645,9 +1646,9 @@ describe("the page puts merging and the decisions first", () => {
 				.getAllByRole("definition")
 				.map((value) => value.textContent),
 		).toEqual([
-			"Succeeded · 4 min 51 s",
-			"Succeeded · 7 min 0 s",
-			"Succeeded · 2 min 4 s",
+			"Succeeded · 4 min 51 s · 1,230 tokens · 0 cache reads",
+			"Succeeded · 7 min 0 s · 1,230 tokens · 0 cache reads",
+			"Succeeded · 2 min 4 s · 1,230 tokens · 0 cache reads",
 		]);
 
 		// The side column follows the cards, so it stacks under them on phone.

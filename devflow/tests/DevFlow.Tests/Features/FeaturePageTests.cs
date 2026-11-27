@@ -56,13 +56,13 @@ public sealed class FeaturePageTests
         Assert.Equal("done", (string)first["state"]!);
         Assert.Equal($"https://github.com/Adamniels/Personal-platform/issues/{First}", (string)first["web_url"]!);
         Assert.Equal(0, (int)first["fix_rounds"]!);
-        var (tokensIn, tokensOut) = await Tokens(jobs, First);
-        Assert.True(tokensIn + tokensOut > 0);
-        Assert.Equal(tokensIn, (long)first["input_tokens"]!);
-        Assert.Equal(tokensOut, (long)first["output_tokens"]!);
+        var (tokens, cacheReads) = await Tokens(jobs, First);
+        Assert.True(tokens > 0);
+        Assert.Equal(tokens, (long)first["tokens"]!);
+        Assert.Equal(cacheReads, (long)first["cache_reads"]!);
         Assert.Equal("queued", (string)cards[1]!["state"]!);
-        Assert.Equal(0, (long)cards[1]!["input_tokens"]!);
-        Assert.Equal(0, (long)cards[1]!["output_tokens"]!);
+        Assert.Equal(0, (long)cards[1]!["tokens"]!);
+        Assert.Equal(0, (long)cards[1]!["cache_reads"]!);
 
         // The names of its screenshots, of its head commit, read through the card's route.
         var screenshots = first["screenshots"]!;
@@ -96,6 +96,46 @@ public sealed class FeaturePageTests
         var (_, opened) = await Built.Get(jobs, PathOf(jobs.Project));
         Assert.Equal(52, (int)opened!["pull_request"]!["number"]!);
         Assert.Equal("https://github.com/Adamniels/Personal-platform/pull/52", (string)opened["pull_request"]!["url"]!);
+    }
+
+    [Fact]
+    public async Task TokensByTheOneDefinition()
+    {
+        await using var jobs = await Feature();
+        await Landed(jobs);
+        // A run of the feature's own, its read, with figures of its own: 7 in, 300 cache writes,
+        // 90,000 cache reads and 2,000 out.
+        await using (var admin = await jobs.Routes.Database.OpenAdmin(Ct))
+        {
+            await admin.ExecuteAsync(new CommandDefinition(
+                """
+                INSERT INTO runs (id, project_id, user_id, feature_number, worker_id, kind, branch, base, started_at, finished_at, result, run_minutes,
+                                  input_tokens, cache_creation_input_tokens, cache_read_input_tokens, output_tokens)
+                VALUES (gen_random_uuid(), @project, @user, @feature, @worker, 'read', 'main', 'main', now(), now(), 'succeeded', 90, 7, 300, 90000, 2000)
+                """,
+                new { project = jobs.Project, user = User, feature = Parent, worker = Jobs.Jobs.FirstWorker },
+                cancellationToken: Ct));
+        }
+
+        var (_, story) = await Built.Get(jobs, PathOf(jobs.Project));
+
+        // The feature's own runs, input plus cache writes plus output, and their cache reads beside.
+        Assert.Equal(7 + 300 + 2_000, (long)story!["tokens"]!);
+        Assert.Equal(90_000, (long)story["cache_reads"]!);
+        var own = Assert.Single(story["runs"]!.AsArray())!;
+        Assert.Equal(2_307, (long)own["tokens"]!);
+        Assert.Equal(90_000, (long)own["cache_reads"]!);
+        // Each card's, the same over its runs, and never its feature's.
+        var (tokens, cacheReads) = await Tokens(jobs, First);
+        var first = story["cards"]![0]!;
+        Assert.Equal(tokens, (long)first["tokens"]!);
+        Assert.Equal(cacheReads, (long)first["cache_reads"]!);
+        Assert.True(cacheReads > 0);
+        foreach (var shown in new[] { story.AsObject(), first.AsObject(), own.AsObject() })
+        {
+            Assert.False(shown.ContainsKey("input_tokens"));
+            Assert.False(shown.ContainsKey("output_tokens"));
+        }
     }
 
     [Fact]

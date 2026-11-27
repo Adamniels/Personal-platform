@@ -50,8 +50,8 @@ public sealed class CardPageTests
         Assert.Null(built["reason"]);
         Assert.Null(built["in_card"]);
         Assert.Equal("oauth_token", (string)built["auth_method"]!);
-        Assert.Equal(41, (long)built["input_tokens"]!);
-        Assert.Equal(6113, (long)built["output_tokens"]!);
+        Assert.Equal(41 + 18204 + 6113, (long)built["tokens"]!);
+        Assert.Equal(512870, (long)built["cache_reads"]!);
         Assert.Equal(0, (int)built["check"]!["exit_code"]!);
         Assert.Equal("Tests: 12 passed", (string)built["check"]!["output"]!);
         Assert.Equal((string)ran["head_commit"]!, (string)built["head_commit"]!);

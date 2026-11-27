@@ -227,7 +227,7 @@ export interface paths {
         };
         /**
          * A card's whole story so far
-         * @description The card as last read, its number, title, web_url, state and reason, and its pull_request, number and url, null before one was opened; each of its runs, newest first, with its kind, the worker it was handed to, when it started and finished, how long it took, its result and, for a failure, its reason and whether it lay in the card, the auth method, the tokens in and out, the check's exit code and the last lines of its output, null when it did not run, the commit it left, has_log, whether it has lines of its log, read through readRunLog, and log_pruned, whether it had a log that was deleted once kept its 90 days, both false for a run from before logs were kept; the latest report in its form, the latest build's, null when no build has handed one back; and each review, newest first, with the commit the worker reviewed, its verdict, summary, findings, each blocking or not with its file, line, what and why, the reviewer's view on each decision for the owner, when it was recorded, whether its copy is posted, and whether it is current, for the card's head commit; and the screenshots of its head commit, the commit, the pictures' names paired desktop and phone by page, read through getCardScreenshot, and the worker's note, null when its newest build that succeeded tried none. And the feature it is a card of, its number and title, null for a card on its own. Read from what Dev flow stored, never from GitHub; every text from GitHub or an agent is to be shown as text. 404 for a project or a card the caller does not have. Without a valid token, 401 with an empty body.
+         * @description The card as last read, its number, title, web_url, state and reason, and its pull_request, number and url, null before one was opened; each of its runs, newest first, with its kind, the worker it was handed to, when it started and finished, how long it took, its result and, for a failure, its reason and whether it lay in the card, the auth method, its tokens, input_tokens + cache_creation_input_tokens + output_tokens, and its cache reads beside them, each null when Claude gave none, the check's exit code and the last lines of its output, null when it did not run, the commit it left, has_log, whether it has lines of its log, read through readRunLog, and log_pruned, whether it had a log that was deleted once kept its 90 days, both false for a run from before logs were kept; the latest report in its form, the latest build's, null when no build has handed one back; and each review, newest first, with the commit the worker reviewed, its verdict, summary, findings, each blocking or not with its file, line, what and why, the reviewer's view on each decision for the owner, when it was recorded, whether its copy is posted, and whether it is current, for the card's head commit; and the screenshots of its head commit, the commit, the pictures' names paired desktop and phone by page, read through getCardScreenshot, and the worker's note, null when its newest build that succeeded tried none. And the feature it is a card of, its number and title, null for a card on its own. Read from what Dev flow stored, never from GitHub; every text from GitHub or an agent is to be shown as text. 404 for a project or a card the caller does not have. Without a valid token, 401 with an empty body.
          */
         get: operations["getCard"];
         put?: never;
@@ -347,7 +347,7 @@ export interface paths {
         };
         /**
          * A feature's whole story so far
-         * @description The feature as last read, its number, title, web_url, state and reason, null when there is nothing to say; its branch, the name and the commit it was at after the newest change its watch judged, or the one it was made at before any, null before the branch is made; its pull_request to the default branch, number and url, null before one is opened; and its cards in their sub-issue order, each with its number, title, web_url, state, reason, fix_rounds, the input_tokens and output_tokens of all its runs, the screenshots of its head commit as getCard has them, read through getCardScreenshot, and the decisions its latest report marked for the owner, each with the run_id of that report's run, its position among the report's decisions, what was chosen, the alternative, why, the reviewer_view from the newest review of the commit that run left, null without one, and the answer, fine or sent_back, null before one, can_send_back, whether the card has landed in the feature's branch of a feature neither merged nor closed, so it can be sent back, and sent_back, its last send back, how many times, the pull request it had landed in and the owner's comments, null when it was never sent back; its own runs, each with has_log and log_pruned as getCard has them, and the reviews of the whole feature, newest first; fix_rounds, the rounds its reviews have started; and rounds, each fix of the whole feature newest first, as getCard has a card's rounds. Read from what Dev flow stored, never from GitHub; every text from GitHub or an agent is to be shown as text. 404 for a project or a feature the caller does not have. Without a valid token, 401 with an empty body.
+         * @description The feature as last read, its number, title, web_url, state and reason, null when there is nothing to say; its branch, the name and the commit it was at after the newest change its watch judged, or the one it was made at before any, null before the branch is made; its pull_request to the default branch, number and url, null before one is opened; and its cards in their sub-issue order, each with its number, title, web_url, state, reason, fix_rounds, the tokens of all its runs, input_tokens + cache_creation_input_tokens + output_tokens, and their cache reads beside them, the screenshots of its head commit as getCard has them, read through getCardScreenshot, and the decisions its latest report marked for the owner, each with the run_id of that report's run, its position among the report's decisions, what was chosen, the alternative, why, the reviewer_view from the newest review of the commit that run left, null without one, and the answer, fine or sent_back, null before one, can_send_back, whether the card has landed in the feature's branch of a feature neither merged nor closed, so it can be sent back, and sent_back, its last send back, how many times, the pull request it had landed in and the owner's comments, null when it was never sent back; its own runs, each with has_log and log_pruned as getCard has them, with tokens and cache_reads, their sums by the same definition, and the reviews of the whole feature, newest first; fix_rounds, the rounds its reviews have started; and rounds, each fix of the whole feature newest first, as getCard has a card's rounds. Read from what Dev flow stored, never from GitHub; every text from GitHub or an agent is to be shown as text. 404 for a project or a feature the caller does not have. Without a valid token, 401 with an empty body.
          */
         get: operations["getFeature"];
         put?: never;
@@ -1219,6 +1219,8 @@ export interface components {
         };
         CardRun: {
             auth_method: null | string;
+            /** Format: int64 */
+            cache_reads: null | number;
             check: null | components["schemas"]["RunCheck"];
             /** Format: int64 */
             duration_ms: null | number;
@@ -1229,17 +1231,15 @@ export interface components {
             /** Format: uuid */
             id: string;
             in_card: null | boolean;
-            /** Format: int64 */
-            input_tokens: null | number;
             kind: string;
             log_pruned: boolean;
-            /** Format: int64 */
-            output_tokens: null | number;
             reason: null | string;
             result: null | string;
             /** Format: date-time */
             started_at: string;
             stderr_tail: null | string;
+            /** Format: int64 */
+            tokens: null | number;
             worker: string;
         };
         CardScreenshots: {
@@ -1396,21 +1396,21 @@ export interface components {
             name: string;
         };
         FeatureCard: {
+            /** Format: int64 */
+            cache_reads: number;
             can_send_back: boolean;
             decisions: components["schemas"]["FeatureDecision"][];
             /** Format: int32 */
             fix_rounds: number;
-            /** Format: int64 */
-            input_tokens: number;
             /** Format: int32 */
             number: number;
-            /** Format: int64 */
-            output_tokens: number;
             reason: null | string;
             screenshots: null | components["schemas"]["CardScreenshots"];
             sent_back: null | components["schemas"]["CardSentBack"];
             state: string;
             title: string;
+            /** Format: int64 */
+            tokens: number;
             web_url: string;
         };
         FeatureDecision: {
@@ -1481,19 +1481,17 @@ export interface components {
         };
         FeatureStoryView: {
             branch: null | components["schemas"]["FeatureBranch"];
+            /** Format: int64 */
+            cache_reads: number;
             cards: components["schemas"]["FeatureCard"][];
             default_branch: null | string;
             /** Format: int32 */
             fix_rounds: number;
-            /** Format: int64 */
-            input_tokens: number;
             merge: null | components["schemas"]["FeatureMergeOffer"];
             /** Format: int32 */
             most_rounds: number;
             /** Format: int32 */
             number: number;
-            /** Format: int64 */
-            output_tokens: number;
             pull_request: null | components["schemas"]["CardPullRequest"];
             reason: null | string;
             repository: string;
@@ -1503,6 +1501,8 @@ export interface components {
             state: string;
             stopped_by_owner: boolean;
             title: string;
+            /** Format: int64 */
+            tokens: number;
             web_url: string;
         };
         FeatureView: {

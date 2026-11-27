@@ -53,6 +53,31 @@ public sealed class CardStoryTests
     }
 
     [Fact]
+    public async Task TokensByTheOneDefinition()
+    {
+        await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4)]);
+        // A failure that sent no usage, then, once the project's wait after it is over, a build
+        // with Claude's usage: 41 in, 18,204 cache writes, 512,870 cache reads and 6,113 out.
+        await Built.Run(jobs, Built.PreparedFailure(inCard: false, "Claude Code exited with 1"));
+        jobs.Routes.Time.Advance(DevFlow.Stops.ProjectWaits.First);
+        await jobs.Routes.Read(jobs.Project, Jobs.Jobs.User);
+        await Built.Run(jobs, Built.Prepared(Built.Report()));
+
+        var (_, card) = await Built.Get(jobs, $"/devflow/api/projects/{jobs.Project}/cards/4");
+
+        var runs = card!["runs"]!.AsArray();
+        // Input plus cache writes plus output; the cache reads beside them, never in them.
+        Assert.Equal(41 + 18_204 + 6_113, (long)runs[0]!["tokens"]!);
+        Assert.Equal(512_870, (long)runs[0]!["cache_reads"]!);
+        // A run Claude gave no figures for has none, not 0.
+        Assert.Null(runs[1]!["tokens"]);
+        Assert.Null(runs[1]!["cache_reads"]);
+        // The figures apart are not shown.
+        Assert.False(runs[0]!.AsObject().ContainsKey("input_tokens"));
+        Assert.False(runs[0]!.AsObject().ContainsKey("output_tokens"));
+    }
+
+    [Fact]
     public async Task TheStoryNamesItsRepository()
     {
         await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4)]);
