@@ -13,8 +13,13 @@ namespace DevFlow.Jobs;
 /// continue.</summary>
 public sealed record PauseRequest(bool? Paused);
 
+/// <summary>What "Stop now" on a project answers: how many of its runs under way were told to
+/// stop.</summary>
+public sealed record StopNowAnswer(int Stopped);
+
 /// <summary>
-/// Pausing a project, and every project of the caller, from the page, as the owner. Under the
+/// Pausing a project, and every project of the caller, and stopping a project now, from the page,
+/// as the owner. Under the
 /// <c>Api</c> policy and the origin check, through the door as the caller, so another user's
 /// project is none. See "Jobs" in devflow/README.md.
 /// </summary>
@@ -45,6 +50,15 @@ public static class PauseEndpoints
             .Produces(StatusCodes.Status401Unauthorized)
             .ProducesValidationProblem(StatusCodes.Status422UnprocessableEntity);
 
+        routes.MapPost("/devflow/api/projects/{id:guid}/stop-now", StopNow)
+            .RequireAuthorization(PlatformAuthPolicies.Api)
+            .WithName("stopProjectNow")
+            .WithSummary("Pause a project and stop every run of it under way, as the caller")
+            .WithDescription("Pauses the project, as pauseProject does, and then, in the same transaction, marks every run of it under way to stop, as stopRun marks one: each worker's next post to its run's log, at most 15 seconds later, is answered stop, it keeps what a pushing job did on its branch, and the run is recorded stopped_by_owner, its card \"Stopped by you\". Nothing of another project is stopped. stopped, how many runs were marked, a run marked before among them; 0 with none under way, and the project is paused all the same. 404 for a project the caller does not have." + Rest)
+            .Produces<StopNowAnswer>()
+            .Produces(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         routes.MapGet("/devflow/api/paused", async (HttpContext context, [FromServices] UserDb database) =>
                 TypedResults.Ok(await Pauses.All(database, context.UserId(), context.RequestAborted)))
             .RequireAuthorization(PlatformAuthPolicies.Api)
@@ -67,6 +81,11 @@ public static class PauseEndpoints
             ? TypedResults.NoContent()
             : TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No such project", detail: "the project does not exist");
     }
+
+    private static async Task<Results<Ok<StopNowAnswer>, ProblemHttpResult>> StopNow(Guid id, HttpContext context, [FromServices] UserDb database, [FromServices] TimeProvider time) =>
+        await Pauses.StopNow(database, context.UserId(), id, Now(time), context.RequestAborted) is { } stopped
+            ? TypedResults.Ok(new StopNowAnswer(stopped))
+            : TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No such project", detail: "the project does not exist");
 
     private static async Task<Results<NoContent, ProblemHttpResult>> PauseAll(PauseRequest request, HttpContext context, [FromServices] UserDb database, [FromServices] TimeProvider time)
     {

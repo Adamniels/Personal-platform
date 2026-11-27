@@ -118,5 +118,35 @@ public static class Pauses
         return at is { } paused ? new AllPausedState(true, Utc(paused)) : new AllPausedState(false, null);
     }
 
+    /// <summary>
+    /// "Stop now" on a project, in one transaction as the user: the project is paused first, its
+    /// time kept when it already is, and then every run of it under way is marked to stop as
+    /// <see cref="RunStore.RequestStop"/> marks one, a mark set before kept. Pausing first takes the
+    /// project's row, so a job being handed out meanwhile either sees the pause and is not, or
+    /// committed before it and is among the runs marked. The number of runs marked, or null when
+    /// the user has no such project.
+    /// </summary>
+    public static async Task<int?> StopNow(UserDb database, Guid userId, Guid projectId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        return await database.InUserTransaction<int?>(userId, async transaction =>
+        {
+            if (await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                    "UPDATE projects SET paused_at = coalesce(paused_at, @now) WHERE id = @projectId",
+                    new { projectId, now },
+                    transaction,
+                    cancellationToken: cancellationToken)) == 0)
+            {
+                return null;
+            }
+
+            return await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                "UPDATE runs SET stop_requested_at = coalesce(stop_requested_at, @now) WHERE project_id = @projectId AND finished_at IS NULL",
+                new { projectId, now },
+                transaction,
+                cancellationToken: cancellationToken));
+        }, cancellationToken);
+    }
+
     private static DateTimeOffset Utc(DateTime at) => new(DateTime.SpecifyKind(at, DateTimeKind.Utc));
 }

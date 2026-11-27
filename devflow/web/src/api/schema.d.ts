@@ -750,6 +750,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/projects/{id}/stop-now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pause a project and stop every run of it under way, as the caller
+         * @description Pauses the project, as pauseProject does, and then, in the same transaction, marks every run of it under way to stop, as stopRun marks one: each worker's next post to its run's log, at most 15 seconds later, is answered stop, it keeps what a pushing job did on its branch, and the run is recorded stopped_by_owner, its card "Stopped by you". Nothing of another project is stopped. stopped, how many runs were marked, a run marked before among them; 0 with none under way, and the project is paused all the same. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["stopProjectNow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/projects/{id}/values": {
         parameters: {
             query?: never;
@@ -2261,6 +2281,10 @@ export interface components {
             event_id?: null | string;
             event_type?: null | string;
             reconnection_interval?: null | string;
+        };
+        StopNowAnswer: {
+            /** Format: int32 */
+            stopped: number;
         };
         StoppedCard: {
             /** Format: int32 */
@@ -4443,6 +4467,44 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    stopProjectNow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StopNowAnswer"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

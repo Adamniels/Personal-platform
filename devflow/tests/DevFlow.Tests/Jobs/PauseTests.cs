@@ -222,6 +222,50 @@ public sealed class PauseTests
     }
 
     [Fact]
+    public async Task StopNowPausesAndStopsEveryRun()
+    {
+        await using var jobs = await Jobs.Start([Jobs.Card(1), Jobs.Card(2)]);
+        await jobs.SayHello(Jobs.SecondWorker, name: "second-worker");
+        var first = await jobs.Job(Jobs.FirstWorker);
+        var second = await jobs.Job(Jobs.SecondWorker);
+        var firstRun = (Guid)first["job_id"]!;
+        var secondRun = (Guid)second["job_id"]!;
+
+        // fodr, another project of mine, with a run under way, which stopping this one leaves alone.
+        var (fodr, fodrKey) = await SecondProject(jobs);
+        var fodrJob = await jobs.Next(FodrWorker, fodrKey);
+        Assert.Equal(StatusCodes.Status200OK, fodrJob.Response.StatusCode);
+        var fodrRun = (Guid)(await Workers.Workers.Json(fodrJob))["job_id"]!;
+
+        var stopped = await StopNow(jobs, jobs.Project);
+        Assert.Equal(StatusCodes.Status200OK, stopped.Response.StatusCode);
+        Assert.Equal(2, (int)JsonNode.Parse(await Harness.Body(stopped))!["stopped"]!);
+
+        // The project is paused, and both runs are marked as stopping one marks it.
+        var now = jobs.Routes.Time.GetUtcNow().UtcDateTime;
+        Assert.Equal(now, await ProjectPausedAt(jobs));
+        Assert.Equal(now, await StopRequestedAt(jobs, firstRun));
+        Assert.Equal(now, await StopRequestedAt(jobs, secondRun));
+        Assert.Null(await StopRequestedAt(jobs, fodrRun));
+        Assert.Null(await ProjectPausedAt(jobs, fodr));
+
+        // Each run's worker ends it stopped, and its card lands as stopping one run leaves it.
+        var ended = await jobs.Post(WorkerApi.ResultPath(firstRun), StopRunTests.Stopped(Jobs.FirstWorker, (string)first["branch"]!));
+        Assert.Equal(StatusCodes.Status204NoContent, ended.Response.StatusCode);
+        var card = await jobs.Card((int)first["card"]!["number"]!);
+        Assert.Equal(("stopped", DevFlow.Jobs.RunStore.StoppedByYou), (card.State, card.Reason));
+
+        // With none under way it pauses, and says none was stopped.
+        await Pause(jobs, false);
+        await using var idle = await Jobs.Start();
+        var none = await StopNow(idle, idle.Project);
+        Assert.Equal(StatusCodes.Status200OK, none.Response.StatusCode);
+        Assert.Equal(0, (int)JsonNode.Parse(await Harness.Body(none))!["stopped"]!);
+        Assert.NotNull(await ProjectPausedAt(idle));
+        Assert.Equal(StatusCodes.Status204NoContent, (await idle.Next()).Response.StatusCode);
+    }
+
+    [Fact]
     public async Task RoutesAreTheUsersOwn()
     {
         await using var jobs = await Jobs.Start();
