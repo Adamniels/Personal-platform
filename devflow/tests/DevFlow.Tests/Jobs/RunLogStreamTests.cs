@@ -122,6 +122,25 @@ public sealed class RunLogStreamTests
     }
 
     [Fact]
+    public async Task TheStreamEndsWithItsToken()
+    {
+        // A stream is let in by the token it opened with, and ends when that token does, without an
+        // end event, since the run goes on: the page opens it again with the session as it is then.
+        await using var jobs = await Jobs.Start();
+        var id = (Guid)(await jobs.Job())["job_id"]!;
+        await using var stream = await Opened(jobs, id);
+
+        // Waiting on the feed, as a live stream does, and still sending what arrives.
+        Assert.Null(await stream.Next(EventStream.Quiet));
+        await Post(jobs, id, RunLogTests.Line(1, "Reading the card."));
+        Assert.Equal(1L, Line(await stream.Expect()).Seq);
+        Assert.Null(await stream.Next(EventStream.Quiet));
+
+        jobs.Routes.Time.SetUtcNow(DateTimeOffset.FromUnixTimeSeconds(Contract.ExpiresAt));
+        Assert.True(await stream.Ends());
+    }
+
+    [Fact]
     public async Task ALostRunEnds()
     {
         // A run its worker went quiet on is ended lost on the project's read, and its stream ends.
