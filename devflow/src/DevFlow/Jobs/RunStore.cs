@@ -756,18 +756,18 @@ public static class RunStore
     /// <c>reviewing</c>, a fix's in <c>fixing</c>, in the same round; and the pushes the watch
     /// awaited of them are judged, with no result to record them. A feature's run lost leaves its
     /// feature where it was, to be handed out again, a fix's in the same round. Called on each read of the project, as its
-    /// user. How many were lost.
+    /// user. The runs found lost, which may be none.
     /// </summary>
-    public static async Task<int> SweepLost(UserDb database, Guid userId, Guid projectId, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<IReadOnlyList<Guid>> SweepLost(UserDb database, Guid userId, Guid projectId, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
-        return await database.InUserTransaction(userId, async transaction =>
+        return await database.InUserTransaction<IReadOnlyList<Guid>>(userId, async transaction =>
         {
             // The project's row first, as Record takes it, since a lost run ends as a result does.
             if (!await Watching.BranchWatch.Lock(transaction, projectId, cancellationToken)
                 || await RunSettings.Read(transaction, projectId, cancellationToken) is not { } settings)
             {
-                return 0;
+                return [];
             }
 
             var lost = (await transaction.Connection!.QueryAsync<(Guid, int?, string, int?, int?)>(new CommandDefinition(
@@ -823,7 +823,7 @@ public static class RunStore
                 await Watching.BranchWatch.JudgeAwaited(transaction, projectId, userId, now, cancellationToken);
             }
 
-            return lost.Count;
+            return lost.Select(run => run.Item1).ToList();
         }, cancellationToken);
     }
 

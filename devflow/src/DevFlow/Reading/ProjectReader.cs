@@ -48,7 +48,7 @@ public enum ReadResult
 /// the project's default branch is watched, see <see cref="BranchWatch"/>. See "Reading and
 /// the snapshot" in devflow/docs/devflow-architecture.md.
 /// </summary>
-public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeProvider time, ILogger<ProjectReader> log)
+public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeProvider time, ILogger<ProjectReader> log, RunLogFeed feed)
 {
     /// <summary>The project's default branch, watched first in every read, whatever the rest of the
     /// read does.</summary>
@@ -95,7 +95,11 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         // host answers, since finding them asks it nothing.
         try
         {
-            await RunStore.SweepLost(database, userId, projectId, Now(), cancellationToken);
+            foreach (var lost in await RunStore.SweepLost(database, userId, projectId, Now(), cancellationToken))
+            {
+                // Its end is committed, so a live log of it ends.
+                feed.End(lost);
+            }
         }
         catch (Exception error) when (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {

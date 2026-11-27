@@ -195,7 +195,7 @@ public static partial class JobEndpoints
                 : WorkerEndpoints.NoSuchJob();
     }
 
-    private static async Task<Results<NoContent, ProblemHttpResult>> Result(Guid id, ResultRequest request, HttpContext context, [FromServices] UserDb database, [FromServices] Values.ProjectValues values, [FromServices] WorkerStore workers, [FromServices] WorkerStart start, [FromServices] MergeRequests merges, [FromServices] ICodeHost host, [FromServices] TimeProvider time)
+    private static async Task<Results<NoContent, ProblemHttpResult>> Result(Guid id, ResultRequest request, HttpContext context, [FromServices] UserDb database, [FromServices] Values.ProjectValues values, [FromServices] WorkerStore workers, [FromServices] WorkerStart start, [FromServices] MergeRequests merges, [FromServices] ICodeHost host, [FromServices] RunLogFeed feed, [FromServices] TimeProvider time)
     {
         var caller = context.Worker();
         // The rules depend on the job's kind, a check's being its own; a run the worker does not
@@ -227,7 +227,7 @@ public static partial class JobEndpoints
             result = validated;
         }
 
-        var recorded = await Complete(database, values, caller, id, worker, result, Now(time), context.RequestAborted);
+        var recorded = await Complete(database, values, feed, caller, id, worker, result, Now(time), context.RequestAborted);
         if (recorded == Recorded.Stored)
         {
             // A review that approved has its card checked for a merge now, without the worker
@@ -247,12 +247,20 @@ public static partial class JobEndpoints
     /// <summary>Records a result for the run, as a worker's result route does, every known value
     /// of the project scrubbed from it first; the fake worker completes its jobs through it too, so
     /// nothing a worker sends is stored any other way.</summary>
-    internal static async Task<Recorded> Complete(UserDb database, Values.ProjectValues values, WorkerCaller caller, Guid runId, Guid workerId, RunResult result, DateTimeOffset now, CancellationToken cancellationToken)
+    internal static async Task<Recorded> Complete(UserDb database, Values.ProjectValues values, RunLogFeed feed, WorkerCaller caller, Guid runId, Guid workerId, RunResult result, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(values);
+        ArgumentNullException.ThrowIfNull(feed);
         ArgumentNullException.ThrowIfNull(caller);
         var scrub = await values.ScrubFor(caller.UserId, caller.ProjectId, cancellationToken);
-        return await RunStore.Record(database, caller.UserId, caller.ProjectId, runId, workerId, Scrubbed(result, scrub), now, cancellationToken);
+        var recorded = await RunStore.Record(database, caller.UserId, caller.ProjectId, runId, workerId, Scrubbed(result, scrub), now, cancellationToken);
+        if (recorded == Recorded.Stored)
+        {
+            // Once the run's end is committed, so a live log ends on a run that has.
+            feed.End(runId);
+        }
+
+        return recorded;
     }
 
     /// <summary>

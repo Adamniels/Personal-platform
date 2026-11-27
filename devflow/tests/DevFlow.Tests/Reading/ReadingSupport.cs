@@ -36,7 +36,7 @@ internal sealed class Reading : IAsyncDisposable
         Time = time;
         Fake = fake;
         Host = new CountingCodeHost(fake);
-        Reader = new ProjectReader(door, Host, time, NullLogger<ProjectReader>.Instance);
+        Reader = new ProjectReader(door, Host, time, NullLogger<ProjectReader>.Instance, new DevFlow.Jobs.RunLogFeed());
     }
 
     public static CancellationToken Ct => TestContext.Current.CancellationToken;

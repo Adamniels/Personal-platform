@@ -12,7 +12,8 @@ namespace DevFlow.Jobs;
 /// behind is ended rather than given lines with a hole in them, and its reader takes up again from
 /// the table, after the last seq it had, as a page's <c>Last-Event-ID</c> does. Lines reach a
 /// subscription in the order their posts committed; a worker sends one post of a run at a time.
-/// Publishing never waits for a reader. See "Jobs" in devflow/README.md.
+/// Once a run has ended, <see cref="End"/> ends its subscriptions too. Publishing never waits for a
+/// reader. See "Jobs" in devflow/README.md.
 /// </para>
 /// </summary>
 public sealed class RunLogFeed
@@ -78,6 +79,26 @@ public sealed class RunLogFeed
                 reader.Writer.TryComplete();
                 Remove(runId, reader);
             }
+        }
+    }
+
+    /// <summary>Ends every subscription of <paramref name="runId"/>, once its end is committed: its
+    /// result recorded, or the run found lost. A reader whose lines end reads the table once to
+    /// tell this from falling behind.</summary>
+    public void End(Guid runId)
+    {
+        List<Channel<RunLogLine>>? readers;
+        lock (_lock)
+        {
+            if (!_readers.Remove(runId, out readers))
+            {
+                return;
+            }
+        }
+
+        foreach (var reader in readers)
+        {
+            reader.Writer.TryComplete();
         }
     }
 

@@ -199,14 +199,18 @@ public sealed class ContractTests
     [Fact]
     public async Task TheRunningRoutesArePinned()
     {
-        // Running now reads its list once and then as server-sent events, so the page's types and
-        // its EventSource are written against the same shapes.
+        // Running now reads its list once and then as server-sent events, and each run's log as
+        // they happen, so the page's types and its EventSource are written against the same shapes.
         var document = JsonNode.Parse(await File.ReadAllTextAsync(Schema, TestContext.Current.CancellationToken))!;
         var paths = document["paths"]!.AsObject();
         Assert.Equal("listRunning", (string?)paths["/devflow/api/running"]?["get"]?["operationId"]);
         Assert.Equal("#/components/schemas/RunningList", (string?)paths["/devflow/api/running"]!["get"]!["responses"]?["200"]?["content"]?["application/json"]?["schema"]?["$ref"]);
         Assert.Equal("streamRunning", (string?)paths["/devflow/api/running/events"]?["get"]?["operationId"]);
         Assert.NotNull(paths["/devflow/api/running/events"]!["get"]!["responses"]?["200"]?["content"]?["text/event-stream"]);
+        var log = paths["/devflow/api/projects/{id}/runs/{run}/log/events"]?["get"];
+        Assert.Equal("streamRunLog", (string?)log?["operationId"]);
+        Assert.NotNull(log!["responses"]?["200"]?["content"]?["text/event-stream"]);
+        Assert.True(log["responses"]!.AsObject().ContainsKey("404"), "the log stream answers 404");
         var schemas = document["components"]!["schemas"]!;
         Assert.Equal(["busy_workers", "runs"], schemas["RunningList"]!["properties"]!.AsObject().Select(pair => pair.Key).Order(StringComparer.Ordinal));
         Assert.Equal(

@@ -502,6 +502,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/projects/{id}/runs/{run}/log/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A run's log, as it happens
+         * @description Server-sent events, text/event-stream: a start event at once, data null, then a line event for each of the last 200 lines the run stored, after the seq in Last-Event-ID when one is sent, then one for each new line as the worker's log route stores it, its data the line, seq, at, kind and text, and its id the seq; each text is shown as text, never as HTML. Once the run has ended, its last lines and then an end event, data null, and the stream closes; a run that has ended sends them at once. It ends without one when the token it was opened with runs out, or when it falls too far behind, and EventSource opens it again from its Last-Event-ID. 404 for a project or run the caller does not have. Without a valid token, 401 with an empty body.
+         */
+        get: operations["streamRunLog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/projects/{id}/runs/{run}/stop": {
         parameters: {
             query?: never;
@@ -1936,6 +1956,14 @@ export interface components {
             resets_at?: null | string;
             timed_out?: null | boolean;
         };
+        RunLogLine: {
+            /** Format: date-time */
+            at: string;
+            kind: string;
+            /** Format: int64 */
+            seq: number;
+            text: string;
+        };
         RunningList: {
             /** Format: int32 */
             busy_workers: number;
@@ -2106,6 +2134,12 @@ export interface components {
         SetupVariable: {
             name: string;
             why: string;
+        };
+        SseItemOfRunLogLine: {
+            data?: components["schemas"]["RunLogLine"];
+            event_id?: null | string;
+            event_type?: null | string;
+            reconnection_interval?: null | string;
         };
         SseItemOfRunningList: {
             data?: components["schemas"]["RunningList"];
@@ -3578,6 +3612,45 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    streamRunLog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                run: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["SseItemOfRunLogLine"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
                 };
             };
         };
