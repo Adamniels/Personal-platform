@@ -1,0 +1,109 @@
+/* A project's tokens per day, under its table on "Usage and history". Tokens
+ * only, design/DESIGN.md. */
+
+/* In a frame of its own, as the table above it. */
+.chart {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-width: 0;
+	margin: 0;
+	padding: var(--space-3) var(--space-4);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	background: var(--surface);
+}
+
+/* What the chart is on the left, the day pointed at or chosen on the right,
+ * one line high even when no day is. */
+.top {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: var(--space-1) var(--space-3);
+	min-height: var(--text-body-line);
+}
+
+.title {
+	color: var(--text-2);
+	font-size: var(--text-small-size);
+	line-height: var(--text-small-line);
+}
+
+/* Hard rule 8: dates and counts in mono with tabular figures. */
+.shown,
+.most,
+.dates {
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+}
+
+.shown {
+	color: var(--text);
+}
+
+/* The highest day's figure, the top of the bars. */
+.most {
+	color: var(--text-2);
+}
+
+/* The bars, and the range input that chooses a day laid over them. */
+.plot {
+	position: relative;
+	min-width: 0;
+	border-radius: var(--radius-xs);
+}
+
+/* Hard rule 9: the input is unseen, so its ring is drawn round the bars. */
+.plot:has(.days:focus-visible) {
+	outline: var(--focus-ring);
+	outline-offset: var(--focus-offset);
+}
+
+/* Stretched to the frame's width, on a 1px baseline. */
+.bars {
+	display: block;
+	width: 100%;
+	height: calc(var(--space-8) + var(--space-4));
+	border-bottom: 1px solid var(--border);
+}
+
+/* Over the bars, as large as they are, and unseen: it takes the pointer, the
+ * keys and a tap, and the bars show what it holds. */
+.days {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	opacity: 0;
+	cursor: default;
+}
+
+/* The day shown is marked by its slot and its bar together. */
+.column {
+	fill: transparent;
+}
+
+.bar {
+	fill: var(--info);
+}
+
+.slot[data-active="true"] .column {
+	fill: var(--surface-2);
+}
+
+.slot[data-active="true"] .bar {
+	fill: var(--text);
+}
+
+/* The first and last dates, under the first and last bars. */
+.dates {
+	display: flex;
+	justify-content: space-between;
+	gap: var(--space-3);
+	color: var(--text-2);
+}

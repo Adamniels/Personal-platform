@@ -3,6 +3,8 @@ using System.Text.Json.Nodes;
 
 using DevFlow.Usage;
 
+using Microsoft.AspNetCore.Http;
+
 namespace DevFlow.Tests.Usage;
 
 /// <summary>
@@ -101,5 +103,51 @@ public sealed partial class UsageTests
                 [new DateOnly(2026, 10, 26)] = 5,
             }),
             october.Select(day => (day.Date, day.Tokens)).ToList());
+    }
+
+    [Fact]
+    public async Task TheFakeStagesAMonthOfUse()
+    {
+        const string Path = "/devflow/api/fake/usage-history";
+        await using var world = await UsageWorld.Start();
+        var project = await world.Project("Personal-platform");
+        await world.Card(project, 1);
+        var today = DevFlowTime.DayOf(world.Now);
+        string Body(string days) => new JsonObject { ["project_id"] = project, ["days"] = JsonNode.Parse(days) }.ToJsonString();
+
+        // Nothing to copy yet: a project needs a finished run, so the copies are runs it could have.
+        Assert.Equal(StatusCodes.Status404NotFound, (await world.Routes.App.SendJson("POST", Path, Contract.Token, Body("""[{"days_ago": 1, "tokens": 5}]"""))).Response.StatusCode);
+        await world.Run(project, "build", Minutes(30), Minutes(10), card: 1, input: 40, output: 2, cacheRead: 900);
+
+        // Each day named gets a copy of the project's last finished run, started that many days ago
+        // in Dev flow's zone, with those tokens, and every other figure of it as it was.
+        var staged = await world.Routes.App.SendJson("POST", Path, Contract.Token, Body("""[{"days_ago": 0, "tokens": 100}, {"days_ago": 3, "tokens": 5000}, {"days_ago": 29, "tokens": 7}]"""));
+        Assert.Equal(StatusCodes.Status204NoContent, staged.Response.StatusCode);
+        var usage = await world.Usage();
+        var shown = Assert.Single(usage["projects"]!.AsArray())!;
+        Assert.Equal(Expected(today, new() { [today] = 42 + 100, [today.AddDays(-3)] = 5_000, [today.AddDays(-29)] = 7 }), Days(shown));
+        // The copies are finished runs of the same card, so its row counts them; cache reads were
+        // the original's alone.
+        Figures(Assert.Single(shown["cards"]!.AsArray())!, runs: 4, agentMs: (long)(Minutes(20).TotalMilliseconds + (3 * 600_000)), tokens: 42 + 5_107, cacheReads: 900);
+
+        // Malformed: no project, a day in the future, or tokens below 0, each named.
+        foreach (var (body, field) in new[]
+        {
+            ("""{"days": [{"days_ago": 1, "tokens": 5}]}""", "project_id"),
+            (Body("""[{"days_ago": -1, "tokens": 5}]"""), "days[0].days_ago"),
+            (Body("""[{"days_ago": 1, "tokens": 5}, {"days_ago": 2, "tokens": -5}]"""), "days[1].tokens"),
+        })
+        {
+            var refused = await world.Routes.App.SendJson("POST", Path, Contract.Token, body);
+            Assert.Equal(StatusCodes.Status400BadRequest, refused.Response.StatusCode);
+            Assert.Contains(field + ":", await Harness.Body(refused), StringComparison.Ordinal);
+        }
+
+        // Another user's project is not the caller's to stage.
+        var bob = await world.Project("bobs-repository", Reading.Routes.Bob, repository: 4242);
+        await world.Card(bob, 1);
+        await world.Run(bob, "build", Minutes(30), Minutes(10), card: 1, input: 1);
+        var theirs = new JsonObject { ["project_id"] = bob, ["days"] = JsonNode.Parse("""[{"days_ago": 1, "tokens": 5}]""") }.ToJsonString();
+        Assert.Equal(StatusCodes.Status404NotFound, (await world.Routes.App.SendJson("POST", Path, Contract.Token, theirs)).Response.StatusCode);
     }
 }

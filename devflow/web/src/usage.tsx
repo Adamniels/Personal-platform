@@ -1,7 +1,8 @@
 // The "Usage and history" tab: what each project, feature and card used over the last 7 days, the
 // last 30 or all time, the period in the address. A table per project, most tokens first, each
 // opening into its features and its cards on their own, and a feature into its cards and its own
-// runs; a project's own runs, its checks and setup, are "Setting up". Tokens by the one definition
+// runs; a project's own runs, its checks and setup, are "Setting up". Under each table, the
+// project's tokens per day over the last 30 days, whatever the period. Tokens by the one definition
 // the service sends, cache reads beside them; tokens and time, never money. The figures come from
 // GET /devflow/api/usage. See "The pages" in devflow/README.md.
 import { EmptyState, Select, Table, type TableColumn } from "@platform/ui";
@@ -10,6 +11,7 @@ import { type ReactNode, useState } from "react";
 import { navigate, plainClick, useSearch } from "./address";
 import type { GetAnswer } from "./api/client";
 import { cardPath, featurePath } from "./sections";
+import { TokensPerDay } from "./tokens-per-day";
 import styles from "./usage.module.css";
 
 export type UsageView = GetAnswer<"/usage">;
@@ -209,7 +211,7 @@ const COLUMNS: readonly TableColumn<Row>[] = [
 
 /** A project's table: its own row, closed; open, its features, each of which
  * opens into its cards and its own runs, its cards on their own and Setting
- * up. */
+ * up. Under it, its tokens per day. */
 function ProjectTable({ project }: { project: UsageProject }) {
 	const [open, setOpen] = useState(false);
 	const [features, setFeatures] = useState<ReadonlySet<number>>(new Set());
@@ -274,13 +276,16 @@ function ProjectTable({ project }: { project: UsageProject }) {
 	}
 
 	return (
-		<Table
-			className={styles.table}
-			label={`Usage of ${project.name}`}
-			columns={COLUMNS}
-			rows={rows}
-			rowKey={(row) => row.key}
-		/>
+		<div className={styles.project}>
+			<Table
+				className={styles.table}
+				label={`Usage of ${project.name}`}
+				columns={COLUMNS}
+				rows={rows}
+				rowKey={(row) => row.key}
+			/>
+			<TokensPerDay project={project.name} days={project.days} />
+		</div>
 	);
 }
 

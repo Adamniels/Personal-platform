@@ -34,6 +34,17 @@ public sealed record FakePushed(string Commit);
 /// be over.</param>
 public sealed record FakeEndWait(Guid? ProjectId);
 
+/// <summary>What <c>POST /devflow/api/fake/usage-history</c> takes.</summary>
+/// <param name="ProjectId">The caller's project to stage the days of use of.</param>
+/// <param name="Days">The days, each with how many days before today it is and its tokens.</param>
+public sealed record FakeUsageHistory(Guid? ProjectId, IReadOnlyList<FakeUsedDay>? Days);
+
+/// <summary>A day of use <c>POST /devflow/api/fake/usage-history</c> stages.</summary>
+/// <param name="DaysAgo">How many days before today, in <see cref="DevFlowTime.Zone"/>, 0 for
+/// today.</param>
+/// <param name="Tokens">The tokens of the day's run.</param>
+public sealed record FakeUsedDay(int DaysAgo, long Tokens);
+
 /// <summary>
 /// The fake code host's addresses, through which a test stages its account's world. Mapped only
 /// in the fake mode, so in the GitHub mode each is <c>404</c>; under the <c>Api</c> policy and the
@@ -172,6 +183,54 @@ public static class FakeEndpoints
             return ended > 0
                 ? TypedResults.NoContent()
                 : TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No wait", detail: "the caller has no such project waiting");
+        });
+
+        // Gives a project days of use, so a test sees a month of tokens per day without a month of
+        // runs: each day a copy of the project's last finished run, started at noon that day in
+        // Dev flow's zone, or just before the run copied when that is earlier, with the day's tokens
+        // as its input and its time 10 minutes. See "Usage and history" in devflow/README.md.
+        fake.MapPost("/usage-history", async Task<Results<NoContent, ProblemHttpResult>> (HttpContext context, [FromServices] UserDb database, [FromServices] TimeProvider time) =>
+        {
+            var (body, error) = await FakeJson.Read<FakeUsageHistory>(context.Request.Body, context.RequestAborted);
+            error ??= body is { ProjectId: null } ? new Malformed("project_id", "is required") : null;
+            error ??= body is { Days: null } ? new Malformed("days", "is required") : null;
+            error ??= body!.Days!
+                .Select((day, index) => day.DaysAgo < 0 ? new Malformed($"days[{index}].days_ago", "must not be negative")
+                    : day.Tokens < 0 ? new Malformed($"days[{index}].tokens", "must not be negative")
+                    : null)
+                .FirstOrDefault(each => each is not null);
+            if (error is not null)
+            {
+                return Refused("The days are malformed", error);
+            }
+
+            var (projectId, days) = (body!.ProjectId, body.Days!);
+            var today = DevFlowTime.DayOf(time.GetUtcNow());
+            var userId = context.UserId();
+            var staged = await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                """
+                INSERT INTO runs
+                SELECT (jsonb_populate_record(NULL::runs, to_jsonb(r) || jsonb_build_object(
+                    'id', gen_random_uuid(),
+                    'started_at', least(d.started, r.started_at - interval '1 second'),
+                    'finished_at', least(d.started, r.started_at - interval '1 second'),
+                    'checking_at', NULL, 'last_heard_at', NULL, 'stop_requested_at', NULL, 'log_pruned_at', NULL,
+                    'usage', NULL, 'duration_ms', 600000,
+                    'input_tokens', d.tokens, 'cache_creation_input_tokens', 0, 'output_tokens', 0, 'cache_read_input_tokens', 0))).*
+                FROM unnest(@starts::timestamptz[], @tokens::bigint[]) AS d(started, tokens)
+                CROSS JOIN (SELECT * FROM runs WHERE project_id = @projectId AND finished_at IS NOT NULL ORDER BY started_at DESC LIMIT 1) r
+                """,
+                new
+                {
+                    projectId,
+                    starts = days.Select(day => DevFlowTime.StartOf(today.AddDays(-day.DaysAgo)).AddHours(12)).ToArray(),
+                    tokens = days.Select(day => day.Tokens).ToArray(),
+                },
+                transaction,
+                cancellationToken: context.RequestAborted)), context.RequestAborted);
+            return staged > 0 || days.Count == 0
+                ? TypedResults.NoContent()
+                : TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No run", detail: "the caller has no such project with a finished run to copy");
         });
 
         return routes;

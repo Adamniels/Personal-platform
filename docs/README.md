@@ -165,7 +165,8 @@ features" in `High-level/docs/platform-architecture.md`.
   a user's runs, handing out work, with the lock that takes a card, a feature's cards one at a time and why a card waits for every earlier one not done, stopped or held, a feature's branch and why one Dev flow did not make is never taken, why nothing is read from GitHub
   under it, the brief quoting the card as picked, how a card reaches its pull request and
   how the waiting list reads Dev flow's own cards beside the runner's, why the report decides nothing, where a failure
-  lies and why a run is lost when its worker goes quiet, a run's log kept each line once and its lines reaching a live page from memory, the worker's pictures and why they never decide a merge, why the developer looks at its own pages too, the review and why its verdict lives in the database tied to its
+  lies and why a run is lost when its worker goes quiet, a run's log kept each line once and its lines reaching a live page from memory, days counted in one zone,
+  read through `DevFlowTime`, the worker's pictures and why they never decide a merge, why the developer looks at its own pages too, the review and why its verdict lives in the database tied to its
   commit, fixing, why rounds are limited and why the owner's comment is the one input read from
   GitHub, the merge check, each condition and why it fails closed, a card of a feature, why the app
   closes its issue and why its decisions open no issue, sending a card back, with why only his

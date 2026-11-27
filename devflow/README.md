@@ -654,6 +654,20 @@ phone every number column is priority 2, so each row is its name with its number
 line under it, "2 runs · 4 min agent · 0 s elapsed · 25,210 tokens · 512,870 cache reads · 0 fix
 rounds · sent back 0".
 
+Under each project's table, in a frame of its own, its tokens per day, `src/tokens-per-day.tsx`:
+30 bars in plain SVG, one a day ending today in Dev flow's time zone, oldest first, each as high as
+the day's tokens by the one definition against the highest day's, in `--info` on a 1px `--border`
+baseline, with no chart library. It is always the last 30 days, whatever the period chosen. Over
+the bars "Tokens per day" on the left and, on the right, the day shown, "26 Nov: 1,000 tokens";
+under that the highest day's figure, the top of the bars; and under the bars the first and last
+dates, all in the mono font. A day is shown while its bar is pointed at, its slot in `--surface-2`
+and its bar in `--text`, and is chosen by a range input laid unseen over the bars, the real control,
+"A day of <project>'s tokens", which holds today at first, moves by the arrow keys, Home and End or
+a tap on a phone, says its day as `aria-valuetext`, and shows its day while it has focus, with the
+focus ring drawn round the bars. The drawing is an image whose label sums it up for screen readers,
+"<project>: tokens per day, the last 30 days, most on 20 Nov, 24,358", the latest day of the
+highest if two tie, or "…, none" when the 30 days used nothing.
+
 With no run in the period, the `EmptyState` "Nothing used in the last 7 days", "Nothing used in the
 last 30 days" or, for all time, "Nothing used yet", "What each project, feature and card uses shows
 here once a worker has run a job."; a list that cannot be read says so as an alert.
@@ -671,7 +685,11 @@ for one Dev flow no longer holds, the four, `elapsed_ms`, `fix_rounds`, `cards.f
 card and `feature_number` to its feature, so a feature's reading counts to the feature even though
 a card's page lists it, and nothing counts twice; a run with neither, a check or a setup's, counts
 to its project's Setting up; and a card counts to the feature it is a card of now, by
-`cards.feature_id`.
+`cards.feature_id`. Each project has `days` too, its tokens per day: 30, ending today in
+`DevFlowTime.Zone`, oldest first, whatever the period, each `date`, `2026-11-27`, and `tokens`, the
+tokens of every run of the project started that day, its cards', its features' and Setting up's
+alike, 0 with none. The days' bounds are `DevFlowTime`'s, a day 23 or 25 hours long across a change
+of summer time, and are handed to the query, so Postgres never counts a day by a zone of its own.
 
 ### The address
 
@@ -1340,6 +1358,13 @@ of what Dev flow is:
   failures outside its cards now, its count kept, so a test sees the next failure without waiting
   minutes, `204`; `404` for a project the caller does not have or that does not wait, and `400`
   without a `project_id`. See "Stops".
+- `POST /devflow/api/fake/usage-history` with `{"project_id", "days": [{"days_ago": 3, "tokens":
+  52000}]}` gives the caller's project a day of use for each entry, so a test sees a month of tokens
+  per day without a month of runs: a copy of the project's last finished run, started at noon that
+  many days before today in `DevFlowTime.Zone`, or just before the run copied when that is earlier,
+  with the day's tokens as its input, no cache figures and 10 minutes of time, `204`; `404` for a
+  project the caller does not have or that has no finished run, and `400` without `project_id` or
+  `days`, or for a negative `days_ago` or `tokens`, naming it. See "Usage and history".
 - `POST /devflow/api/fake/push` with `{"repository": 1001, "branch": "main", "message": "…"}`
   pushes one commit on the branch of the caller's repository with that id, made in the fake's git
   repository on top of where the branch is, and lists it among the branch's changes as a push by the
