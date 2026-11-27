@@ -2897,6 +2897,28 @@
         ],
         "type": "object"
       },
+      "ProjectSchedules": {
+        "properties": {
+          "runs_by": {
+            "type": "string"
+          },
+          "schedules": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduleEntry"
+            },
+            "type": "array"
+          },
+          "time_zone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "runs_by",
+          "time_zone",
+          "schedules"
+        ],
+        "type": "object"
+      },
       "ProjectSettings": {
         "properties": {
           "attention_label": {
@@ -3954,6 +3976,118 @@
         ],
         "type": "object"
       },
+      "ScheduleEntry": {
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "days": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "from": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "days",
+          "from",
+          "to",
+          "active"
+        ],
+        "type": "object"
+      },
+      "ScheduleRequest": {
+        "properties": {
+          "runs_by": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "schedules": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduleWindowRequest"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          }
+        },
+        "required": [
+          "runs_by",
+          "schedules"
+        ],
+        "type": "object"
+      },
+      "ScheduleWindowRequest": {
+        "properties": {
+          "active": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "days": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "from": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "to": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "days",
+          "from",
+          "to",
+          "active"
+        ],
+        "type": "object"
+      },
       "ScreenshotGroup": {
         "properties": {
           "images": {
@@ -4745,6 +4879,31 @@
       "Stream": {
         "format": "binary",
         "type": "string"
+      },
+      "TimeZoneAnswer": {
+        "properties": {
+          "time_zone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "time_zone"
+        ],
+        "type": "object"
+      },
+      "TimeZoneRequest": {
+        "properties": {
+          "time_zone": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "time_zone"
+        ],
+        "type": "object"
       },
       "TrustedLogin": {
         "properties": {
@@ -7279,6 +7438,116 @@
         ]
       }
     },
+    "/devflow/api/projects/{id}/schedules": {
+      "get": {
+        "description": "runs_by, always or schedule; time_zone, the caller's, which every window is wall clock in; and schedules, its windows in their order, each with id, name, days, the days it starts on, mon to sun in the week's order, from and to, HH:MM, a to earlier than from ending the next day, and active, whether it is on. 404 for a project the caller does not have. Without a valid token, 401 with an empty body.",
+        "operationId": "getSchedules",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSchedules"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "When a project runs",
+        "tags": [
+          "DevFlow"
+        ]
+      },
+      "put": {
+        "description": "Takes runs_by and schedules, the whole list, and replaces both in one transaction, answering what it left as getSchedules does. A window without an id gets a new one, and one with an id keeps it. The rules: runs_by is always or schedule; schedules is a list, empty for none, of at most 20 windows; a name is 1 to 60 characters once trimmed, unique in the project whatever its case; days is a non-empty set of mon, tue, wed, thu, fri, sat and sun, kept once each in the week's order; from and to are HH:MM in 24 hours, different; active is true or false; an id is given at most once. In order: 404 for a project the caller does not have; 422 naming each field that breaks a rule, runs_by, schedules or schedules[i].<field>, and nothing is saved. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "operationId": "replaceSchedules",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSchedules"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Replace when a project runs, as the caller",
+        "tags": [
+          "ScheduleEndpoints"
+        ]
+      }
+    },
     "/devflow/api/projects/{id}/settings": {
       "get": {
         "description": "The labels that pick and hold its cards, mark what needs the caller and mark a card for their review; whether a card's pull request waits for them, never, sometimes or always, with the three conditions of sometimes and the paths it watches; its trusted accounts, the GitHub logins whose cards, edits and comments count, the caller's linked login first and marked as theirs; the model that reads, builds and reviews its cards and the limits of its runs; and questions, whether a card its reading found questions in waits for the caller's answers rather than going on the reader's recommendations; and preset, the preset the settings match, fully_automatic, guided or only_i_merge, or custom, computed and never stored. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.",
@@ -8145,6 +8414,74 @@
         ]
       }
     },
+    "/devflow/api/time-zone": {
+      "get": {
+        "description": "time_zone, the IANA id every schedule of the caller's and every day Dev flow counts for them is read in; Europe/Stockholm until they set another. Without a valid token, 401 with an empty body.",
+        "operationId": "getTimeZone",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimeZoneAnswer"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "The caller's time zone",
+        "tags": [
+          "DevFlow"
+        ]
+      },
+      "put": {
+        "description": "Takes time_zone, an IANA id: UTC, or an area and a place joined by /, of letters, digits, _, + and -, at most 64 characters, that .NET's own zones know, such as Europe/Stockholm; a Windows id such as W. Europe Standard Time is refused. Used by every project of the caller's, its schedules and its days, at once. 200 with the zone as saved; 422 naming time_zone for anything else. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "operationId": "setTimeZone",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TimeZoneRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimeZoneAnswer"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Set the caller's time zone",
+        "tags": [
+          "ScheduleEndpoints"
+        ]
+      }
+    },
     "/devflow/api/usage": {
       "get": {
         "description": "Counts the runs started in period, 7d or 30d, rolling, so many times 24 hours back from now, or all, 30d without one. period, as counted, and projects, each of the caller's projects with a run in it, most tokens first: its id and name; runs, agent_ms, the sum of the runs' times, each as its worker measured it, or from its start to its end, or to now while it runs; tokens, input_tokens + cache_creation_input_tokens + output_tokens; and cache_reads beside them, never in them; setting_up, the same for its checks and its setup's runs, null with none; features, each with a run in the period of its own or of one of its cards, most tokens first, with its number, title, the same figures over its own runs and its cards', elapsed_ms, from the first start of any of them to the last end, or now while one runs, fix_rounds, the rounds of the whole feature its reviews started, sent_back, how many times its cards were sent back, own, the same figures for its own runs alone, its readings, reviews, fixes and conflicts, null with none, and cards, its cards with a run in the period; cards, its cards on their own with a run in the period; and days, its tokens per day, the last 30 days ending today in Dev flow's time zone, Europe/Stockholm, oldest first, whatever the period, each its date and the tokens of the project's runs started on it, 0 with none. A card, most tokens first, has its number, title, null for one Dev flow no longer holds, the same figures, elapsed_ms over all its runs, fix_rounds, the rounds its reviews started, and sent_back, how many times it was sent back; elapsed, fix rounds and sends back are the card's or the feature's whole, not the period's. Read from what Dev flow stored, never from GitHub. 422 naming period for any other. Without a valid token, 401 with an empty body.",
@@ -8923,6 +9260,9 @@
     },
     {
       "name": "PauseEndpoints"
+    },
+    {
+      "name": "ScheduleEndpoints"
     },
     {
       "name": "UsageEndpoints"

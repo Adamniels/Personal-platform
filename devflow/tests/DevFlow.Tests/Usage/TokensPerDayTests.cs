@@ -9,7 +9,7 @@ namespace DevFlow.Tests.Usage;
 
 /// <summary>
 /// Each project's tokens per day in <c>GET /devflow/api/usage</c>: the last 30 days ending today in
-/// <see cref="DevFlowTime.Zone"/>, whatever the period. Against real Postgres, through the door as
+/// the user's zone, Europe/Stockholm until they set another, whatever the period. Against real Postgres, through the door as
 /// the user. See "Usage and history" in devflow/README.md.
 /// </summary>
 public sealed partial class UsageTests
@@ -34,7 +34,7 @@ public sealed partial class UsageTests
         var feature = await world.Feature(platform, 4);
         await world.Card(platform, 1);
         await world.Card(fodr, 5);
-        var today = DevFlowTime.DayOf(world.Now);
+        var today = DevFlowTime.DayOf(world.Now, DevFlowTime.DefaultZone);
 
         // A card's build two hours ago; yesterday the feature's review and a setup's run, every run
         // of the project counting; a build 29 days ago, the first of the 30; and one 30 days and a
@@ -60,12 +60,12 @@ public sealed partial class UsageTests
         Assert.Equal(
             Expected(today, new()
             {
-                [DevFlowTime.DayOf(world.Now - Hours(2))] = 120,
-                [DevFlowTime.DayOf(world.Now - Days(1))] = 30 + 5,
+                [DevFlowTime.DayOf(world.Now - Hours(2), DevFlowTime.DefaultZone)] = 120,
+                [DevFlowTime.DayOf(world.Now - Days(1), DevFlowTime.DefaultZone)] = 30 + 5,
                 [today.AddDays(-29)] = 7,
             }),
             Days(projects[1]!));
-        Assert.Equal(Expected(today, new() { [DevFlowTime.DayOf(world.Now - Days(3))] = 2_000 }), Days(projects[0]!));
+        Assert.Equal(Expected(today, new() { [DevFlowTime.DayOf(world.Now - Days(3), DevFlowTime.DefaultZone)] = 2_000 }), Days(projects[0]!));
 
         // The days are always the last 30, whatever the period: the last 7 days still has the
         // build 29 days ago among them.
@@ -112,7 +112,7 @@ public sealed partial class UsageTests
         await using var world = await UsageWorld.Start();
         var project = await world.Project("Personal-platform");
         await world.Card(project, 1);
-        var today = DevFlowTime.DayOf(world.Now);
+        var today = DevFlowTime.DayOf(world.Now, DevFlowTime.DefaultZone);
         string Body(string days) => new JsonObject { ["project_id"] = project, ["days"] = JsonNode.Parse(days) }.ToJsonString();
 
         // Nothing to copy yet: a project needs a finished run, so the copies are runs it could have.

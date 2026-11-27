@@ -606,6 +606,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/projects/{id}/schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * When a project runs
+         * @description runs_by, always or schedule; time_zone, the caller's, which every window is wall clock in; and schedules, its windows in their order, each with id, name, days, the days it starts on, mon to sun in the week's order, from and to, HH:MM, a to earlier than from ending the next day, and active, whether it is on. 404 for a project the caller does not have. Without a valid token, 401 with an empty body.
+         */
+        get: operations["getSchedules"];
+        /**
+         * Replace when a project runs, as the caller
+         * @description Takes runs_by and schedules, the whole list, and replaces both in one transaction, answering what it left as getSchedules does. A window without an id gets a new one, and one with an id keeps it. The rules: runs_by is always or schedule; schedules is a list, empty for none, of at most 20 windows; a name is 1 to 60 characters once trimmed, unique in the project whatever its case; days is a non-empty set of mon, tue, wed, thu, fri, sat and sun, kept once each in the week's order; from and to are HH:MM in 24 hours, different; active is true or false; an id is given at most once. In order: 404 for a project the caller does not have; 422 naming each field that breaks a rule, runs_by, schedules or schedules[i].<field>, and nothing is saved. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        put: operations["replaceSchedules"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/projects/{id}/settings": {
         parameters: {
             query?: never;
@@ -907,6 +931,30 @@ export interface paths {
          */
         get: operations["status"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/time-zone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's time zone
+         * @description time_zone, the IANA id every schedule of the caller's and every day Dev flow counts for them is read in; Europe/Stockholm until they set another. Without a valid token, 401 with an empty body.
+         */
+        get: operations["getTimeZone"];
+        /**
+         * Set the caller's time zone
+         * @description Takes time_zone, an IANA id: UTC, or an area and a place joined by /, of letters, digits, _, + and -, at most 64 characters, that .NET's own zones know, such as Europe/Stockholm; a Windows id such as W. Europe Standard Time is refused. Used by every project of the caller's, its schedules and its days, at once. 200 with the zone as saved; 422 naming time_zone for anything else. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        put: operations["setTimeZone"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1887,6 +1935,11 @@ export interface components {
         ProjectList: {
             projects: components["schemas"]["ListedProject"][];
         };
+        ProjectSchedules: {
+            runs_by: string;
+            schedules: components["schemas"]["ScheduleEntry"][];
+            time_zone: string;
+        };
         ProjectSettings: {
             attention_label: string;
             /** Format: int32 */
@@ -2133,6 +2186,28 @@ export interface components {
             worker_id: string;
             worker_name: string;
         };
+        ScheduleEntry: {
+            active: boolean;
+            days: string[];
+            from: string;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            to: string;
+        };
+        ScheduleRequest: {
+            runs_by: null | string;
+            schedules: null | components["schemas"]["ScheduleWindowRequest"][];
+        };
+        ScheduleWindowRequest: {
+            active: null | boolean;
+            days: null | string[];
+            from: null | string;
+            /** Format: uuid */
+            id: null | string;
+            name: null | string;
+            to: null | string;
+        };
         ScreenshotGroup: {
             images: string[];
             name: string;
@@ -2324,6 +2399,12 @@ export interface components {
         };
         /** Format: binary */
         Stream: string;
+        TimeZoneAnswer: {
+            time_zone: string;
+        };
+        TimeZoneRequest: {
+            time_zone: null | string;
+        };
         TrustedLogin: {
             login: string;
             mine: boolean;
@@ -4074,6 +4155,95 @@ export interface operations {
             };
         };
     };
+    getSchedules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectSchedules"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    replaceSchedules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectSchedules"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
     getProjectSettings: {
         parameters: {
             query?: never;
@@ -4795,6 +4965,73 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    getTimeZone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeZoneAnswer"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    setTimeZone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TimeZoneRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeZoneAnswer"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
             };
         };
     };
