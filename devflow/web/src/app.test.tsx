@@ -7,7 +7,7 @@ import {
 	within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "vitest";
-import { App } from "./app";
+import { App, type PausesApi } from "./app";
 
 const PROJECT = {
 	id: "0190a8f0-0000-7000-8000-000000000001",
@@ -26,14 +26,24 @@ const PROJECT = {
 	},
 };
 
-function openAt(path: string) {
+/** Nothing paused, as a new user's answer. */
+const RUNS: PausesApi = {
+	loadPaused: () => Promise.resolve({ paused: false, paused_at: null }),
+	pauseAll: () => Promise.resolve(),
+};
+
+function openAt(path: string, pauses: PausesApi = RUNS) {
 	window.history.pushState(null, "", path);
 	// The frame alone: the banner's own tests are in banner.test.tsx.
 	render(
 		<App
 			loadStatus={() => new Promise(() => {})}
+			pauses={pauses}
+			usage={{ loadUsage: () => new Promise(() => {}) }}
 			project={{
 				loadProjects: () => Promise.resolve([PROJECT]),
+				pauseProject: () => Promise.resolve(),
+				stopNow: () => Promise.resolve(0),
 				loadWorkers: () =>
 					Promise.resolve({
 						key_made_at: null,
@@ -266,6 +276,61 @@ describe("the address decides the tab, and a tab changes the address", () => {
 		expect(
 			screen.getByRole("tablist", { name: "Dev flow sections" }),
 		).toBeTruthy();
+	});
+});
+
+describe("everything paused", () => {
+	test("everything paused shows a strip on every tab with Continue everything", async () => {
+		const STRIP = "Everything is paused. Nothing new starts in any project.";
+		let paused = true;
+		const asked: boolean[] = [];
+		const pauses: PausesApi = {
+			loadPaused: () =>
+				Promise.resolve({
+					paused,
+					paused_at: paused ? "2026-11-17T12:00:00+00:00" : null,
+				}),
+			pauseAll: (value) => {
+				asked.push(value);
+				paused = value;
+				return Promise.resolve();
+			},
+		};
+
+		// On every tab, under the page's heading.
+		for (const path of [
+			"/devflow",
+			"/devflow/running",
+			"/devflow/projects",
+			"/devflow/usage",
+			`/devflow/projects/${PROJECT.id}`,
+		]) {
+			openAt(path, pauses);
+			const strip = await screen.findByText(STRIP);
+			expect(strip.closest("header")).toBe(
+				screen
+					.getByRole("heading", { level: 1, name: "Dev flow" })
+					.closest("header"),
+			);
+			cleanup();
+		}
+
+		// Continue everything continues, and the strip goes.
+		openAt("/devflow", pauses);
+		await screen.findByText(STRIP);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Continue everything" }),
+		);
+		await waitFor(() => expect(screen.queryByText(STRIP)).toBe(null));
+		expect(asked).toEqual([false]);
+	});
+
+	test("nothing paused shows no strip", async () => {
+		openAt("/devflow");
+		await screen.findByRole("tab", { name: "Waiting for you" });
+		await waitFor(() =>
+			expect(screen.queryByText(/Everything is paused/)).toBe(null),
+		);
 	});
 });
 

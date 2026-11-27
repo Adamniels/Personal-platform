@@ -120,6 +120,25 @@
 	min-width: 0;
 }
 
+/* The tab's header: the switch that pauses everything, at the right of the
+ * column on a wide screen and across it on phone. */
+.tabHeader {
+	display: flex;
+	justify-content: flex-end;
+	min-width: 0;
+}
+
+.pauseAll {
+	flex: 0 1 24rem;
+	min-width: 0;
+}
+
+@media (max-width: 639.98px) {
+	.pauseAll {
+		flex-basis: 100%;
+	}
+}
+
 /* "Next up": a table in a card of its own, section 4's "Table", with its
  * label and count above it, as the cards on their own on a project's page. */
 .next {

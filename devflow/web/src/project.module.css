@@ -93,6 +93,65 @@
 	line-height: var(--text-body-lg-line);
 }
 
+/* The line under the name while the project is paused, in --text-2. */
+.pausedLine {
+	margin: 0;
+	color: var(--text-2);
+	font-size: var(--text-body-size);
+	line-height: var(--text-body-line);
+}
+
+/* The heading's right: the stat pills over the page's actions, both on the
+ * right and aligned to the bottom, as section 2 of design/DESIGN.md puts a
+ * page's actions; on phone, where the pills give way, the actions wrap under
+ * the titles. */
+.end {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: var(--space-3);
+	min-width: 0;
+}
+
+/* Pause or Continue, then Stop now, a row that wraps. */
+.actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	align-items: center;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+/* Stop now ends every run under way: a ghost in the danger colour, two
+ * classes to outrank the ghost button's own. */
+.actions .stopNow,
+.actions .stopNow:hover:not(:disabled) {
+	color: var(--danger);
+}
+
+.actionFailed {
+	flex-basis: 100%;
+	margin: 0;
+	color: var(--danger);
+	text-align: right;
+	overflow-wrap: anywhere;
+}
+
+@media (max-width: 639.98px) {
+	.end {
+		align-items: flex-start;
+	}
+
+	.actions {
+		justify-content: flex-start;
+	}
+
+	.actionFailed {
+		text-align: left;
+	}
+}
+
 /* "Stat pill" in section 4 of design/DESIGN.md, a row that wraps. */
 .pills {
 	display: flex;

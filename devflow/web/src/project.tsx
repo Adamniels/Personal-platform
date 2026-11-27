@@ -11,6 +11,7 @@
 // "Workers" and "Starting a worker" in devflow/README.md.
 import { Badge, Button, Card, Dialog, EmptyState, Status } from "@platform/ui";
 import { useCallback, useEffect, useId, useState } from "react";
+import { describe } from "./actions";
 import { navigate, plainClick } from "./address";
 import type { GetAnswer } from "./api/client";
 import type { components } from "./api/schema";
@@ -71,6 +72,10 @@ export const rebuildNotice = (
 /** Why no worker of the project is handed work, by the list's held. */
 export const heldNotice = (held: string): string => {
 	switch (held) {
+		case "all_paused":
+			return "No work is handed out: you paused everything. Continue everything on Running now";
+		case "paused":
+			return "No work is handed out: you paused it. Continue it at the top of this page";
 		case "stopped":
 			return "No work is handed out: something landed on a branch Dev flow watches, its default branch or a feature's, that Dev flow did not put there. Look at it under Waiting for you, and resume it there";
 		case "unwatched":
@@ -96,6 +101,11 @@ export type ProjectApi = SettingsApi &
 		/** Makes the project's key, replacing its last, and answers it with
 		 * the command that saves it. */
 		makeKey: (id: string) => Promise<WorkerKey>;
+		/** Pauses the project, or continues it. */
+		pauseProject: (id: string, paused: boolean) => Promise<void>;
+		/** Pauses the project and stops every run of it under way, answering
+		 * how many were told to stop. */
+		stopNow: (id: string) => Promise<number>;
 	};
 
 export type ProjectPageProps = ProjectApi & {
@@ -136,6 +146,8 @@ export function ProjectPage({
 	loadProjects,
 	loadWorkers,
 	makeKey,
+	pauseProject,
+	stopNow,
 	loadSettings,
 	saveSettings,
 	loadCards,
@@ -200,6 +212,15 @@ export function ProjectPage({
 			current = false;
 		};
 	}, [id, loadProjects]);
+	// Read again once the header paused, continued or stopped it, so its
+	// badge and line say what Dev flow holds.
+	const reloadProject = useCallback(
+		() =>
+			loadProjects().then((projects) =>
+				setProject(projects.find((p) => p.id === id) ?? null),
+			),
+		[id, loadProjects],
+	);
 
 	useEffect(() => {
 		let current = true;
@@ -317,6 +338,7 @@ export function ProjectPage({
 							{preset === undefined ? null : (
 								<Badge>{PRESET_NAMES[preset]}</Badge>
 							)}
+							{project.paused_at === null ? null : <Badge>Paused</Badge>}
 						</div>
 						<h2 className={styles.name}>{project.name}</h2>
 						{progress !== undefined ? (
@@ -324,22 +346,36 @@ export function ProjectPage({
 						) : counts === undefined ? null : (
 							<p className={styles.summary}>{summaryLine(counts)}</p>
 						)}
+						{project.paused_at === null ? null : (
+							<p className={styles.pausedLine}>
+								Paused <When at={project.paused_at} />. The run under way
+								finishes; nothing new starts.
+							</p>
+						)}
 					</div>
-					{counts === undefined ? null : (
-						<ul className={styles.pills} aria-label="Cards by group">
-							{PILLS.map(({ group, label, tone }) => (
-								<li key={group} className={styles.pill}>
-									<span
-										className={styles.dot}
-										data-tone={tone}
-										aria-hidden="true"
-									/>
-									<span className={styles.pillLabel}>{label}</span>
-									<span className={styles.pillValue}>{counts[group]}</span>
-								</li>
-							))}
-						</ul>
-					)}
+					<div className={styles.end}>
+						{counts === undefined ? null : (
+							<ul className={styles.pills} aria-label="Cards by group">
+								{PILLS.map(({ group, label, tone }) => (
+									<li key={group} className={styles.pill}>
+										<span
+											className={styles.dot}
+											data-tone={tone}
+											aria-hidden="true"
+										/>
+										<span className={styles.pillLabel}>{label}</span>
+										<span className={styles.pillValue}>{counts[group]}</span>
+									</li>
+								))}
+							</ul>
+						)}
+						<PauseActions
+							project={project}
+							pauseProject={pauseProject}
+							stopNow={stopNow}
+							changed={reloadProject}
+						/>
+					</div>
 				</div>
 			</header>
 			{/* The cards column, then the side column, which stacks under it on
@@ -367,7 +403,10 @@ export function ProjectPage({
 					{cardsShown ? <CardsPanel id={id} list={cards} now={now()} /> : null}
 				</div>
 				<div className={styles.side}>
+					{/* Read again once the project is paused or continued, since
+					    its held says so. */}
 					<WorkersPanel
+						key={project.paused_at ?? "running"}
 						id={id}
 						project={project.name}
 						now={now}
@@ -380,6 +419,82 @@ export function ProjectPage({
 				</div>
 			</div>
 		</>
+	);
+}
+
+/** The header's actions for the whole project: "Pause", or once paused
+ * "Continue", and "Stop now", which asks first, since it ends every run under
+ * way at once. Each reads the project again once Dev flow answered. */
+function PauseActions({
+	project,
+	pauseProject,
+	stopNow,
+	changed,
+}: {
+	project: Project;
+	pauseProject: ProjectApi["pauseProject"];
+	stopNow: ProjectApi["stopNow"];
+	changed: () => Promise<void>;
+}) {
+	const [asking, setAsking] = useState(false);
+	const [busy, setBusy] = useState(false);
+	const [failed, setFailed] = useState<string | null>(null);
+	const paused = project.paused_at !== null;
+
+	async function act(what: string, change: () => Promise<unknown>) {
+		setBusy(true);
+		setFailed(null);
+		try {
+			await change();
+			await changed();
+		} catch (error) {
+			setFailed(`Could not ${what}: ${describe(error)}`);
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	return (
+		<div className={styles.actions}>
+			<Button
+				kind="secondary"
+				disabled={busy}
+				onClick={() =>
+					act(paused ? "continue it" : "pause it", () =>
+						pauseProject(project.id, !paused),
+					)
+				}
+			>
+				{paused ? "Continue" : "Pause"}
+			</Button>
+			<Button
+				kind="ghost"
+				className={styles.stopNow}
+				disabled={busy}
+				onClick={() => setAsking(true)}
+			>
+				Stop now
+			</Button>
+			{failed === null ? null : (
+				<p className={styles.actionFailed} role="alert">
+					{failed}
+				</p>
+			)}
+			<Dialog
+				open={asking}
+				kind="destructive"
+				title={`Stop ${fullName(project)} now?`}
+				confirmLabel="Stop now"
+				onConfirm={async () => {
+					await act("stop it", () => stopNow(project.id));
+					setAsking(false);
+				}}
+				onCancel={() => setAsking(false)}
+			>
+				This pauses the project and ends every run under way at once. Each run's
+				work is kept on its branch.
+			</Dialog>
+		</div>
 	);
 }
 

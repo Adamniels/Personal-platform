@@ -87,6 +87,9 @@ const PLATFORM: Project = {
 	},
 };
 
+/** When the header's Pause paused the project. */
+const PAUSED_AT = "2026-11-17T12:00:00+00:00";
+
 const worker = (name: string, lastSeen: string): Worker => ({
 	id: `0190a8f0-0000-7000-8000-0000000000${name.length}${name.length}`,
 	name,
@@ -142,8 +145,18 @@ function renderPage(
 	// The values as Dev flow holds them: a given value is answered as its
 	// name and when, never the value, as the route answers it.
 	let values: ProjectValueList = props.values ?? { values: [], done: true };
+	// The project as Dev flow holds it, paused and continued by the header.
+	let project: Project = PLATFORM;
 	const api = {
-		loadProjects: vi.fn(() => Promise.resolve([PLATFORM])),
+		loadProjects: vi.fn(() => Promise.resolve([project])),
+		pauseProject: vi.fn((_id: string, paused: boolean) => {
+			project = { ...project, paused_at: paused ? PAUSED_AT : null };
+			return Promise.resolve();
+		}),
+		stopNow: vi.fn((_id: string) => {
+			project = { ...project, paused_at: project.paused_at ?? PAUSED_AT };
+			return Promise.resolve(2);
+		}),
 		loadWorkers: vi.fn(() => Promise.resolve(list)),
 		makeKey: vi.fn(() => {
 			list = { ...list, key_made_at: "2026-11-17T12:00:00+00:00" };
@@ -1028,6 +1041,62 @@ describe("a project's setup", () => {
 });
 
 describe("a project's page", () => {
+	test("pause, continue and stop now sit in the header", async () => {
+		const api = renderPage();
+		const header = (
+			await screen.findByRole("heading", {
+				name: "Personal-platform",
+			})
+		).closest("header") as HTMLElement;
+		const line = "The run under way finishes; nothing new starts.";
+		expect(within(header).queryByText("Paused")).toBe(null);
+
+		// Pause turns to Continue, with the badge and its line.
+		fireEvent.click(within(header).getByRole("button", { name: "Pause" }));
+		await within(header).findByRole("button", { name: "Continue" });
+		expect(api.pauseProject).toHaveBeenCalledWith(ID, true);
+		expect(within(header).getByText("Paused")).toBeTruthy();
+		const said = within(header).getByText(
+			(_, element) =>
+				element?.tagName === "P" &&
+				(element.textContent ?? "").startsWith("Paused ") &&
+				(element.textContent ?? "").endsWith(`. ${line}`),
+		);
+		expect(said.querySelector("time")?.getAttribute("dateTime")).toBe(
+			PAUSED_AT,
+		);
+
+		// The Workers card reads its list again, which now says why.
+		await waitFor(() => expect(api.loadWorkers).toHaveBeenCalledTimes(2));
+
+		// Continue clears both.
+		fireEvent.click(within(header).getByRole("button", { name: "Continue" }));
+		await within(header).findByRole("button", { name: "Pause" });
+		expect(api.pauseProject).toHaveBeenLastCalledWith(ID, false);
+		expect(within(header).queryByText("Paused")).toBe(null);
+		expect(within(header).queryByText(line, { exact: false })).toBe(null);
+
+		// Stop now asks first, and sends nothing until confirmed.
+		fireEvent.click(within(header).getByRole("button", { name: "Stop now" }));
+		const dialog = await screen.findByRole("dialog", {
+			name: "Stop Adamniels/Personal-platform now?",
+		});
+		expect(dialog.textContent).toContain(
+			"This pauses the project and ends every run under way at once. Each run's work is kept on its branch.",
+		);
+		fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+		expect(api.stopNow).not.toHaveBeenCalled();
+
+		fireEvent.click(within(header).getByRole("button", { name: "Stop now" }));
+		const asked = await screen.findByRole("dialog", {
+			name: "Stop Adamniels/Personal-platform now?",
+		});
+		fireEvent.click(within(asked).getByRole("button", { name: "Stop now" }));
+		await within(header).findByRole("button", { name: "Continue" });
+		expect(api.stopNow).toHaveBeenCalledWith(ID);
+		expect(within(header).getByText("Paused")).toBeTruthy();
+	});
+
 	test("its heading shows the preset the saved settings match", async () => {
 		const saved = {
 			pickup_label: "devflow",
