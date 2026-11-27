@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 22
+Last updated: 2026 11 27
 
 These are planning notes, not specifications. Everything here is the current best idea with the
 reasoning attached, and it is expected to change as building teaches things planning could not.
@@ -116,7 +116,7 @@ features" in `High-level/docs/platform-architecture.md`.
   shows, the schema it pins, how to run it and its tests, its settings, its database and roles, migrating, the door, the vault that
   seals a user's secrets and its key, the code host's interface, its fake and how a test stages a
   world in it, setting up a project, with the setup run, its command, its report and its pull request, the check at registration, the settings step, sending a failed check back, a project's values, sealed in the vault, their step and routes, carried by the jobs that run its code and scrubbed from what is stored and posted, its steps and its routes, linking a user's GitHub account and the one way to a token that acts as them,
-  connecting a repository with its routes and tables, a project's settings and its cards with
+  connecting a repository with its routes and tables, a project's settings, its schedules and the user's time zone, and its cards with
   their routes and tables, its features, labelled parents with their sub-issues as cards, with
   their table, watching each project's default branch and each open feature's with the resume
   route and its tables, what waits for the owner, the loop that
@@ -142,13 +142,13 @@ features" in `High-level/docs/platform-architecture.md`.
   two commands, the memory rule and when a worker needs a rebuild, the worker program with its
   settings, its loop, its exit codes, the agent interface, when a run succeeds, a build job step by
   step with the git rules it keeps, publishing it and its tests, the Claude login, its routes and its table, jobs, with handing out a card, a feature's cards one at a time and its branch, the job, a
-  fresh push key, a job's progress and result and how each moves its card, a run's log, its heartbeat and its feed, stopping a run and what it leaves, pausing a project or everything and stopping a project now, a lost run, the brief,
+  fresh push key, a job's progress and result and how each moves its card, a run's log, its heartbeat and its feed, stopping a run and what it leaves, pausing a project or everything and stopping a project now, a project's schedules holding its jobs, a lost run, the brief,
   the report, the fake worker and the runs table, the review, with its job, the read only worker, the
   verdict's form, the reviews table and the comment the app posts, registering the GitHub App, how it
   authenticates a request with `PlatformAuth` and with a worker's key, and the libraries it is built
   on
 - `devflow/docs/devflow-architecture.md` — what Dev flow is, what of it exists, the code host seam
-  and why its fake sits there, acting as the owner on GitHub, projects, a project's summary and its card groups, and how a
+  and why its fake sits there, acting as the owner on GitHub, projects, why the time zone is the user's and why a schedule is wall clock, a project's summary and its card groups, and how a
   loop learns whose they are, reading this repository's runner and the conventions it knows, reading every project
   into a stored picture the pages read instead of GitHub, cards and how one is picked, with why only
   the owner's own count and why the settings table holds only what is read, acting from the page as the owner and
@@ -162,7 +162,7 @@ features" in `High-level/docs/platform-architecture.md`.
   `project.json`, why a project's values are a step that holds nothing back, sealed in their project's own table and scrubbed in two places with one function, a build job's two users, why its
   check runs on a clean copy, why its branch is pushed whatever the check said and why a worker
   running a check stays heard, the Claude login Dev flow holds for
-  a user's runs, handing out work, with the lock that takes a card, the pauses as the rule's first reasons, a feature's cards one at a time and why a card waits for every earlier one not done, stopped or held, a feature's branch and why one Dev flow did not make is never taken, why nothing is read from GitHub
+  a user's runs, handing out work, with the lock that takes a card, the pauses as the rule's first reasons and a schedule as the next, a feature's cards one at a time and why a card waits for every earlier one not done, stopped or held, a feature's branch and why one Dev flow did not make is never taken, why nothing is read from GitHub
   under it, the brief quoting the card as picked, how a card reaches its pull request and
   how the waiting list reads Dev flow's own cards beside the runner's, why the report decides nothing, where a failure
   lies and why a run is lost when its worker goes quiet, a run's log kept each line once and its lines reaching a live page from memory, days counted in one zone,

@@ -348,6 +348,30 @@ and its user and nothing else, and then does all its work through the door as th
 trigger on `projects` keeps it, so no code path can forget. The loop is "Reading and the snapshot"
 below; why the table is safe is in the section after it.
 
+**The time zone is the user's, not the project's or the server's.** A day and a schedule mean the
+owner's day and his evening, and he lives in one place at a time, so one zone per user,
+`user_settings.time_zone`, Europe/Stockholm until he sets another, serves every project of his: a
+zone per project would let two of his projects disagree about when his night starts, and the
+server's zone is wherever the machine happens to be. It has a table of its own rather than a column
+on a project, since it is about him, and is read only through `DevFlowTime`, which replaced the
+fixed zone #452 added with a lookup of his, so the usage chart's days, the schedules and part 8's
+budget and API cap read the same zone and cannot disagree. Only IANA ids are taken, and only in
+their shape, area and place joined by `/`, or `UTC`: .NET converts a Windows id such as
+`W. Europe Standard Time` and on Linux reads an id as a path under `/usr/share/zoneinfo`, and
+neither is something a stored setting should lean on. A stored zone this machine does not know is
+read as the default rather than failing every read of his projects.
+
+**A schedule is wall clock, so it follows summer time.** The owner writes "22:00 to 06:00" to mean
+his night, and that is still 22:00 on his clock after the clocks change; a schedule kept in UTC
+would move an hour twice a year. A window is therefore days and two times, read in his zone at the
+moment it is asked, by `DevFlowTime.At`, never stored as instants. The two times a change of clocks
+makes odd are decided once, in that one function: a start the clocks skip starts at the first
+instant after the gap, the nearest thing to what he wrote that exists, and a start they repeat is
+the first, so a window never starts an hour late. A window that crosses midnight belongs to the day
+it starts, since "Friday night" is a Friday window. Inside or outside is worked out each time the
+rule is asked, from the windows and the clock, and never stored, so there is no job that flips a
+flag at 22:00 to fail or run late.
+
 ## Reading this repository's runner
 
 The first part's list of what waits for the owner is read from this repository's runner,
@@ -1000,6 +1024,21 @@ merging what is approved, reading GitHub and opening pull requests going, since 
 starts a run. The dispatcher reads the pauses again under the project's row lock, as it reads the
 watch's hold, so a pause recorded while GitHub was asked still holds the work back.
 
+**A schedule is the rule's next reason, after the pauses.** Outside its schedule a project waits as
+a paused one does, for every kind of job and with a run under way finishing, since a schedule is
+the owner saying when he wants his usage spent, a pause written in advance. It comes after the
+pauses, since a pause is his word now and a schedule his word ahead of time, and before every reason
+that existed before part 8: a project outside its hours has no use for being told it needs a
+rebuild. It cannot be an SQL fragment as a pause is, since its arithmetic is wall clock in a zone,
+which Postgres must never decide, so the rule's one transaction reads the mode, the windows and the
+zone and `Schedule.At` works it out in C#; the dispatcher does the same again under the project's
+row lock, after the pauses took it, and saving the schedules takes that row `FOR NO KEY UPDATE`, so
+schedules saved, or a window that ended, while GitHub was asked still hold the work back. The
+reason carries the next start in the zone's own offset, so its sentence on Running now is the
+owner's wall clock without the record holding a zone. The workers list's `held` and the projects'
+summary, which are SQL, do not carry it; the project's page says it in its own card, where the
+windows are.
+
 **Nothing is read from GitHub under the lock.** What a job needs from the code host, the default
 branch, `.devflow/project.json`'s check, the clone address, the committer and a push key, is read
 first, and only then is the card taken, in a transaction that holds its row for a few statements.
@@ -1117,11 +1156,12 @@ request from `runs`, grouped by card, feature and project, with no table of thei
 runs are few enough, and a stored sum would be one more thing to keep right.
 
 **Days are counted in one zone, read through `DevFlowTime`.** A day Dev flow counts, the tokens per
-day on Usage and history today and part 8's daily budget and schedules next, is a day in
-Europe/Stockholm, `DevFlowTime.Zone` in `src/DevFlow/DevFlowTime.cs`, never a day in UTC or in the
-server's own zone, which would put a run at 00:30 in the owner's night on the day before. It is the
-one place the zone is read, through .NET's own IANA zones with no dependency, so #455 makes it each
-user's setting by changing that one place. `DevFlowTime` turns an instant into its day and a day
+day on Usage and history and part 8's daily budget next, is a day in the user's zone,
+`DevFlowTime.ZoneOf` in `src/DevFlow/DevFlowTime.cs`, Europe/Stockholm until he sets another, never
+a day in UTC or in the server's own zone, which would put a run at 00:30 in the owner's night on the
+day before. It is the one place a zone is read, through .NET's own IANA zones with no dependency;
+#452 made it a fixed zone so that #455 could make it each user's by changing that one place, see
+"The time zone is the user's" under "Projects". `DevFlowTime` turns an instant into its day and a day
 into its bounds, so a day across a change of summer time is 23 or 25 hours, and a query is handed
 those bounds rather than a zone name: Postgres's time zone rules never decide a day, and C# and SQL
 cannot disagree about one. The chart is always the last 30 days, whatever the period, since the
