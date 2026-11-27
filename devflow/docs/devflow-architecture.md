@@ -969,8 +969,8 @@ many workers are started, and a worker belongs to one project and so to its user
 
 **One rule decides what runs.** Whether a project's next job runs, and for every card waiting why
 it does not run yet, is `RunDecision`, a pure function over the project's situation read in one
-query, and the dispatcher asks it in place of gates of its own, as "Running now" will for its
-reasons, #449. Before it, the dispatcher checked its gates one after another in its own code while the
+query, and the dispatcher asks it in place of gates of its own, as "Next up" on "Running now" does
+for its reasons. Before it, the dispatcher checked its gates one after another in its own code while the
 project's page read some of them again by itself, so a page could say a card was next while the
 dispatcher held it back, or the other way, and a gate added to one was easily missed in the other.
 Now each gate is one SQL fragment where it always lived, `WatchStore.HoldSql`,

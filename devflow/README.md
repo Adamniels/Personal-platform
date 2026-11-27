@@ -103,9 +103,9 @@ program that calls it: everything else the tabs will show arrives with later sli
 - In the fake mode only, the fake's addresses under `/devflow/api/fake/`, see "Staging a world",
   its sign in page, `/devflow/fake-github/authorize`, and its install page,
   `/devflow/fake-github/install`, see "The fake".
-- `GET /devflow/api/running`, the caller's runs under way, and `GET /devflow/api/running/events`,
-  the same list as server-sent events, see "Running now" under "Jobs". Without a valid token, `401`
-  with an empty body.
+- `GET /devflow/api/running`, the caller's runs under way and the cards that come next, and
+  `GET /devflow/api/running/events`, the same list as server-sent events, see "Running now" under
+  "Jobs". Without a valid token, `401` with an empty body.
 - `GET /devflow/api/projects/{id}/runs/{run}/log/events`, a run's log as server-sent events, and
   `POST /devflow/api/projects/{id}/runs/{run}/stop`, which marks a run to stop, see "Jobs". Without a
   valid token, `401` with an empty body.
@@ -583,11 +583,27 @@ while the tab shows, its stream, `GET /devflow/api/running/events`, keeps it cur
   until the run ends and its panel goes.
 
 With nothing running, the `EmptyState` "Nothing is running", "Your workers are waiting for work."
+
+Under the panels, or the empty state, "Next up" lists the cards that come next, the list's `next`,
+in the order work starts, in an `article` of its own in the Table rule of `design/DESIGN.md`, its
+label "Next up" with the count of every card next, `next` and `next_more` together, in the mono
+font, as the cards on their own on a project's page carry theirs. Its `Table`, named "Next up", has
+four columns on a wide screen: Card, the number in the mono font and the title, a link to the card's
+page; Project; State, a `Badge` in words, "Queued", "To read" for a queued card whose reading is due,
+"To review" or "To fix"; and "Why it is not running", the sentence of the reason the one rule gives
+the card, see "Jobs", as a link where the reason has a place to act: the card it waits for, when that
+is a card of the project, "Waiting for you", the project's page, or the Projects tab, whose
+Connections hold the Claude login. A card that runs as soon as a worker asks has no reason and says
+"Next to start". On a phone it is a list: the last three columns are priority 3, and the Card cell
+holds the project and the state on a mono line under the title, "fodr · To read", and the reason
+under that. Past 50 cards, "and 7 more" under the table; with none, "Nothing waits to run." in its
+place. It is part of the list and its stream, so a reason that changes is shown within 2 seconds.
+
 A stream is the browser's `EventSource`, `src/events.ts`, which sends the session cookie, opens the
 stream again by itself when it closes, and takes up a log from its `Last-Event-ID`. A stream it
 cannot open again, a `401` once the session's token has run out among them, has the list read once
-through `src/api/client.ts`, which refreshes the session, and is opened again 2 seconds later. "What
-runs next, and why not yet" joins the tab with #449, and "Pause everything" with #454.
+through `src/api/client.ts`, which refreshes the session, and is opened again 2 seconds later.
+"Pause everything" joins the tab with #454.
 
 "Usage and history" joins with the part that builds it, never as an empty tab. The address is the state,
 through the History API and no router library (`src/address.ts`): a tab pushes its section's
@@ -2938,8 +2954,8 @@ anything else, another worker of the same project, a job of another project or u
 has finished, is the same `404` "No such job". No `worker_id` is `422`.
 
 **Handing out.** `POST /devflow/api/worker/jobs/next`, with `{"worker_id"}`, marks the worker seen,
-then asks the one rule, `RunDecision` in `src/DevFlow/Jobs/RunDecision.cs`, which the page is to
-read too, #449. It reads the project's situation for that worker in one query, from the SQL each gate is kept
+then asks the one rule, `RunDecision` in `src/DevFlow/Jobs/RunDecision.cs`, which "Next up" on
+Running now reads too, see "Running now" below. It reads the project's situation for that worker in one query, from the SQL each gate is kept
 in, and answers run, a wait with its `WaitReason`, or nothing to do. Its gates, in this order, the
 first that holds deciding, each with the sentence the page shows:
 
@@ -3307,12 +3323,38 @@ the caller's projects, oldest first, each with `run_id`, `project_id` and `proje
 once its check runs, `stopping`, true once the owner marked it to stop, `card_number` or
 `feature_number` and `title`, the card's or the feature's as last read, null for a setup's run or a
 check, `fix_round`, `model`, the model its job was handed out with, null for a check, `started_at`,
-`tokens` so far and `cache_reads` so far; and `busy_workers`, how many workers hold them. A token is
+`tokens` so far and `cache_reads` so far; `busy_workers`, how many workers hold them; and `next` and
+`next_more`, "Next up", below. A token is
 `input_tokens + cache_creation_input_tokens + output_tokens`, `RunningStore.TokensSql`, the one
 definition everywhere Dev flow shows or counts tokens; cache reads are shown beside them, never in
 them. `GET /devflow/api/running/events` is the same list as server-sent events: a `running` event at
 once, and another whenever the list read again every 2 seconds differs from the one last sent, so a
-run starting or ending, a state or its tokens moving is sent and nothing while nothing changes.
+run starting or ending, a state or its tokens moving, or a card next coming, going or changing its
+reason is sent, and nothing while nothing changes.
+
+**Next up.** `next` is every card of the caller's projects that Dev flow will run without the owner
+first, `NextUp` in `src/DevFlow/Jobs/NextUp.cs`: each card `RunDecision.Cards` gives a decision,
+queued, waiting to be read, or reviewing or fixing with its job due, with no run under way. A card
+that waits for the owner, for answers, a merge or "Stopped by you", is on "Waiting for you" and not
+here, except as the reason another waits. Each project's cards come in the order
+`RunDecision.Cards` gives, the order the dispatcher hands them out, and across projects whichever
+project's next card has the higher priority label goes first, then the one written first, as
+`CardStore.QueueOrder` orders a project's, the project connected first winning a tie; at most 50,
+`NextUp.Most`, and `next_more` how many come after them. Each carries `project_id`,
+`project_name`, `number`, `title`, `state`, `job`, the kind of job due, null for one that waits for
+another card with none due, `reason`, the sentence of its `WaitReason`, null for one that runs as
+soon as a worker asks, and `link`, where that reason is acted on: `card` with `link_card` the card
+it waits for, when that is an issue of the project's own repository that is a card,
+`waiting_for_you`, `project_page` or `settings`, from the reason's `ActedOn`; null where it has no
+place to act.
+
+No worker asks when the page reads, so a project's decision is `RunDecision.ReadForPage`: the same
+query and gates as for a worker, read for the worker likeliest to take its next job, one seen lately
+before one not, of those one that needs no rebuild, then the one seen last; or, with no worker at
+all, for one built from the project's recipe as last read. A check due waits for a worker seen lately,
+`NoWorker`, since a check runs on one like any job; the dispatcher's worker was just seen, so only
+the page meets it. Each project is three short reads as its user, read again by each open stream
+every 2 seconds.
 
 Each stream ends when the token it was opened with runs out, its `exp` on Dev flow's clock, so
 nothing is sent on a token past its time; `EventSource` opens it again with the session as it is

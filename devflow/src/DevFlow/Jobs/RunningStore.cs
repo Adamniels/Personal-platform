@@ -48,7 +48,10 @@ public sealed record RunningRun(
 /// stream.</summary>
 /// <param name="Runs">Every run under way of the caller's projects, oldest first.</param>
 /// <param name="BusyWorkers">How many workers hold them, which the tab carries.</param>
-public sealed record RunningList(IReadOnlyList<RunningRun> Runs, int BusyWorkers);
+/// <param name="Next">The cards that come next, "Next up", in the order work starts, at most
+/// <see cref="NextUp.Most"/>.</param>
+/// <param name="NextMore">How many more come after them.</param>
+public sealed record RunningList(IReadOnlyList<RunningRun> Runs, int BusyWorkers, IReadOnlyList<NextCard> Next, int NextMore);
 
 /// <summary>
 /// The runs under way of a user's projects, read through the door as the user, so another user's
@@ -64,8 +67,9 @@ public static class RunningStore
     public const string TokensSql = "coalesce(r.input_tokens, 0) + coalesce(r.cache_creation_input_tokens, 0) + coalesce(r.output_tokens, 0)";
 
     /// <summary>Every run under way of <paramref name="userId"/>'s projects, oldest first, with how
-    /// many workers hold them.</summary>
-    public static async Task<RunningList> For(UserDb database, Guid userId, CancellationToken cancellationToken)
+    /// many workers hold them, and the cards that come next at <paramref name="now"/>, by
+    /// <see cref="NextUp"/> with <paramref name="image"/> the base image released.</summary>
+    public static async Task<RunningList> For(UserDb database, Guid userId, string image, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
         var rows = await database.InUserTransaction(userId, transaction => transaction.Connection!.QueryAsync<Row>(new CommandDefinition(
@@ -88,7 +92,8 @@ public static class RunningStore
         var runs = rows
             .Select(row => new RunningRun(row.RunId, row.ProjectId, row.ProjectName, row.WorkerId, row.WorkerName, row.Kind, row.State, row.Stopping, row.CardNumber, row.FeatureNumber, row.Title, row.FixRound, row.Model, GitHubLink.Utc(row.StartedAt), row.Tokens, row.CacheReads))
             .ToList();
-        return new RunningList(runs, runs.Select(run => (run.ProjectId, run.WorkerId)).Distinct().Count());
+        var next = await NextUp.For(database, userId, image, now, cancellationToken);
+        return new RunningList(runs, runs.Select(run => (run.ProjectId, run.WorkerId)).Distinct().Count(), next.Cards, next.More);
     }
 
     private sealed record Row(Guid RunId, Guid ProjectId, string ProjectName, Guid WorkerId, string WorkerName, string Kind, string State, bool Stopping, int? CardNumber, int? FeatureNumber, string? Title, int? FixRound, string? Model, DateTime StartedAt, long Tokens, long CacheReads);

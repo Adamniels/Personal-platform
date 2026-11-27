@@ -172,3 +172,113 @@
 	outline: var(--focus-ring);
 	outline-offset: var(--focus-offset);
 }
+
+/* The tab: the panels, or the empty state, and "Next up" under them. */
+.running {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-6);
+	min-width: 0;
+}
+
+/* "Next up": a table in a card of its own, section 4's "Table", with its
+ * label and count above it, as the cards on their own on a project's page. */
+.next {
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	background: var(--surface);
+}
+
+.nextLabel {
+	margin: 0;
+	padding: var(--card-pad) var(--card-pad) var(--space-2);
+	color: var(--text-2);
+	font-family: var(--font-ui);
+	font-size: var(--text-label-size);
+	line-height: var(--text-label-line);
+	font-weight: 500;
+	letter-spacing: normal;
+	text-transform: none;
+}
+
+.count {
+	color: var(--text-3);
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+}
+
+/* Inside its card the table's own frame is the card's, so it draws none. Two
+ * classes, to outrank the package's frame whatever order the sheets load in. */
+.next .nextTable {
+	border: 0;
+	border-radius: 0;
+}
+
+.nothing,
+.more {
+	margin: 0;
+	padding: var(--space-2) var(--card-pad) var(--card-pad);
+	color: var(--text-2);
+	font-size: var(--text-small-size);
+	line-height: var(--text-small-line);
+}
+
+/* A card's number and title, and on a phone its project, state and reason
+ * under them. */
+.cardCell {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
+a.cellTitle {
+	border-radius: var(--radius-sm);
+	color: var(--info);
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+a.reasonLink {
+	border-radius: var(--radius-sm);
+	color: var(--info);
+	overflow-wrap: anywhere;
+}
+
+.reason {
+	color: var(--text);
+	overflow-wrap: anywhere;
+}
+
+.starts {
+	color: var(--text-3);
+}
+
+.cardMeta {
+	color: var(--text-3);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+	overflow-wrap: anywhere;
+}
+
+/* What the wide screen's columns show, under the title on a phone only, at
+ * the one breakpoint of section 2, where the table leaves those columns
+ * out. */
+.phoneOnly {
+	display: none;
+}
+
+@media (max-width: 639.98px) {
+	.phoneOnly {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+}

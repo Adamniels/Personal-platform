@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 
 using DevFlow.Api;
+using DevFlow.Recipes;
 
 using Microsoft.AspNetCore.Mvc;
 
@@ -31,20 +32,20 @@ public static class RunningEndpoints
     {
         ArgumentNullException.ThrowIfNull(routes);
 
-        routes.MapGet("/devflow/api/running", async (HttpContext context, [FromServices] UserDb database) =>
-                TypedResults.Ok(await RunningStore.For(database, context.UserId(), context.RequestAborted)))
+        routes.MapGet("/devflow/api/running", async (HttpContext context, [FromServices] UserDb database, [FromServices] WorkerStart start, [FromServices] TimeProvider time) =>
+                TypedResults.Ok(await RunningStore.For(database, context.UserId(), start.Image, time.GetUtcNow(), context.RequestAborted)))
             .RequireAuthorization(PlatformAuthPolicies.Api)
             .WithName("listRunning")
             .WithSummary("The caller's runs under way")
-            .WithDescription("Every run under way of the caller's projects, oldest first, as Running now shows each: its project, its worker by the name it said hello with, its kind, state, running or checking once its check runs, stopping when the caller marked it to stop and its worker has not ended it yet, its card's or its feature's number and title, null for a setup's run or a check, a fix's round, the model its job was handed out with, null for a check, when it started, its tokens so far, input_tokens + cache_creation_input_tokens + output_tokens, and its cache reads so far beside them; and busy_workers, how many workers hold them. Without a valid token, 401 with an empty body.")
+            .WithDescription("Every run under way of the caller's projects, oldest first, as Running now shows each: its project, its worker by the name it said hello with, its kind, state, running or checking once its check runs, stopping when the caller marked it to stop and its worker has not ended it yet, its card's or its feature's number and title, null for a setup's run or a check, a fix's round, the model its job was handed out with, null for a check, when it started, its tokens so far, input_tokens + cache_creation_input_tokens + output_tokens, and its cache reads so far beside them; busy_workers, how many workers hold them; and next, the cards that come next, Next up: every card of the caller's projects queued, waiting to be read, or waiting for its review or its fix round, with no run under way, in each project's queue order and across projects by priority label and then age, at most 50, each with its project, number, title, state, the job due for it, the sentence of the reason the one rule gives it, null for one that runs as soon as a worker asks, and where that reason is acted on, link, card with link_card, waiting_for_you, project_page or settings, null where it has no place; and next_more, how many come after those 50. Without a valid token, 401 with an empty body.")
             .Produces(StatusCodes.Status401Unauthorized);
 
-        routes.MapGet("/devflow/api/running/events", (HttpContext context, [FromServices] UserDb database, [FromServices] TimeProvider time) =>
-                TypedResults.ServerSentEvents(Changes(database, context.UserId(), time, context.TokenExpiresAt(), context.RequestAborted)))
+        routes.MapGet("/devflow/api/running/events", (HttpContext context, [FromServices] UserDb database, [FromServices] WorkerStart start, [FromServices] TimeProvider time) =>
+                TypedResults.ServerSentEvents(Changes(database, context.UserId(), start.Image, time, context.TokenExpiresAt(), context.RequestAborted)))
             .RequireAuthorization(PlatformAuthPolicies.Api)
             .WithName("streamRunning")
             .WithSummary("The caller's runs under way, as they change")
-            .WithDescription("Server-sent events, text/event-stream: a running event at once, its data what GET /devflow/api/running answers, and another whenever that changed, a run started or ended, its state or its tokens moved, read again every 2 seconds; nothing while nothing changes. It ends when the token it was opened with runs out, and EventSource opens it again. Without a valid token, 401 with an empty body.")
+            .WithDescription("Server-sent events, text/event-stream: a running event at once, its data what GET /devflow/api/running answers, and another whenever that changed, a run started or ended, its state or its tokens moved, or a card next came, went or changed its reason, read again every 2 seconds; nothing while nothing changes. It ends when the token it was opened with runs out, and EventSource opens it again. Without a valid token, 401 with an empty body.")
             .Produces(StatusCodes.Status401Unauthorized);
 
         return routes;
@@ -53,14 +54,14 @@ public static class RunningEndpoints
     /// <summary>The list at once, then again each time it is read different, every
     /// <see cref="Check"/> on <paramref name="time"/>, until <paramref name="until"/> or the page
     /// goes.</summary>
-    internal static async IAsyncEnumerable<SseItem<RunningList>> Changes(UserDb database, Guid userId, TimeProvider time, DateTimeOffset until, [EnumeratorCancellation] CancellationToken cancellationToken)
+    internal static async IAsyncEnumerable<SseItem<RunningList>> Changes(UserDb database, Guid userId, string image, TimeProvider time, DateTimeOffset until, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var list = await RunningStore.For(database, userId, cancellationToken);
+        var list = await RunningStore.For(database, userId, image, time.GetUtcNow(), cancellationToken);
         var sent = JsonSerializer.Serialize(list);
         yield return new SseItem<RunningList>(list, RunningEvent);
         while (await Waited(time, Check, until, cancellationToken))
         {
-            list = await RunningStore.For(database, userId, cancellationToken);
+            list = await RunningStore.For(database, userId, image, time.GetUtcNow(), cancellationToken);
             var read = JsonSerializer.Serialize(list);
             if (read == sent)
             {
