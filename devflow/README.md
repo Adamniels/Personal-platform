@@ -433,8 +433,8 @@ card is on Waiting for you. Top to bottom:
     outcome: "The review of <commit> asked for changes." or "You sent it back with a comment.", his
     words under "What you wrote" with their line breaks, "The developer's replies" on insets, a
     failure's reason and error output, "It left <commit>" with what the review of it said, "not
-    reviewed yet", or nothing more when the fix failed, and its check. Every finished run's entry,
-    a review's and a round's among them, ends with "Log" when it has one, `has_log`, which opens
+    reviewed yet", or nothing more when the fix failed, and its check. Every run's entry, a review's
+    and a round's among them, ends with "Log" when it has one, `has_log`, which opens
     its log under it, "Hide log" closing it again: the view of "Running now", `src/run-log.tsx`,
     the region "Log of <the entry's title>", as tall as its lines up to the live log's 240px, its
     lines as text with a tool's name in bold, read
@@ -442,8 +442,8 @@ card is on Waiting for you. Top to bottom:
     under it while the run holds more, which adds the next 1,000 under the lines shown, and "The
     log could not be read. Try again." with "Try again" when a read fails. A run whose log was
     kept its 90 days, `log_pruned`, says "Its log was kept for 90 days." instead; a run from
-    before logs were kept says nothing of one, and a run under way neither, its log being on
-    "Running now". The last entry is "Now",
+    before logs were kept says nothing of one. A run under way has "Log" too, its lines so far, not
+    live; it is live on "Running now". The last entry is "Now",
     the card's state as a status, with its reason under it, and the filled accent dot when it
     needs the owner; while a run is under way its own entry says "Running". With no run yet, "No
     run has taken this card yet." over "Now".
@@ -3333,8 +3333,8 @@ so another user's run, or a run the project does not have, is `404` "No such run
 `{"lines", "more"}`: the first 1,000 lines after `after`, 0 when it is not given, in `seq` order,
 each as the stream sends one, and `more`, whether the run holds lines after the last of them, to
 read next with `after` set to its `seq`; read by `RunLogStore.Page`, which asks for one line more
-than a page to know. It is how a card's page and a feature's show a finished run's log, see "A
-card's page" under "The pages", and it answers for a run under way too, though no page asks.
+than a page to know. It is how a card's page and a feature's show a run's log, see "A card's page"
+under "The pages", a run under way's lines so far among them.
 
 **How long a log is kept.** A run's lines are kept 90 days after it finished; the run, its result,
 its figures and its reason for ever. `RunLogPruner` in `src/DevFlow/Jobs/`, a `BackgroundService`,

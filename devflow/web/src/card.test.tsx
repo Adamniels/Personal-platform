@@ -1569,7 +1569,7 @@ describe("a card's page shows each finished run's log", () => {
 
 	/** Four builds, oldest first in the timeline: one from before logs were
 	 * kept, one whose log was kept its 90 days, one with its log, and one
-	 * under way with its log so far. */
+	 * under way with its log so far, which has "Log" too. */
 	function withLogs(): Partial<CardStory> {
 		return {
 			state: "building",
@@ -1635,8 +1635,8 @@ describe("a card's page shows each finished run's log", () => {
 		// Kept its 90 days: it says so, with nothing to open.
 		expect(pruned?.getByText("Its log was kept for 90 days.")).toBeTruthy();
 		expect(pruned?.queryByRole("button", { name: "Log" })).toBeNull();
-		// Under way: its log is on Running now, not here.
-		expect(underWay?.queryByRole("button", { name: "Log" })).toBeNull();
+		// Under way: its log so far opens too, not live.
+		expect(underWay?.getByRole("button", { name: "Log" })).toBeTruthy();
 		expect(loadRunLog).not.toHaveBeenCalled();
 
 		// "Log" opens it, read from its start, each line as text, a tool's name

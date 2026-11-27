@@ -787,8 +787,7 @@ function OwnRuns({
 											: LAY.feature.outside}
 								</dd>
 							)}
-							{run.finished_at === null ||
-							(!run.has_log && !run.log_pruned) ? null : (
+							{!run.has_log && !run.log_pruned ? null : (
 								<dd className={own.runLog}>
 									<RunLog
 										run={run}

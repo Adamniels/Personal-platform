@@ -881,10 +881,9 @@ function RoundEntry({
 /** Where a run's log is read from: its project, and how. */
 export type LogSource = { project: string; load: LoadRunLog };
 
-/** A finished run's "Log", which opens its log under it, the view of
- * "Running now", not live, with "Show more"; for a run whose log was kept
- * its 90 days, that it was. Nothing for a run under way, whose log is on
- * "Running now", nor for one from before logs were kept. */
+/** A run's "Log", which opens its log under it, the view of "Running now",
+ * not live, with "Show more"; for a run whose log was kept its 90 days, that
+ * it was. Nothing for a run from before logs were kept. */
 export function RunLog({
 	run,
 	title,
@@ -897,7 +896,6 @@ export function RunLog({
 }) {
 	const [showing, setShowing] = useState(false);
 	const id = useId();
-	if (run.finished_at === null) return null;
 	if (run.log_pruned) return <p className={styles.muted}>{KEPT_90_DAYS}</p>;
 	if (!run.has_log) return null;
 	return (
