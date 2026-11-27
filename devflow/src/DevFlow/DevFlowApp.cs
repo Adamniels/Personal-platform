@@ -250,6 +250,7 @@ public static class DevFlowApp
         app.MapWatch();
         app.MapJobs();
         app.MapStops();
+        app.MapRunning();
         app.MapOwnerStops();
         app.MapCards();
         app.MapCardScreenshots();

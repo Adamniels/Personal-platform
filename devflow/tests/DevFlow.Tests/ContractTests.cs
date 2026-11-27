@@ -196,6 +196,24 @@ public sealed class ContractTests
         Assert.Null(paths["/devflow/api/fake/worker/run"]);
     }
 
+    [Fact]
+    public async Task TheRunningRoutesArePinned()
+    {
+        // Running now reads its list once and then as server-sent events, so the page's types and
+        // its EventSource are written against the same shapes.
+        var document = JsonNode.Parse(await File.ReadAllTextAsync(Schema, TestContext.Current.CancellationToken))!;
+        var paths = document["paths"]!.AsObject();
+        Assert.Equal("listRunning", (string?)paths["/devflow/api/running"]?["get"]?["operationId"]);
+        Assert.Equal("#/components/schemas/RunningList", (string?)paths["/devflow/api/running"]!["get"]!["responses"]?["200"]?["content"]?["application/json"]?["schema"]?["$ref"]);
+        Assert.Equal("streamRunning", (string?)paths["/devflow/api/running/events"]?["get"]?["operationId"]);
+        Assert.NotNull(paths["/devflow/api/running/events"]!["get"]!["responses"]?["200"]?["content"]?["text/event-stream"]);
+        var schemas = document["components"]!["schemas"]!;
+        Assert.Equal(["busy_workers", "runs"], schemas["RunningList"]!["properties"]!.AsObject().Select(pair => pair.Key).Order(StringComparer.Ordinal));
+        Assert.Equal(
+            ["cache_reads", "card_number", "feature_number", "fix_round", "kind", "model", "project_id", "project_name", "run_id", "started_at", "state", "stopping", "title", "tokens", "worker_id", "worker_name"],
+            schemas["RunningRun"]!["properties"]!.AsObject().Select(pair => pair.Key).Order(StringComparer.Ordinal));
+    }
+
     /// <summary>The report's JSON Schema as the type writes it: two space indent, a trailing
     /// newline, its fields in the type's order, which is the order the agent reads them in.</summary>
     private static string ReportSchemaText() => SchemaText(DevFlow.Protocol.Report.Schema());

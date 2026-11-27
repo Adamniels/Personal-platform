@@ -750,6 +750,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/running": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's runs under way
+         * @description Every run under way of the caller's projects, oldest first, as Running now shows each: its project, its worker by the name it said hello with, its kind, state, running or checking once its check runs, stopping when the caller marked it to stop and its worker has not ended it yet, its card's or its feature's number and title, null for a setup's run or a check, a fix's round, the model its job was handed out with, null for a check, when it started, its tokens so far, input_tokens + cache_creation_input_tokens + output_tokens, and its cache reads so far beside them; and busy_workers, how many workers hold them. Without a valid token, 401 with an empty body.
+         */
+        get: operations["listRunning"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/running/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's runs under way, as they change
+         * @description Server-sent events, text/event-stream: a running event at once, its data what GET /devflow/api/running answers, and another whenever that changed, a run started or ended, its state or its tokens moved, read again every 2 seconds; nothing while nothing changes. It ends when the token it was opened with runs out, and EventSource opens it again. Without a valid token, 401 with an empty body.
+         */
+        get: operations["streamRunning"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/status": {
         parameters: {
             query?: never;
@@ -1896,6 +1936,38 @@ export interface components {
             resets_at?: null | string;
             timed_out?: null | boolean;
         };
+        RunningList: {
+            /** Format: int32 */
+            busy_workers: number;
+            runs: components["schemas"]["RunningRun"][];
+        };
+        RunningRun: {
+            /** Format: int64 */
+            cache_reads: number;
+            /** Format: int32 */
+            card_number: null | number;
+            /** Format: int32 */
+            feature_number: null | number;
+            /** Format: int32 */
+            fix_round: null | number;
+            kind: string;
+            model: null | string;
+            /** Format: uuid */
+            project_id: string;
+            project_name: string;
+            /** Format: uuid */
+            run_id: string;
+            /** Format: date-time */
+            started_at: string;
+            state: string;
+            stopping: boolean;
+            title: null | string;
+            /** Format: int64 */
+            tokens: number;
+            /** Format: uuid */
+            worker_id: string;
+            worker_name: string;
+        };
         ScreenshotGroup: {
             images: string[];
             name: string;
@@ -2034,6 +2106,12 @@ export interface components {
         SetupVariable: {
             name: string;
             why: string;
+        };
+        SseItemOfRunningList: {
+            data?: components["schemas"]["RunningList"];
+            event_id?: null | string;
+            event_type?: null | string;
+            reconnection_interval?: null | string;
         };
         StoppedCard: {
             /** Format: int32 */
@@ -4152,6 +4230,60 @@ export interface operations {
                 content: {
                     "application/problem+json": components["schemas"]["ProblemDetails"];
                 };
+            };
+        };
+    };
+    listRunning: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunningList"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    streamRunning: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["SseItemOfRunningList"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
