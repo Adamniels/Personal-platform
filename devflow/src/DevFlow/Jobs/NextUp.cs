@@ -20,6 +20,9 @@ public static class NextLink
 
     /// <summary>Dev flow's settings, its Connections, where the Claude login is given.</summary>
     public const string Settings = "settings";
+
+    /// <summary>The card's project's schedules, "When it runs" on its settings page.</summary>
+    public const string Schedules = "schedules";
 }
 
 /// <summary>A card that comes next, as "Next up" on "Running now" shows it.</summary>
@@ -140,6 +143,7 @@ public static class NextUp
             ActedOn.ProjectPage => NextLink.ProjectPage,
             ActedOn.Settings => NextLink.Settings,
             ActedOn.WaitingForYou => NextLink.WaitingForYou,
+            ActedOn.Schedules => NextLink.Schedules,
             _ => null,
         }, null),
         _ => (null, null, null),

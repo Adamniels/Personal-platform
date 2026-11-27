@@ -33,14 +33,14 @@ public static class ScheduleEndpoints
     {
         ArgumentNullException.ThrowIfNull(routes);
 
-        routes.MapGet("/devflow/api/projects/{id:guid}/schedules", async Task<Results<Ok<ProjectSchedules>, ProblemHttpResult>> (Guid id, HttpContext context, [FromServices] UserDb database) =>
-                await ScheduleStore.Read(database, context.UserId(), id, context.RequestAborted) is { } schedules
+        routes.MapGet("/devflow/api/projects/{id:guid}/schedules", async Task<Results<Ok<ProjectSchedules>, ProblemHttpResult>> (Guid id, HttpContext context, [FromServices] UserDb database, [FromServices] TimeProvider time) =>
+                await ScheduleStore.Read(database, context.UserId(), id, time.GetUtcNow(), context.RequestAborted) is { } schedules
                     ? TypedResults.Ok(schedules)
                     : NoSuchProject())
             .RequireAuthorization(PlatformAuthPolicies.Api)
             .WithName("getSchedules")
             .WithSummary("When a project runs")
-            .WithDescription("runs_by, always or schedule; time_zone, the caller's, which every window is wall clock in; and schedules, its windows in their order, each with id, name, days, the days it starts on, mon to sun in the week's order, from and to, HH:MM, a to earlier than from ending the next day, and active, whether it is on. 404 for a project the caller does not have. Without a valid token, 401 with an empty body.")
+            .WithDescription("runs_by, always or schedule; time_zone, the caller's, which every window is wall clock in; and schedules, its windows in their order, each with id, name, days, the days it starts on, mon to sun in the week's order, from and to, HH:MM, a to earlier than from ending the next day, and active, whether it is on; next_start, when a window that is on next starts, after the one it runs in ends, looked for over the next 8 days, null with none and for a project that runs always; and running_until, when it runs by schedule and is inside a window that is on, when that ends, windows that meet or overlap taken as one, null otherwise. Both are instants with the zone's own offset. 404 for a project the caller does not have. Without a valid token, 401 with an empty body.")
             .Produces(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
@@ -72,10 +72,11 @@ public static class ScheduleEndpoints
         return routes;
     }
 
-    private static async Task<Results<Ok<ProjectSchedules>, ProblemHttpResult>> Replace(Guid id, ScheduleRequest request, HttpContext context, [FromServices] UserDb database)
+    private static async Task<Results<Ok<ProjectSchedules>, ProblemHttpResult>> Replace(Guid id, ScheduleRequest request, HttpContext context, [FromServices] UserDb database, [FromServices] TimeProvider time)
     {
         var userId = context.UserId();
-        if (await ScheduleStore.Read(database, userId, id, context.RequestAborted) is null)
+        var now = time.GetUtcNow();
+        if (await ScheduleStore.Read(database, userId, id, now, context.RequestAborted) is null)
         {
             return NoSuchProject();
         }
@@ -87,7 +88,7 @@ public static class ScheduleEndpoints
 
         try
         {
-            return await ScheduleStore.Replace(database, userId, id, checkedRequest.RunsBy, checkedRequest.Windows, context.RequestAborted) is { } saved
+            return await ScheduleStore.Replace(database, userId, id, checkedRequest.RunsBy, checkedRequest.Windows, now, context.RequestAborted) is { } saved
                 ? TypedResults.Ok(saved)
                 : NoSuchProject();
         }

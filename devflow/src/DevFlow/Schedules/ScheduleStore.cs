@@ -10,7 +10,11 @@ namespace DevFlow.Schedules;
 /// <param name="RunsBy">How it runs, <see cref="Schedules.RunsBy"/>'s.</param>
 /// <param name="TimeZone">The user's zone, which the windows are wall clock in.</param>
 /// <param name="Schedules">Its windows, in their order.</param>
-public sealed record ProjectSchedules(string RunsBy, string TimeZone, IReadOnlyList<ScheduleEntry> Schedules);
+/// <param name="NextStart">When a window that is on next starts, after the one it runs in ends,
+/// <see cref="ScheduleState.NextStart"/>; null with none, and for a project that runs always.</param>
+/// <param name="RunningUntil">When it runs by schedule and is inside a window that is on, when that
+/// ends, <see cref="ScheduleState.Until"/>; null otherwise.</param>
+public sealed record ProjectSchedules(string RunsBy, string TimeZone, IReadOnlyList<ScheduleEntry> Schedules, DateTimeOffset? NextStart, DateTimeOffset? RunningUntil);
 
 /// <summary>
 /// A project's schedules: its mode, <c>project_settings.runs_by</c>, and its windows,
@@ -19,11 +23,12 @@ public sealed record ProjectSchedules(string RunsBy, string TimeZone, IReadOnlyL
 /// </summary>
 public static class ScheduleStore
 {
-    /// <summary>The project's schedules, null when the user has no such project.</summary>
-    public static async Task<ProjectSchedules?> Read(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
+    /// <summary>The project's schedules at <paramref name="now"/>, null when the user has no such
+    /// project.</summary>
+    public static async Task<ProjectSchedules?> Read(UserDb database, Guid userId, Guid projectId, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
-        return await database.InUserTransaction(userId, transaction => Read(transaction, projectId, cancellationToken), cancellationToken);
+        return await database.InUserTransaction(userId, transaction => Read(transaction, projectId, now, cancellationToken), cancellationToken);
     }
 
     /// <summary>
@@ -34,7 +39,7 @@ public static class ScheduleStore
     /// waits for under its <c>FOR SHARE</c>, so once this answers no job is handed out by the
     /// schedules it replaced.
     /// </summary>
-    public static async Task<ProjectSchedules?> Replace(UserDb database, Guid userId, Guid projectId, string runsBy, IReadOnlyList<ScheduleEntry> windows, CancellationToken cancellationToken)
+    public static async Task<ProjectSchedules?> Replace(UserDb database, Guid userId, Guid projectId, string runsBy, IReadOnlyList<ScheduleEntry> windows, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(windows);
@@ -76,13 +81,34 @@ public static class ScheduleStore
                 }),
                 transaction,
                 cancellationToken: cancellationToken));
-            return await Read(transaction, projectId, cancellationToken);
+            return await Read(transaction, projectId, now, cancellationToken);
         }, cancellationToken);
     }
 
-    /// <summary>The project's schedules, read inside <paramref name="transaction"/>, which runs as
-    /// its user; null when there is no such project.</summary>
-    public static async Task<ProjectSchedules?> Read(NpgsqlTransaction transaction, Guid projectId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Where the project stands by its schedules at <paramref name="now"/>, by
+    /// <see cref="Schedule.At"/>, read inside <paramref name="transaction"/>, which runs as its user;
+    /// null when there is no such project. What <see cref="Jobs.RunDecision"/> reads.
+    /// </summary>
+    public static async Task<ScheduleState?> StateIn(NpgsqlTransaction transaction, Guid projectId, DateTimeOffset now, CancellationToken cancellationToken) =>
+        (await ReadWithState(transaction, projectId, now, cancellationToken))?.State;
+
+    /// <summary>
+    /// Whether the project is outside its schedules at <paramref name="now"/>, read inside
+    /// <paramref name="transaction"/> once <see cref="Jobs.Pauses.HeldUnderLock"/> has taken its row
+    /// <c>FOR SHARE</c>, so a replacement of its schedules committed meanwhile is seen. Handing out a
+    /// job takes it only after this answers false, in the same transaction.
+    /// </summary>
+    public static async Task<bool> OutsideUnderLock(NpgsqlTransaction transaction, Guid projectId, DateTimeOffset now, CancellationToken cancellationToken) =>
+        await StateIn(transaction, projectId, now, cancellationToken) is { Inside: false };
+
+    /// <summary>The project's schedules at <paramref name="now"/>, read inside
+    /// <paramref name="transaction"/>, which runs as its user; null when there is no such
+    /// project.</summary>
+    public static async Task<ProjectSchedules?> Read(NpgsqlTransaction transaction, Guid projectId, DateTimeOffset now, CancellationToken cancellationToken) =>
+        (await ReadWithState(transaction, projectId, now, cancellationToken))?.Schedules;
+
+    private static async Task<(ProjectSchedules Schedules, ScheduleState State)?> ReadWithState(NpgsqlTransaction transaction, Guid projectId, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(transaction);
         var runsBy = await transaction.Connection!.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
@@ -104,7 +130,9 @@ public static class ScheduleStore
             transaction,
             cancellationToken: cancellationToken));
         var zone = await DevFlowTime.ZoneOf(transaction, cancellationToken);
-        return new ProjectSchedules(runsBy, zone.Id, [.. rows.Select(row => new ScheduleEntry(row.Id, row.Name, row.Days, row.From, row.To, row.Active))]);
+        List<ScheduleEntry> windows = [.. rows.Select(row => new ScheduleEntry(row.Id, row.Name, row.Days, row.From, row.To, row.Active))];
+        var state = Schedule.At(runsBy, [.. windows.Select(window => window.Window())], zone, now);
+        return (new ProjectSchedules(runsBy, zone.Id, windows, state.NextStart, state.Until), state);
     }
 
     private sealed class Row

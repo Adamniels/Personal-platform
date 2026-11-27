@@ -2899,6 +2899,20 @@
       },
       "ProjectSchedules": {
         "properties": {
+          "next_start": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "running_until": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "runs_by": {
             "type": "string"
           },
@@ -2915,7 +2929,9 @@
         "required": [
           "runs_by",
           "time_zone",
-          "schedules"
+          "schedules",
+          "next_start",
+          "running_until"
         ],
         "type": "object"
       },
@@ -7440,7 +7456,7 @@
     },
     "/devflow/api/projects/{id}/schedules": {
       "get": {
-        "description": "runs_by, always or schedule; time_zone, the caller's, which every window is wall clock in; and schedules, its windows in their order, each with id, name, days, the days it starts on, mon to sun in the week's order, from and to, HH:MM, a to earlier than from ending the next day, and active, whether it is on. 404 for a project the caller does not have. Without a valid token, 401 with an empty body.",
+        "description": "runs_by, always or schedule; time_zone, the caller's, which every window is wall clock in; and schedules, its windows in their order, each with id, name, days, the days it starts on, mon to sun in the week's order, from and to, HH:MM, a to earlier than from ending the next day, and active, whether it is on; next_start, when a window that is on next starts, after the one it runs in ends, looked for over the next 8 days, null with none and for a project that runs always; and running_until, when it runs by schedule and is inside a window that is on, when that ends, windows that meet or overlap taken as one, null otherwise. Both are instants with the zone's own offset. 404 for a project the caller does not have. Without a valid token, 401 with an empty body.",
         "operationId": "getSchedules",
         "parameters": [
           {
@@ -8341,7 +8357,7 @@
     },
     "/devflow/api/running": {
       "get": {
-        "description": "Every run under way of the caller's projects, oldest first, as Running now shows each: its project, its worker by the name it said hello with, its kind, state, running or checking once its check runs, stopping when the caller marked it to stop and its worker has not ended it yet, its card's or its feature's number and title, null for a setup's run or a check, a fix's round, the model its job was handed out with, null for a check, when it started, its tokens so far, input_tokens + cache_creation_input_tokens + output_tokens, and its cache reads so far beside them; busy_workers, how many workers hold them; and next, the cards that come next, Next up: every card of the caller's projects queued, waiting to be read, or waiting for its review or its fix round, with no run under way, in each project's queue order and across projects by priority label and then age, at most 50, each with its project, number, title, state, the job due for it, the sentence of the reason the one rule gives it, null for one that runs as soon as a worker asks, and where that reason is acted on, link, card with link_card, waiting_for_you, project_page or settings, null where it has no place; and next_more, how many come after those 50. Without a valid token, 401 with an empty body.",
+        "description": "Every run under way of the caller's projects, oldest first, as Running now shows each: its project, its worker by the name it said hello with, its kind, state, running or checking once its check runs, stopping when the caller marked it to stop and its worker has not ended it yet, its card's or its feature's number and title, null for a setup's run or a check, a fix's round, the model its job was handed out with, null for a check, when it started, its tokens so far, input_tokens + cache_creation_input_tokens + output_tokens, and its cache reads so far beside them; busy_workers, how many workers hold them; and next, the cards that come next, Next up: every card of the caller's projects queued, waiting to be read, or waiting for its review or its fix round, with no run under way, in each project's queue order and across projects by priority label and then age, at most 50, each with its project, number, title, state, the job due for it, the sentence of the reason the one rule gives it, null for one that runs as soon as a worker asks, and where that reason is acted on, link, card with link_card, waiting_for_you, project_page, settings, or schedules, the card \"When it runs\" on its project's settings page, null where it has no place; and next_more, how many come after those 50. Without a valid token, 401 with an empty body.",
         "operationId": "listRunning",
         "responses": {
           "200": {
