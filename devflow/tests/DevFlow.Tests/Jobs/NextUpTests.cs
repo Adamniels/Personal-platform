@@ -133,6 +133,16 @@ public sealed class NextUpTests
         Assert.Equal(new Shown("Next for fodr-worker, after its current run", null, null), cards[(jobs.Project, 3)]);
         Assert.Equal(new Shown("Waits for #2, which it depends on", "card", 2), cards[(jobs.Project, 1)]);
 
+        // A worker seen later that needs a rebuild does not speak for the project, since the one
+        // that needs none takes its jobs.
+        jobs.Routes.Time.Advance(TimeSpan.FromSeconds(1));
+        await jobs.SayHello(Jobs.SecondWorker, "platform-hosted/devflow-worker:2026.01.01", name: "old-worker");
+        Assert.NotEqual("Its worker needs building again", (await Cards(jobs))[(jobs.Project, 3)].Reason);
+        await using (var admin = await jobs.Routes.Database.OpenAdmin(Ct))
+        {
+            await admin.ExecuteAsync(new CommandDefinition("DELETE FROM workers WHERE id = @worker", new { worker = Jobs.SecondWorker }, cancellationToken: Ct));
+        }
+
         // An open issue that is not a card is said, with nothing to link.
         await using (var admin = await jobs.Routes.Database.OpenAdmin(Ct))
         {

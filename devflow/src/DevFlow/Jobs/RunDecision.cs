@@ -209,8 +209,8 @@ public static class RunDecision
     /// the worker asking needs a rebuild; the project is stopped, or its default branch not read
     /// lately; it waits after failures outside its cards, other than a usage limit; the worker's
     /// setup version has no check that passed, when a check due is what runs, since it runs no agent
-    /// and needs no Claude login, once a worker of the project was seen lately; no Claude login, or one past its renewal; Claude's usage limit; no
-    /// worker of the project seen lately. Past them a worker built from no recipe runs the setup's
+    /// and needs no Claude login, once a worker of the project was seen lately; no Claude login, or
+    /// one past its renewal; Claude's usage limit; no worker of the project seen lately. Past them a worker built from no recipe runs the setup's
     /// next job, and any other the cards' next, or nothing when there is none.
     /// </summary>
     public static Decision Of(ProjectSituation situation)
@@ -295,10 +295,11 @@ public static class RunDecision
         Read(database, userId, projectId, (Guid?)workerId, image, now, cancellationToken);
 
     /// <summary>
-    /// The project's situation as the page reads it, with no worker asking: as the worker of the
-    /// project seen last would find it, or, with none, one built from the project's recipe as last
-    /// read. Null when the user has no such project. See "Running now" under "Jobs" in
-    /// devflow/README.md.
+    /// The project's situation as the page reads it, with no worker asking: as the worker likeliest
+    /// to take its next job would find it, one seen lately before one not, of those one that needs
+    /// no rebuild by <see cref="Workers.WorkerStore.RebuildSql"/>, then the one seen last; or, with
+    /// no worker at all, one built from the project's recipe as last read. Null when the user has no
+    /// such project. See "Running now" under "Jobs" in devflow/README.md.
     /// </summary>
     public static Task<ProjectSituation?> ReadForPage(UserDb database, Guid userId, Guid projectId, string image, DateTimeOffset now, CancellationToken cancellationToken) =>
         Read(database, userId, projectId, null, image, now, cancellationToken);
@@ -326,9 +327,10 @@ public static class RunDecision
                    EXISTS (SELECT 1 FROM workers s WHERE s.project_id = p.id AND s.last_seen_at >= @seenSince) AS WorkerSeen
             FROM projects p
             LEFT JOIN LATERAL (
-                SELECT s.* FROM workers s
-                WHERE s.project_id = p.id AND (@workerId::uuid IS NULL OR s.id = @workerId)
-                ORDER BY s.last_seen_at DESC, s.id
+                SELECT w.* FROM workers w
+                CROSS JOIN LATERAL (SELECT {Workers.WorkerStore.RebuildSql}) rb
+                WHERE w.project_id = p.id AND (@workerId::uuid IS NULL OR w.id = @workerId)
+                ORDER BY w.last_seen_at >= @seenSince DESC, rb.rebuild IS NULL DESC, w.last_seen_at DESC, w.id
                 LIMIT 1) w ON true
             LEFT JOIN project_waits pw ON pw.project_id = p.id
             WHERE p.id = @projectId AND (@workerId::uuid IS NULL OR w.id IS NOT NULL)
