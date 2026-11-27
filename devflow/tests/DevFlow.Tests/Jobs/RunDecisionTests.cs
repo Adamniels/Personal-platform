@@ -144,7 +144,7 @@ public sealed class RunDecisionTests
     /// <summary>The worlds the dispatcher is held to the rule in.</summary>
     public static TheoryData<string> Worlds() =>
     [
-        "free", "stopped", "failing", "usage limit", "no login", "unwatched", "check due", "check failed", "rebuild", "needs answers", "blocked",
+        "free", "stopped", "failing", "usage limit", "no login", "unwatched", "check due", "check at usage limit", "check failed", "rebuild", "needs answers", "blocked",
     ];
 
     [Theory]
@@ -155,7 +155,7 @@ public sealed class RunDecisionTests
         await using var jobs = world switch
         {
             "no login" => await Jobs.Start([Jobs.Card(1)], login: false),
-            "check due" or "check failed" => await Jobs.Start([Jobs.Card(1)], checkedRecipe: false),
+            "check due" or "check at usage limit" or "check failed" => await Jobs.Start([Jobs.Card(1)], checkedRecipe: false),
             "needs answers" => await Jobs.Start([
                 FeatureJobs.Parent(10, "A feature", [11, 12]), FeatureJobs.Sub(11), FeatureJobs.Sub(12), Jobs.Card(20)]),
             "blocked" => await Jobs.Start([Jobs.Card(1) with { BlockedBy = [2] }, Jobs.Card(2)]),
@@ -168,9 +168,9 @@ public sealed class RunDecisionTests
             case "stopped":
                 await Merging.Merged.Stop(jobs);
                 break;
-            case "failing" or "usage limit":
+            case "failing" or "usage limit" or "check at usage limit":
                 await Sql(jobs, "INSERT INTO project_waits (project_id, user_id, failures, reason, wait_until, since, until_reset) VALUES (@project, @user, 1, 'It failed outside', @until, @now, @reset)",
-                    new { project = jobs.Project, user = Jobs.User, until = now.AddMinutes(30), now, reset = world == "usage limit" });
+                    new { project = jobs.Project, user = Jobs.User, until = now.AddMinutes(30), now, reset = world != "failing" });
                 break;
             case "unwatched":
                 jobs.Routes.Time.Advance(BranchWatch.UnwatchedAfter + TimeSpan.FromSeconds(1));
@@ -222,7 +222,8 @@ public sealed class RunDecisionTests
             "usage limit" => new Decision.Wait(new WaitReason.UsageLimit(now.AddMinutes(30))),
             "no login" => new Decision.Wait(new WaitReason.NoClaudeLogin(Expired: false)),
             "unwatched" => new Decision.Wait(new WaitReason.Unwatched()),
-            "check due" => new Decision.Run(DevFlow.Protocol.Job.RecipeCheck),
+            // A check runs no agent, so Claude's usage limit does not hold it.
+            "check due" or "check at usage limit" => new Decision.Run(DevFlow.Protocol.Job.RecipeCheck),
             "check failed" => new Decision.Wait(new WaitReason.NeedsSetup(Checking: false)),
             "rebuild" => new Decision.Wait(new WaitReason.NeedsRebuild()),
             _ => throw new ArgumentOutOfRangeException(nameof(world), world, "not a world"),

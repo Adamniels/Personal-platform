@@ -204,9 +204,13 @@ public static class SetupRunStore
             cancellationToken: cancellationToken)), cancellationToken);
     }
 
-    /// <summary>The kind of setup job project <c>@projectId</c> has to hand out, as SQL, in
-    /// <see cref="NextKind"/>'s order; null when it has none. The one statement of it, which
-    /// <see cref="Jobs.RunDecision"/> reads too.</summary>
+    /// <summary>
+    /// The setup job due for project <c>@projectId</c>'s worker built from no recipe, as SQL, in the
+    /// order a card's are: a review, <see cref="ReviewKind"/>, then a fix, <see cref="Job.Fix"/>,
+    /// then a run, <see cref="SetupKind"/>, of a setup queued or, when the project has none that is
+    /// not done, a new one. Null when the project needs no setup or has nothing of one to hand out.
+    /// <see cref="Jobs.RunDecision"/> reads it in the situation it decides on.
+    /// </summary>
     internal const string NextKindSql = $"""
         CASE WHEN NOT {NeedsSetup} THEN NULL
              WHEN EXISTS (SELECT 1 FROM setups s WHERE {Reviewable}) THEN '{ReviewKind}'
@@ -214,23 +218,6 @@ public static class SetupRunStore
              WHEN EXISTS (SELECT 1 FROM setups s WHERE {Runnable}) THEN '{SetupKind}'
              WHEN NOT EXISTS (SELECT 1 FROM setups s WHERE s.project_id = @projectId AND s.state <> 'done') THEN '{SetupKind}' END
         """;
-
-    /// <summary>
-    /// The setup job due for the project's worker built from no recipe, in the order a card's are:
-    /// a review, <see cref="ReviewKind"/>, then a fix, <see cref="Job.Fix"/>, then a run,
-    /// <see cref="SetupKind"/>, of a setup queued or, when the project has none that is not done, a
-    /// new one. Null when the project needs no setup or has nothing of one to hand out. Read without
-    /// a lock, as <see cref="JobStore.NextKind"/> is.
-    /// </summary>
-    public static async Task<string?> NextKind(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(database);
-        return await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteScalarAsync<string?>(new CommandDefinition(
-            $"SELECT {NextKindSql}",
-            new { projectId },
-            transaction,
-            cancellationToken: cancellationToken)), cancellationToken);
-    }
 
     /// <summary>
     /// Takes the project's setup to run, inside <paramref name="transaction"/>, which runs as the

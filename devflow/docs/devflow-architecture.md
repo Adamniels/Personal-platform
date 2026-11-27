@@ -2,7 +2,7 @@
 
 Status: living. It describes what is built, and changes in the same pull request as the code.
 
-Last updated: 2026 11 21
+Last updated: 2026 11 27
 
 ## What Dev flow is
 
@@ -966,6 +966,25 @@ row the first holds rather than wait for it, so it takes the next card or nothin
 allowing one run under way per card is a second guard beside it. There is no limit on runs at once
 and no turns between projects, at the owner's wish in the feature's decisions: how many run is how
 many workers are started, and a worker belongs to one project and so to its user.
+
+**One rule decides what runs.** Whether a project's next job runs, and for every card waiting why
+it does not run yet, is `RunDecision`, a pure function over the project's situation read in one
+query, and the dispatcher asks it in place of gates of its own, as "Running now" will for its
+reasons, #449. Before it, the dispatcher checked its gates one after another in its own code while the
+project's page read some of them again by itself, so a page could say a card was next while the
+dispatcher held it back, or the other way, and a gate added to one was easily missed in the other.
+Now each gate is one SQL fragment where it always lived, `WatchStore.HoldSql`,
+`WorkerStore.RebuildSql`, the setup's checks, `JobStore.NextKindSql` and the card predicates the
+claims use, and the rule reads those fragments rather than copies of them, so a change to a gate is
+a change to what both see; `RunDecisionTests.TheDispatcherDoesWhatTheRuleSays` holds the dispatcher
+to the rule in staged worlds. Its answer is a closed set, run, a `WaitReason` with its sentence and
+where it is acted on, or nothing to do, so the page shows the rule's own reason rather than
+rewording a code. The gates are met in the order the slice settled, which puts the project's wait
+after failures outside its cards in two places: other failures before the setup's check, and
+Claude's usage limit after it and after the Claude login. A check runs no agent, so a usage limit
+no longer holds it, where the dispatcher before held every job; a network failure still does, since
+the check needs the network as much as a build. What a job needs from the code host is read after
+the rule has answered run, as before, since it is a question for GitHub and not for the database.
 
 **Nothing is read from GitHub under the lock.** What a job needs from the code host, the default
 branch, `.devflow/project.json`'s check, the clone address, the committer and a push key, is read

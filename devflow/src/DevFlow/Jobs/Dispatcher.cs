@@ -8,7 +8,6 @@ using DevFlow.Projects;
 using DevFlow.Protocol;
 using DevFlow.Recipes;
 using DevFlow.Setup;
-using DevFlow.Stops;
 using DevFlow.Watching;
 using DevFlow.Workers;
 
@@ -51,20 +50,17 @@ public abstract record FreshKey
 }
 
 /// <summary>
-/// Hands out work. A worker asking for it is answered nothing when it needs a rebuild, when its
-/// project is stopped or its default branch not watched lately or waits after failures outside; a
-/// worker on a setup version with no check that passed is handed that check and nothing else, see
-/// <see cref="SetupStore"/>; then it is answered nothing when its project's user has no Claude
-/// login or one past its renewal, or when its project has no card to take; otherwise the
-/// kind of job is chosen, a card's review before a whole feature's before a card's fix before a
-/// whole feature's before a conflict before a reading before a build, everything that job needs from the code host is
-/// read first, as the app, with a key for that kind, a feature's branch made for its first card,
-/// and only then is a card, or for a conflict a feature, of that kind taken, in
-/// one short transaction as the project's user, so no lock is held while GitHub is asked.
-/// That transaction reads the watch's hold again under the project's lock, so a stop recorded
-/// while GitHub was asked still holds the card back. Anything the code host does not answer is no
-/// work now, and the worker asks again. See "Jobs" in devflow/README.md and "Handing out work" in
-/// devflow/docs/devflow-architecture.md.
+/// Hands out work. Whether a worker asking gets any, and of what kind, is <see cref="RunDecision"/>'s,
+/// the one rule the page reads too: a check of its setup version, its setup's next job for a worker
+/// built from no recipe, or the cards' next job, a card's review before a whole feature's before a
+/// card's fix before a whole feature's before a conflict before a reading before a build. Then
+/// everything that job needs from the code host is read, as the app, with a key for that kind, a
+/// feature's branch made for its first card, and only then is a card, or for a conflict a feature,
+/// of that kind taken, in one short transaction as the project's user, so no lock is held while
+/// GitHub is asked. That transaction reads the watch's hold again under the project's lock, so a
+/// stop recorded while GitHub was asked still holds the card back. Anything the code host does not
+/// answer is no work now, and the worker asks again. See "Jobs" in devflow/README.md and "Handing
+/// out work" in devflow/docs/devflow-architecture.md.
 /// </summary>
 public sealed partial class Dispatcher(
     UserDb database,
@@ -112,53 +108,45 @@ public sealed partial class Dispatcher(
         };
     }
 
-    /// <summary>The worker's next job, or why there is none; marks the worker seen.</summary>
+    /// <summary>
+    /// The worker's next job, or none; marks the worker seen. Whether anything runs, and what, is
+    /// <see cref="RunDecision"/>'s, read for the worker in one query once it is marked seen: a wait
+    /// or nothing to do is no job; a check due hands out that check, a worker built from no recipe
+    /// its setup's next job, and any other the cards' next job of the kind the rule names.
+    /// </summary>
     public async Task<NextJob> Next(WorkerCaller caller, Guid workerId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(caller);
-        switch (await workers.Seen(caller, workerId, start.Image, cancellationToken))
+        if (await workers.Seen(caller, workerId, start.Image, cancellationToken) == WorkerState.Unknown)
         {
-            case WorkerState.Unknown:
-                return new NextJob.Unknown();
-            case WorkerState.NeedsRebuild:
-                // Built from an older recipe or on another base image: no work, until the owner
-                // runs the start command again, as the project's page says.
-                return new NextJob.None();
+            return new NextJob.Unknown();
         }
 
-        var (userId, projectId) = (caller.UserId, caller.ProjectId);
-        // Stopped, or its default branch not watched for five minutes: no new work, whatever waits,
-        // until its user resumes it or the branch is read again. See "Watching branches" in
-        // devflow/README.md.
-        // Waiting after failures outside its cards, until its wait is over. See "Stops" in
-        // devflow/README.md.
-        if (await watch.Hold(userId, projectId, cancellationToken) != ProjectHold.None
-            || await ProjectWaits.Of(database, userId, projectId, cancellationToken) is { } wait && wait.WaitUntil > time.GetUtcNow())
+        if (await RunDecision.Read(database, caller.UserId, caller.ProjectId, workerId, start.Image, time.GetUtcNow(), cancellationToken) is not { } situation)
         {
             return new NextJob.None();
         }
 
-        // Every version of .devflow/ is checked once before its workers take any other job: a
-        // worker on a version with no check that passed is handed only that check, which runs no
-        // agent and so needs no Claude login, or nothing while one runs or the last one failed. See
-        // "Setting up a project" in devflow/README.md.
-        switch (await SetupStore.Of(database, userId, projectId, workerId, cancellationToken))
+        return RunDecision.Of(situation) switch
         {
-            case null:
-                return new NextJob.None();
-            case { Version: WorkerApi.NoVersion }:
-                // Built from no recipe, the base image itself: only a setup's jobs, while its project
-                // needs one. See "Setting up a project" in devflow/README.md.
-                return await HandOutSetup(caller, workerId, cancellationToken);
-            case { State: VersionCheck.Waiting }:
-                return new NextJob.None();
-            case { State: VersionCheck.Due, Version: var version }:
-                return await HandOutCheck(caller, workerId, version, cancellationToken);
-        }
+            Decision.Run { Kind: Job.RecipeCheck } => await HandOutCheck(caller, workerId, situation.Version, cancellationToken),
+            Decision.Run { Kind: Job.Setup } => await HandOutSetup(caller, workerId, situation.SetupKind!, cancellationToken),
+            Decision.Run { Kind: var kind } => await HandOut(caller, workerId, kind, cancellationToken),
+            _ => new NextJob.None(),
+        };
+    }
 
-        if (HeldFor(await logins.Status(userId, cancellationToken)) is not null
-            || await JobStore.NextKind(database, userId, projectId, time.GetUtcNow(), cancellationToken) is not { } kind
-            || await workers.RepositoryOf(caller, cancellationToken) is not { } repository)
+    /// <summary>
+    /// Hands the worker the cards' next job of <paramref name="kind"/>, the kind the rule found:
+    /// everything that job needs from the code host is read first, as the app, with a key for that
+    /// kind and a feature's branch made for its first card, and only then is a card, or a feature,
+    /// of that kind taken, in one short transaction as the project's user that reads the watch's
+    /// hold again under the project's lock. No work when any of it is not there now.
+    /// </summary>
+    private async Task<NextJob> HandOut(WorkerCaller caller, Guid workerId, string kind, CancellationToken cancellationToken)
+    {
+        var (userId, projectId) = (caller.UserId, caller.ProjectId);
+        if (await workers.RepositoryOf(caller, cancellationToken) is not { } repository)
         {
             return new NextJob.None();
         }
@@ -294,19 +282,17 @@ public sealed partial class Dispatcher(
     }
 
     /// <summary>
-    /// Hands a worker built from no recipe its project's next setup job: its review, a fix of its
-    /// pull request, or a run, the first of a new setup among them; nothing when the project needs
-    /// no setup, its user has no Claude login, or the code host does not answer what the job needs,
-    /// the default branch, the clone address, the app's committer and a key, read first as the app
-    /// outside the lock. The setup is taken under the project's lock, while the project is not
-    /// stopped or unwatched.
+    /// Hands a worker built from no recipe its project's next setup job of <paramref name="kind"/>,
+    /// the setup's next kind the rule read: its review, a fix of its pull request, or a run, the
+    /// first of a new setup among them; nothing when the code host does not answer what the job
+    /// needs, the default branch, the clone address, the app's committer and a key, read first as
+    /// the app outside the lock. The setup is taken under the project's lock, while the project is
+    /// not stopped or unwatched.
     /// </summary>
-    private async Task<NextJob> HandOutSetup(WorkerCaller caller, Guid workerId, CancellationToken cancellationToken)
+    private async Task<NextJob> HandOutSetup(WorkerCaller caller, Guid workerId, string kind, CancellationToken cancellationToken)
     {
         var (userId, projectId) = (caller.UserId, caller.ProjectId);
-        if (HeldFor(await logins.Status(userId, cancellationToken)) is not null
-            || await SetupRunStore.NextKind(database, userId, projectId, cancellationToken) is not { } kind
-            || await workers.RepositoryOf(caller, cancellationToken) is not { } repository)
+        if (await workers.RepositoryOf(caller, cancellationToken) is not { } repository)
         {
             return new NextJob.None();
         }
