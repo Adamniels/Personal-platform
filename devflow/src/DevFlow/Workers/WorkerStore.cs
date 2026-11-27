@@ -30,7 +30,8 @@ public sealed record Worker(Guid Id, string Name, string RecipeVersion, string B
 /// holds the key.</param>
 /// <param name="Workers">Every worker that has said hello, by when it first did.</param>
 /// <param name="Held">Why the project hands out no work whichever worker asks, the first that
-/// applies: <c>stopped</c> when something landed on its default branch that Dev flow did not put
+/// applies: <c>all_paused</c> when its user paused everything, <c>paused</c> when its user paused
+/// it, both from <see cref="Jobs.Pauses.PauseSql"/>; <c>stopped</c> when something landed on its default branch that Dev flow did not put
 /// there, <c>unwatched</c> when its default branch's changes have not been read for five minutes,
 /// both from <see cref="Watching.WatchStore.HoldSql"/>; then <c>no_claude_login</c> or
 /// <c>claude_login_expired</c>, from <see cref="Jobs.Dispatcher.HeldFor"/>, which the list route
@@ -186,7 +187,7 @@ public sealed class WorkerStore(UserDb database, TimeProvider time)
         {
             ArgumentNullException.ThrowIfNull(start);
             var project = await transaction.Connection!.QuerySingleOrDefaultAsync<ProjectRow>(new CommandDefinition(
-                $"SELECT p.name AS Name, p.recipe_version AS RecipeVersion, {Watching.WatchStore.HoldSql} AS Held FROM projects p WHERE p.id = @projectId",
+                $"SELECT p.name AS Name, p.recipe_version AS RecipeVersion, coalesce({Jobs.Pauses.PauseSql}, {Watching.WatchStore.HoldSql}) AS Held FROM projects p WHERE p.id = @projectId",
                 new { projectId, watchedSince = time.GetUtcNow() - Watching.BranchWatch.UnwatchedAfter },
                 transaction,
                 cancellationToken: cancellationToken));

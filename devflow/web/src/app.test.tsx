@@ -17,6 +17,7 @@ const PROJECT = {
 	name: "Personal-platform",
 	created_at: "2026-11-16T10:00:00+00:00",
 	last_read_at: "2026-11-17T11:58:00+00:00",
+	paused_at: null,
 	summary: {
 		cards: { needs_you: 0, in_progress: 0, queued: 0, done: 0 },
 		workers: { count: 0, last_seen_at: null, held: null, cannot_run: null },

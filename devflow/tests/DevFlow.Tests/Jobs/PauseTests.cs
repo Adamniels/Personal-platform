@@ -266,6 +266,25 @@ public sealed class PauseTests
     }
 
     [Fact]
+    public async Task NextUpSaysPaused()
+    {
+        await using var jobs = await Jobs.Start([Jobs.Card(1)]);
+
+        // Paused, the card next says so and links to the project's page, where Continue is.
+        await Pause(jobs, true);
+        Assert.Equal(("Paused: continue it", "project_page"), await NextReason(jobs));
+
+        // Everything paused, it says that, with nowhere to link: the switch is on the same tab.
+        await PauseAll(jobs, true);
+        Assert.Equal(("Everything is paused: continue it", (string?)null), await NextReason(jobs));
+
+        // Continued, the card runs as soon as a worker asks.
+        await PauseAll(jobs, false);
+        await Pause(jobs, false);
+        Assert.Equal(((string?)null, (string?)null), await NextReason(jobs));
+    }
+
+    [Fact]
     public async Task RoutesAreTheUsersOwn()
     {
         await using var jobs = await Jobs.Start();
@@ -319,6 +338,15 @@ public sealed class PauseTests
 
     private static Task<HttpContext> StopNow(Jobs jobs, Guid project) =>
         jobs.Routes.App.SendJson("POST", StopNowPath(project), Contract.Token, "{}");
+
+    /// <summary>The reason "Next up" on Running now gives the one card next, and where it links.</summary>
+    private static async Task<(string? Reason, string? Link)> NextReason(Jobs jobs)
+    {
+        var response = await jobs.Routes.App.Get("/devflow/api/running", Contract.Token);
+        Assert.Equal(StatusCodes.Status200OK, response.Response.StatusCode);
+        var card = Assert.Single(JsonNode.Parse(await Harness.Body(response))!["next"]!.AsArray())!;
+        return ((string?)card["reason"], (string?)card["link"]);
+    }
 
     /// <summary>Whether everything is paused, and since when, as the route answers it.</summary>
     private static async Task<(bool Paused, DateTime? PausedAt)> All(Jobs jobs)
