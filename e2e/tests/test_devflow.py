@@ -7526,7 +7526,9 @@ def test_i_pause_a_project_and_continue_it(
     expect(header.get_by_text(PAUSED_LINE, exact=False)).to_have_count(0)
     page.goto("/devflow/projects")
     expect(_project_card(page, full_name)).to_be_visible()
-    expect(_project_card(page, full_name).get_by_text("Paused", exact=True)).to_have_count(0)
+    expect(
+        _project_card(page, full_name).get_by_text("Paused", exact=True)
+    ).to_have_count(0)
 
 
 def test_i_pause_everything(
