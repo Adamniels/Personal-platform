@@ -4540,7 +4540,7 @@ def test_i_set_the_models_and_limits(
     register_and_log_in(page, invite_code, base_url)
     _card_project(page, base_url, devflow_world)
     settings = _edit_settings(page)
-    runs = settings.get_by_role("article", name="Runs")
+    runs = settings.get_by_role("article", name="Runs", exact=True)
 
     # A new project's: opus for each job, 90 minutes, 200 turns, and 3 fix
     # rounds a card and 3 a feature.
@@ -4583,7 +4583,7 @@ def test_i_set_the_models_and_limits(
 
     # Kept: a fresh load reads them back.
     page.reload()
-    runs = _edit_settings(page).get_by_role("article", name="Runs")
+    runs = _edit_settings(page).get_by_role("article", name="Runs", exact=True)
     for label, value in (
         ("Reading model", "opus"),
         ("Building model", "sonnet"),
