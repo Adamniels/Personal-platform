@@ -11,21 +11,6 @@ using PlatformData;
 
 namespace DevFlow.Setup;
 
-/// <summary>Where a worker's setup version stands, when it asks for work.</summary>
-public enum VersionCheck
-{
-    /// <summary>A check of it passed: the worker takes any job.</summary>
-    Checked,
-
-    /// <summary>It has no check that passed and none under way, and its last check, if any,
-    /// failed and the owner asked for another: the worker is handed its check.</summary>
-    Due,
-
-    /// <summary>A check of it is under way, or its last check failed and the owner has not asked
-    /// for another: the worker gets nothing.</summary>
-    Waiting,
-}
-
 /// <summary>A step of setting a project up, and whether it is done.</summary>
 /// <param name="Step"><see cref="SetupRunStore.SetupStep"/>, <see cref="SetupStore.RecipeStep"/>,
 /// <see cref="SetupStore.SettingsStep"/>, <see cref="SetupStore.ValuesStep"/>,
@@ -289,50 +274,33 @@ public static class SetupStore
     }
 
     /// <summary>
-    /// Whether the version <c>@version</c> of project <c>@projectId</c> is checked, as SQL: one of
-    /// its checks passed.
+    /// Whether the setup version <paramref name="version"/>, an SQL expression such as
+    /// <c>@version</c>, of project <c>@projectId</c> is checked, as SQL: one of its checks passed.
     /// </summary>
-    internal const string PassedSql = """
-        EXISTS (SELECT 1 FROM recipe_checks c WHERE c.project_id = @projectId AND c.version = @version AND c.passed)
+    internal static string PassedSql(string version) => $"""
+        EXISTS (SELECT 1 FROM recipe_checks c WHERE c.project_id = @projectId AND c.version = {version} AND c.passed)
         """;
 
     /// <summary>
-    /// Whether a check of version <c>@version</c> may be handed out, as SQL: none passed, none is
-    /// under way, and its newest check, if any, failed with the owner asking for another since.
+    /// Whether a check of the setup version <paramref name="version"/>, an SQL expression, of
+    /// project <c>@projectId</c> is under way, as SQL.
     /// </summary>
-    private const string DueSql = $"""
-        NOT {PassedSql}
-        AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.project_id = @projectId AND r.kind = 'check'
-                        AND r.recipe_version = @version AND r.finished_at IS NULL)
-        AND coalesce((SELECT c.again_at IS NOT NULL FROM recipe_checks c WHERE c.project_id = @projectId AND c.version = @version
-                      ORDER BY c.checked_at DESC, c.run_id DESC LIMIT 1), true)
+    internal static string CheckingSql(string version) => $"""
+        EXISTS (SELECT 1 FROM runs r WHERE r.project_id = @projectId AND r.kind = 'check'
+                AND r.recipe_version = {version} AND r.finished_at IS NULL)
         """;
 
-    /// <summary>Where the version the worker reported stands, and that version; null when the
-    /// worker has not said hello in the project.</summary>
-    public static async Task<(VersionCheck State, string Version)?> Of(UserDb database, Guid userId, Guid projectId, Guid workerId, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(database);
-        return await database.InUserTransaction(userId, async transaction =>
-        {
-            var version = await transaction.Connection!.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
-                "SELECT recipe_version FROM workers WHERE project_id = @projectId AND id = @workerId",
-                new { projectId, workerId },
-                transaction,
-                cancellationToken: cancellationToken));
-            if (version is null)
-            {
-                return ((VersionCheck, string)?)null;
-            }
-
-            var (passed, due) = await transaction.Connection!.QuerySingleAsync<(bool, bool)>(new CommandDefinition(
-                $"SELECT {PassedSql}, {DueSql}",
-                new { projectId, version },
-                transaction,
-                cancellationToken: cancellationToken));
-            return (passed ? VersionCheck.Checked : due ? VersionCheck.Due : VersionCheck.Waiting, version);
-        }, cancellationToken);
-    }
+    /// <summary>
+    /// Whether a check of the setup version <paramref name="version"/>, an SQL expression, may be
+    /// handed out, as SQL: none passed, none is under way, and its newest check, if any, failed with
+    /// the owner asking for another since.
+    /// </summary>
+    internal static string DueSql(string version) => $"""
+        NOT {PassedSql(version)}
+        AND NOT {CheckingSql(version)}
+        AND coalesce((SELECT c.again_at IS NOT NULL FROM recipe_checks c WHERE c.project_id = @projectId AND c.version = {version}
+                      ORDER BY c.checked_at DESC, c.run_id DESC LIMIT 1), true)
+        """;
 
     /// <summary>
     /// Takes the check of <paramref name="version"/> for the worker, inside
@@ -349,7 +317,7 @@ public static class SetupStore
             $"""
             INSERT INTO runs (id, project_id, user_id, worker_id, kind, branch, base, started_at, run_minutes, recipe_version, from_commit, check_command)
             SELECT @runId, @projectId, @userId, @workerId, 'check', @branch, @branch, @now, @minutes, @version, @commit, @check
-            WHERE {DueSql}
+            WHERE {DueSql("@version")}
             ON CONFLICT (project_id, recipe_version) WHERE kind = 'check' AND finished_at IS NULL DO NOTHING
             """,
             new { runId, projectId, userId, workerId, branch, now, minutes = CheckMinutes, version, commit, check },

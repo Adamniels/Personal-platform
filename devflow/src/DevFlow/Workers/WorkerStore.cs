@@ -126,7 +126,7 @@ public sealed class WorkerStore(UserDb database, TimeProvider time)
     /// and no failed check of it was sent back to a setup not done: until then it is the worker the
     /// setup's jobs go to. See "Setting up a project" in devflow/README.md.
     /// </summary>
-    private const string RebuildSql = $"""
+    internal const string RebuildSql = $"""
         CASE
             WHEN w.recipe_version = '{Protocol.WorkerApi.NoVersion}' AND p.devflow_valid AND NOT {Setup.SetupRunStore.SentBackPending} THEN 'recipe'
             WHEN w.recipe_version <> '{Protocol.WorkerApi.NoVersion}' AND p.recipe_version IS NOT NULL AND w.recipe_version <> p.recipe_version THEN 'recipe'

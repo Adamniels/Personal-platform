@@ -221,7 +221,7 @@ public static class JobStore
     /// <summary>What makes a card one to fix, as SQL over <c>cards</c>: fixing, with its pull
     /// request, picked with its body kept, no run under way, a commit on its branch to start
     /// from, and, for a card of a feature, its feature's branch watched.</summary>
-    private const string Fixable = $"""
+    internal const string Fixable = $"""
         cards.project_id = @projectId AND cards.state = 'fixing' AND cards.pull_request_number IS NOT NULL
         AND cards.picked_body IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM runs
@@ -233,7 +233,7 @@ public static class JobStore
     /// <summary>What makes a card one to review, as SQL over <c>cards</c>: reviewing, with its pull
     /// request open, picked with its body kept, no run under way, a head commit no kept review
     /// is for, and, for a card of a feature, its feature's branch watched.</summary>
-    private const string Reviewable = $"""
+    internal const string Reviewable = $"""
         cards.project_id = @projectId AND cards.state = 'reviewing' AND cards.pull_request_number IS NOT NULL
         AND cards.picked_body IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM runs
@@ -365,7 +365,21 @@ public static class JobStore
     /// <summary>Whether project <c>@projectId</c>'s settings step is done, as SQL: until it is, it
     /// hands out no reading or build, beside its check. See "Setting up a project" in
     /// devflow/README.md.</summary>
-    private const string SettingsAccepted = "EXISTS (SELECT 1 FROM project_settings ps WHERE ps.project_id = @projectId AND ps.accepted_at IS NOT NULL)";
+    internal const string SettingsAccepted = "EXISTS (SELECT 1 FROM project_settings ps WHERE ps.project_id = @projectId AND ps.accepted_at IS NOT NULL)";
+
+    /// <summary>The kind of job project <c>@projectId</c> has to hand out, as SQL, with
+    /// <c>@watchedSince</c>, in <see cref="NextKind"/>'s order; null when it has none. The one
+    /// statement of that order, which <see cref="RunDecision"/> reads too.</summary>
+    internal const string NextKindSql = $"""
+        CASE WHEN EXISTS (SELECT 1 FROM cards WHERE {Reviewable}) THEN 'review'
+             WHEN EXISTS (SELECT 1 FROM features WHERE {FeatureReviewable}) THEN 'feature_review'
+             WHEN EXISTS (SELECT 1 FROM cards WHERE {Fixable}) THEN 'fix'
+             WHEN EXISTS (SELECT 1 FROM features WHERE {FeatureFixable}) THEN 'feature_fix'
+             WHEN EXISTS (SELECT 1 FROM features WHERE {Resolvable}) THEN 'conflict'
+             WHEN NOT {SettingsAccepted} THEN NULL
+             WHEN EXISTS (SELECT 1 FROM cards WHERE {Readings.ReadingStore.Due}) THEN 'read'
+             WHEN EXISTS (SELECT 1 FROM cards WHERE {Buildable}) THEN 'build' END
+        """;
 
     /// <summary>The kind of job the project has to hand out now, <see cref="DevFlow.Protocol.Job.Review"/>,
     /// then <see cref="DevFlow.Protocol.Job.FeatureReview"/>, then <see cref="DevFlow.Protocol.Job.Fix"/>,
@@ -383,16 +397,7 @@ public static class JobStore
     {
         ArgumentNullException.ThrowIfNull(database);
         return await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteScalarAsync<string?>(new CommandDefinition(
-            $"""
-            SELECT CASE WHEN EXISTS (SELECT 1 FROM cards WHERE {Reviewable}) THEN 'review'
-                        WHEN EXISTS (SELECT 1 FROM features WHERE {FeatureReviewable}) THEN 'feature_review'
-                        WHEN EXISTS (SELECT 1 FROM cards WHERE {Fixable}) THEN 'fix'
-                        WHEN EXISTS (SELECT 1 FROM features WHERE {FeatureFixable}) THEN 'feature_fix'
-                        WHEN EXISTS (SELECT 1 FROM features WHERE {Resolvable}) THEN 'conflict'
-                        WHEN NOT {SettingsAccepted} THEN NULL
-                        WHEN EXISTS (SELECT 1 FROM cards WHERE {Readings.ReadingStore.Due}) THEN 'read'
-                        WHEN EXISTS (SELECT 1 FROM cards WHERE {Buildable}) THEN 'build' END
-            """,
+            $"SELECT {NextKindSql}",
             new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now) },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);

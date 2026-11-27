@@ -2217,7 +2217,7 @@ from the base image itself, with no recipe and no build, under the key file "Mak
 
 It names its base image so it is not held back for another, and is not restarted with the
 machine. Its image sets no recipe version, so it reports `unset`, `WorkerApi.NoVersion`. A worker
-with no recipe version is handed only a setup's jobs, `SetupRunStore.NextKind`, while its project's
+with no recipe version is handed only a setup's jobs, `SetupRunStore.NextKindSql` as `RunDecision` reads it, while its project's
 `.devflow/` is not valid, and otherwise nothing, needing a rebuild, `recipe`, as a worker on an old
 recipe does; it is never handed a check. Its jobs need the Claude login, as a card's do.
 
@@ -2886,7 +2886,7 @@ token removes the login.
 A job is one card, or for a conflict or a whole feature's review or fix one feature, or for a reading the cards of a feature or a card on its own, handed to one worker, with what the worker needs
 for it and nothing more; a run is Dev flow's record of it, from when it was handed out to when its result came back or it was
 found lost. Why it is built so is "Handing out work" in `docs/devflow-architecture.md`. It is
-`Dispatcher`, `JobStore`, `RunStore`, `RunLogStore`, `RunLogFeed`, `JobEndpoints` and
+`Dispatcher`, `RunDecision`, `JobStore`, `RunStore`, `RunLogStore`, `RunLogFeed`, `JobEndpoints` and
 `FakeWorkerEndpoints` in `src/DevFlow/Jobs/`, the brief in `src/DevFlow/Briefs/`, and the job's, the
 result's, the log's and the report's types in `DevFlow.Protocol`'s `Jobs.cs`, `Log.cs` and
 `Report.cs`, which the worker program shares.
@@ -2897,17 +2897,57 @@ anything else, another worker of the same project, a job of another project or u
 has finished, is the same `404` "No such job". No `worker_id` is `422`.
 
 **Handing out.** `POST /devflow/api/worker/jobs/next`, with `{"worker_id"}`, marks the worker seen,
-then answers `204`, no work, when:
+then asks the one rule, `RunDecision` in `src/DevFlow/Jobs/RunDecision.cs`, which the page is to
+read too, #449. It reads the project's situation for that worker in one query, from the SQL each gate is kept
+in, and answers run, a wait with its `WaitReason`, or nothing to do. Its gates, in this order, the
+first that holds deciding, each with the sentence the page shows:
 
-- the worker needs a rebuild, see "Starting a worker";
-- the project's user has no Claude login, or one past `renew_by`; one due soon still works;
-- the project has no card that is `queued`, waits for nothing, and was picked with its body,
-  and, for a card of a feature, is let start by its feature, see "A feature's cards" below; such a
-  card is built only once it was read, and read first otherwise, see "Reading a card" below;
-- or the code host does not answer something a job needs: the repository's default branch,
-  `.devflow/project.json` on it, valid as "The format of .devflow/" says, its clone address, the
-  app's committer, a push key, or, for a feature's first card, the feature's branch. Each is logged as a warning naming what was missing, and the
-  worker asks again on its next turn.
+1. `NeedsRebuild`, the worker needs a rebuild, see "Starting a worker": "Its worker needs building
+   again".
+2. `ProjectStopped`, see "Watching branches": "The project is stopped: resume it", on the project's
+   page.
+3. `Unwatched`, its default branch not read for 5 minutes: "Its default branch has not been read
+   for 5 minutes".
+4. `CannotRun(until)`, the project's wait after failures outside its cards, see "Stops", unless the
+   last was Claude's usage limit with a reset: "Dev flow cannot run its cards: <why>", on the
+   project's page.
+5. `NeedsSetup`, the worker's setup version has no check that passed: "Its recipe is being checked"
+   while one runs, "It needs setting up" after one failed, and for a worker built from no recipe
+   with no setup job to take. A check due is what runs here instead, since it runs no agent and so
+   needs neither a Claude login nor room under the usage limit, see "Setting up a project".
+6. `NoClaudeLogin`, no Claude login, or one past `renew_by`; one due soon still works: "No Claude
+   login" or "The Claude login has expired", in the settings.
+7. `UsageLimit(until)`, the project's wait when the last failure outside its cards was Claude's
+   usage limit and its reset was believed, `until_reset` on `project_waits`: "At Claude's usage
+   limit until <time>", in UTC until Dev flow's time zone is read.
+8. `NoWorker`, no worker of the project seen in the last 2 minutes, `RunStore.Silence`, the same 2
+   minutes a run is lost after: "No worker is running for <project>", on the project's page. The
+   worker asking was just seen, so it never holds a job back, only the page.
+
+Past them a worker built from no recipe runs its setup's next job, and any other the kind of job
+`JobStore.NextKind` finds, `204` when there is none: no card that is `queued`, waits for nothing,
+and was picked with its body, and, for a card of a feature, is let start by its feature, see "A
+feature's cards" below; such a card is built only once it was read, and read first otherwise, see
+"Reading a card" below. A wait is `204` too.
+
+For each card waiting, queued, reviewing or fixing with no run under way, `RunDecision.Cards` gives
+its own decision in the order cards are handed out: the project's wait when it has one; then
+`WaitsForCard(issue)`, "Waits for #<n>, which it depends on", for the first open issue a queued card
+is blocked by, `waits_for`, or the card before it in its feature, `CardStore.HeldBackBy`;
+`WaitsForAnswers(n)`, "Waits for your answers on #<n>", on "Waiting for you", when that card needs
+answers; for a job due, `NeedsSetup` while the project runs its setup or its check first, or before
+the settings step is done for a reading or a build; `WorkersBusy(worker)`, "Next for <worker>, after
+its current run", when every worker seen lately has a run under way, naming the one whose run started
+first; and otherwise run. Which job is due for a card is read from the predicates the claims use,
+`JobStore.Reviewable`, `JobStore.Fixable`, `ReadingStore.Due` and `JobStore.Buildable`, so the two can
+never say different things; `RunDecisionTests.TheDispatcherDoesWhatTheRuleSays` holds the dispatcher
+to it in staged worlds.
+
+After a run decision, the dispatcher answers `204` when the code host does not answer something a
+job needs: the repository's default branch, `.devflow/project.json` on it, valid as "The format of
+.devflow/" says, its clone address, the app's committer, a push key, or, for a feature's first card,
+the feature's branch. Each is logged as a warning naming what was missing, and the worker asks again
+on its next turn.
 
 Otherwise it takes the first such card in the order "Cards" gives, high, none, low, each oldest
 first, with `SELECT … FOR UPDATE SKIP LOCKED`, so two workers asking at once never get the same card
@@ -4802,10 +4842,13 @@ you" is the send back route, which posts his comment on the card's issue, see "F
 **Outside the card.** A failure the worker says lies outside the card, `failed_outside_card`, or a
 lost run, "Its worker sent nothing for 2 minutes", whose worker went quiet, see "A lost run" under
 "Jobs", puts the card back as "Jobs" and "Fixing" say and never counts against it. The project
-then hands out no job, `jobs/next` answering `204` before anything else is read, for 5 minutes
+then hands out no job, `jobs/next` answering `204` with `RunDecision`'s `CannotRun`, for 5 minutes
 after the first, doubling with each one in a row up to 60, `ProjectWaits`, until a run of the
 project succeeds, which ends the count. When the failure carries `resets_at`, the project waits
-until then instead, when it is in the future and at most 8 days off; otherwise the doubling holds.
+until then instead, when it is in the future and at most 8 days off, and `project_waits` records it
+as `until_reset`, so the wait is `UsageLimit`; otherwise the doubling holds. A usage limit's wait
+holds every job that runs an agent and not a setup version's check, which runs none; see the gates
+under "Handing out" in "Jobs".
 
 **The usage limit's reset.** It is read from the stream first: the last `rate_limit_event` whose
 `rate_limit_info` has `status` `rejected` and `resetsAt` set, a Unix time in seconds, gives it
@@ -4849,7 +4892,9 @@ shows the same line, "Stopped by you. None of its jobs is handed out until you r
 `timed_out` and `resets_at`; and `project_waits`, guarded like every scoped table, a row while a
 project's failures outside its cards are counted: `project_id`, `user_id`, `failures`, the last
 `reason`, `wait_until` and `since`. From `migrations/0050_dropped_cards.sql`, `cards` gains
-`dropped_at`, null unless the owner dropped it, and only on an `ignored` card.
+`dropped_at`, null unless the owner dropped it, and only on an `ignored` card. From
+`migrations/0051_wait_until_reset.sql`, `project_waits` gains `until_reset`, true when `wait_until`
+is the usage limit's reset its last failure carried rather than the doubling wait.
 
 ## Registering the GitHub App
 
