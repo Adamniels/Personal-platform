@@ -53,6 +53,7 @@ public sealed class SometimesSettingsTests
             ["fix_rounds_card"] = 3,
             ["fix_rounds_feature"] = 3,
             ["questions"] = true,
+            ["daily_token_budget"] = null,
         };
 
     /// <summary>What the route answers for <paramref name="body"/>: the settings, and the preset

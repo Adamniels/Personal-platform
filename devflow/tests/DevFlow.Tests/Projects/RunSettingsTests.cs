@@ -47,6 +47,7 @@ public sealed class RunSettingsTests
             ["fix_rounds_card"] = 3,
             ["fix_rounds_feature"] = 3,
             ["questions"] = true,
+            ["daily_token_budget"] = null,
         };
         foreach (var (field, value) in changes)
         {

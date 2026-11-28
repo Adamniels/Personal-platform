@@ -57,6 +57,7 @@ const DEFAULTS: ProjectSettings = {
 	fix_rounds_card: 3,
 	fix_rounds_feature: 3,
 	questions: true,
+	daily_token_budget: null,
 	preset: "custom",
 };
 
@@ -86,6 +87,7 @@ const answered = (settings: SettingsRequest): ProjectSettings => ({
 	fix_rounds_card: settings.fix_rounds_card ?? 0,
 	fix_rounds_feature: settings.fix_rounds_feature ?? 0,
 	questions: settings.questions ?? false,
+	daily_token_budget: settings.daily_token_budget,
 	preset: presetOf({
 		questions: settings.questions ?? false,
 		waits_for_owner: settings.waits_for_owner ?? "",

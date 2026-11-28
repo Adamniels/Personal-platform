@@ -43,6 +43,7 @@ public sealed class SettingsTests
         ["fix_rounds_card"] = 3,
         ["fix_rounds_feature"] = 3,
         ["questions"] = true,
+        ["daily_token_budget"] = null,
     };
 
     /// <summary>What the route answers for <paramref name="body"/>: the settings, and the preset
@@ -163,5 +164,65 @@ public sealed class SettingsTests
 
         Assert.Equal(StatusCodes.Status204NoContent, gone.Response.StatusCode);
         Assert.Null(await Row(routes, project));
+    }
+
+    [Fact]
+    public async Task TheBudgetIsChecked()
+    {
+        await using var routes = await Routes.Start();
+        var project = await routes.Project(Routes.User);
+
+        // Null, off, and every whole number of millions from 1 to 10 000 is taken, saved as tokens
+        // and answered as given; the preset is not touched by it.
+        foreach (long? budget in new long?[] { 1_000_000, 37_000_000, 10_000_000_000, null })
+        {
+            var body = Settings();
+            body["daily_token_budget"] = budget;
+            var saved = await Put(routes, project, body);
+            Assert.Equal(StatusCodes.Status200OK, saved.Response.StatusCode);
+            Assert.Equal(Answer(body, "only_i_merge").ToJsonString(), JsonNode.Parse(await Harness.Body(saved))!.ToJsonString());
+            Assert.Equal(budget, await Budget(routes, project));
+        }
+
+        // Anything else is refused with 422 naming the field, and the budget stays as it was.
+        var kept = Settings();
+        kept["daily_token_budget"] = 2_000_000;
+        Assert.Equal(StatusCodes.Status200OK, (await Put(routes, project, kept)).Response.StatusCode);
+        foreach (var wrong in new long[] { 0, 999_999, 1_500_000, -1_000_000, 10_001_000_000, 1 })
+        {
+            var body = Settings();
+            body["daily_token_budget"] = wrong;
+            var answer = await Put(routes, project, body);
+            Assert.Equal(StatusCodes.Status422UnprocessableEntity, answer.Response.StatusCode);
+            var problem = JsonNode.Parse(await Harness.Body(answer))!.AsObject();
+            Assert.Equal(["daily_token_budget"], problem["errors"]!.AsObject().Select(error => error.Key));
+            Assert.Equal(2_000_000, await Budget(routes, project));
+        }
+
+        // Left out, it is refused rather than read as off, so a client that does not know it never
+        // switches a budget off by saving.
+        var missing = await Put(routes, project, Without(Settings(), "daily_token_budget"));
+        Assert.Equal(StatusCodes.Status400BadRequest, missing.Response.StatusCode);
+        Assert.Equal(2_000_000, await Budget(routes, project));
+
+        // The table refuses a row written around the route.
+        await using var admin = await routes.Database.OpenAdmin(Ct);
+        foreach (var wrong in new[] { 0L, 1_500_000L, 10_001_000_000L })
+        {
+            await Assert.ThrowsAsync<Npgsql.PostgresException>(() => admin.ExecuteAsync(new CommandDefinition(
+                "UPDATE project_settings SET daily_token_budget = @wrong WHERE project_id = @project",
+                new { wrong, project },
+                cancellationToken: Ct)));
+        }
+    }
+
+    /// <summary>The project's budget as stored, read past row level security.</summary>
+    private static async Task<long?> Budget(Routes routes, Guid project)
+    {
+        await using var admin = await routes.Database.OpenAdmin(Ct);
+        return await admin.QuerySingleAsync<long?>(new CommandDefinition(
+            "SELECT daily_token_budget FROM project_settings WHERE project_id = @project",
+            new { project },
+            cancellationToken: Ct));
     }
 }

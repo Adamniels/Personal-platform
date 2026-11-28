@@ -45,6 +45,7 @@ public sealed class TrustedAccountsTests
         ["fix_rounds_card"] = 3,
         ["fix_rounds_feature"] = 3,
         ["questions"] = true,
+        ["daily_token_budget"] = null,
     };
 
     /// <summary>The list as the route answers it: each login with whether it is the caller's.</summary>

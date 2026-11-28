@@ -196,6 +196,7 @@ function renderPage(
 				fix_rounds_card: 3,
 				fix_rounds_feature: 3,
 				questions: true,
+				daily_token_budget: null,
 				preset: "custom" as const,
 			}),
 		),
@@ -1144,6 +1145,7 @@ describe("a project's page", () => {
 			fix_rounds_card: 3,
 			fix_rounds_feature: 3,
 			questions: true,
+			daily_token_budget: null,
 			preset: "only_i_merge" as const,
 		};
 		// The settings as saved where the page reads them, changed by a save on
@@ -2001,6 +2003,7 @@ describe("a project's page, cards first", () => {
 			fix_rounds_card: 3,
 			fix_rounds_feature: 3,
 			questions: true,
+			daily_token_budget: null,
 			preset: "only_i_merge",
 		};
 		const saveSettings = vi.fn((_id: string, request: SettingsRequest) =>
