@@ -25,7 +25,7 @@ import { type FeatureApi, FeaturePage } from "./feature";
 import type { FeatureMergeApi } from "./feature-merge";
 import { Machines, type MachinesApi } from "./machines";
 import { PAUSED, PausedStrip, type PausesApi, usePaused } from "./paused";
-import { type ProjectApi, ProjectPage } from "./project";
+import { type Placement, type ProjectApi, ProjectPage } from "./project";
 import { type Project, Projects, type ProjectsApi } from "./projects";
 import { GitHubLink } from "./projects-link";
 import type { RunAgainApi } from "./run-again";
@@ -128,6 +128,25 @@ const projectApi: ProjectApi = {
 			"POST",
 			`/projects/${encodeURIComponent(id)}/worker-key`,
 		),
+	loadMachines: () => client.get("/machines"),
+	loadPlacements: (id) =>
+		client.get(
+			`/projects/${encodeURIComponent(id)}/placements` as "/projects/{id}/placements",
+		),
+	savePlacements: (id, placements) =>
+		client.send<Placement[]>(
+			"PUT",
+			`/projects/${encodeURIComponent(id)}/placements`,
+			placements,
+		),
+	saveWorkerMemory: async (id, gb) =>
+		(
+			await client.send<components["schemas"]["WorkerMemoryAnswer"]>(
+				"PUT",
+				`/projects/${encodeURIComponent(id)}/worker-memory`,
+				{ worker_memory_gb: gb },
+			)
+		).worker_memory_gb,
 	pauseProject: async (id, paused) => {
 		await client.send("PUT", `/projects/${encodeURIComponent(id)}/paused`, {
 			paused,
@@ -410,7 +429,7 @@ const usageApi: UsageApi = {
 
 /** Machines, through Dev flow's API. */
 const machinesApi: MachinesApi = {
-	loadMachines: () => client.get("/machines"),
+	loadMachines: projectApi.loadMachines,
 	newEnrollment: () =>
 		client.send<components["schemas"]["MachineEnrollment"]>(
 			"POST",

@@ -212,15 +212,26 @@ public sealed class WorkerStore(UserDb database, TimeProvider time)
 
     /// <summary>Records the version of the project's recipe as last read, through the door as its
     /// user: the commit it was read at, or null when its default branch has none. The loop's reader
-    /// records it too, see <see cref="Reading.ProjectReader"/>.</summary>
+    /// records it too, see <see cref="Reading.ProjectReader"/>. A change brings the project's slots
+    /// up to date in the same transaction, since a recipe found or lost moves what it wants, see
+    /// <see cref="Placements.WorkerSlots"/>; the update holds the project's row, as
+    /// <see cref="Placements.WorkerSlots.Lock"/> would.</summary>
     public static async Task RecipeRead(UserDb database, Guid userId, Guid projectId, string? version, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
-        await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
-            "UPDATE projects SET recipe_version = @version WHERE id = @projectId AND recipe_version IS DISTINCT FROM @version",
-            new { projectId, version },
-            transaction,
-            cancellationToken: cancellationToken)), cancellationToken);
+        await database.InUserTransaction(userId, async transaction =>
+        {
+            if (await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                    "UPDATE projects SET recipe_version = @version WHERE id = @projectId AND recipe_version IS DISTINCT FROM @version",
+                    new { projectId, version },
+                    transaction,
+                    cancellationToken: cancellationToken)) > 0)
+            {
+                await Placements.WorkerSlots.Sync(transaction, projectId, cancellationToken);
+            }
+
+            return true;
+        }, cancellationToken);
     }
 
     /// <summary>The project's workers, when its key was made, the version of its recipe and the

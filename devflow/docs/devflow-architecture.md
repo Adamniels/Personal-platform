@@ -868,6 +868,31 @@ check and the start, and nowhere else. Why each is safe, and the risk accepted, 
 decisions and accepted risks" below; how they are given and carried is "A project's values" in
 `devflow/README.md`.
 
+**The page says what should exist, not what to do.** Where a project's workers run is stored as
+desired state, a placement per machine with its count, and the slots that follow from it, rather
+than sent as "start" and "stop". The machine program, a later slice, asks for its slots every few
+seconds and makes its machine match them, as Kubernetes does. A command would be lost on a machine
+that is offline when it is sent, and would need retrying, ordering and acknowledging; desired state
+needs none of that, since a machine that comes back simply catches up, and a change on the page is
+one write, checked against the user's own machines, in one transaction with the slots. The slots
+are stored rather than computed when the machine asks, so a slot keeps its id, which its key in "A
+key per worker" will name, and so a slot no longer wanted can be kept.
+
+**A slot not wanted is kept until its machine reports it gone.** Lowering a count, losing a recipe
+or placing a project elsewhere marks slots not wanted rather than deleting them, because a card may
+be under way on one: deleting it would leave a running worker with no place, and the machine would
+have nothing to drain it by. The machine stops a slot only once Dev flow says it has no run in
+progress, "Drain before replacing" in the feature, and the row goes when it reports the container
+gone. A slot wanted again by number is the same row, so raising a count back never doubles a
+worker. Removing a machine is the exception: its slots go with it, since nothing is left to report
+them, and its key is already refused.
+
+**Memory per worker is a setting edited where the workers are placed.** It lives in
+`project_settings` with the others, so the settings route answers it, but only the Workers card's
+own route writes it: the settings route's first save does the setup's settings step, which saving
+where a project runs must never do, and a page that saves every setting would otherwise carry an
+old value over a newer one.
+
 ## Machines
 
 A machine is one of the owner's computers that runs the machine program, which starts, stops and

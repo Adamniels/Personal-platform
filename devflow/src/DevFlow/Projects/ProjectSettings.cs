@@ -54,6 +54,10 @@ namespace DevFlow.Projects;
 /// subscription by default. Outside every preset.</param>
 /// <param name="ApiDailyUsd">Its daily cap on the API key, in whole US dollars, required on the key
 /// and null on the subscription alone. Outside every preset. See <see cref="Usage.ApiCap"/>.</param>
+/// <param name="WorkerMemoryGb">The memory each of its workers is given, its setup worker's too, in
+/// whole gigabytes, <see cref="WorkerMemory"/>. Outside every preset, and saved from the Workers
+/// card through its own route, <see cref="ProjectSettingsStore.SaveMemory"/>: the settings route
+/// answers it but never changes it.</param>
 public sealed record ProjectSettings(
     string PickupLabel,
     string HoldLabel,
@@ -76,7 +80,8 @@ public sealed record ProjectSettings(
     bool Questions,
     long? DailyTokenBudget,
     string RunsOn,
-    int? ApiDailyUsd = null)
+    int? ApiDailyUsd = null,
+    int WorkerMemoryGb = WorkerMemory.Default)
 {
     /// <summary>The preset these settings match, or <c>custom</c>, never stored; see
     /// <see cref="Presets"/>.</summary>
@@ -98,7 +103,8 @@ public sealed record ProjectSettings(
 /// <summary>What <c>PUT /devflow/api/projects/{id}/settings</c> takes: all twenty-two, every time,
 /// the trusted accounts as plain logins. The daily budget may be null, for off, but is never left
 /// out: one left out is refused as the request's shape, so a client that does not know it never
-/// switches a budget off by saving.</summary>
+/// switches a budget off by saving. Memory per worker is not among them: a body that holds it is
+/// read without it, see <see cref="WorkerMemory"/>.</summary>
 public sealed record SettingsRequest(
     string? PickupLabel,
     string? HoldLabel,
@@ -315,6 +321,27 @@ public enum SaveOutcome
     NoApiKey,
 }
 
+/// <summary>A project's memory per worker: each of its workers is given it, its setup worker's too,
+/// in whole gigabytes. A setting of the project, edited in the Workers card rather than on the
+/// settings page, since it is about where the project runs. See "Workers" in
+/// devflow/README.md.</summary>
+public static class WorkerMemory
+{
+    /// <summary>A new project's, and every project's from before the setting.</summary>
+    public const int Default = 2;
+
+    /// <summary>What it takes, whole gigabytes.</summary>
+    public static readonly RunSettings.Range Range = new(1, 16);
+}
+
+/// <summary>What <c>PUT /devflow/api/projects/{id}/worker-memory</c> takes, as any number so one
+/// with a fraction is refused naming it rather than as the request's shape.</summary>
+public sealed record WorkerMemoryRequest(decimal? WorkerMemoryGb);
+
+/// <summary>What <c>PUT /devflow/api/projects/{id}/worker-memory</c> answers: the memory per worker
+/// as saved.</summary>
+public sealed record WorkerMemoryAnswer(int WorkerMemoryGb);
+
 /// <summary>A project's settings in the database, through the door as the project's user.</summary>
 public sealed class ProjectSettingsStore(UserDb database)
 {
@@ -337,7 +364,7 @@ public sealed class ProjectSettingsStore(UserDb database)
                    s.model_building AS ModelBuilding, s.model_reviewing AS ModelReviewing, s.run_minutes AS RunMinutes,
                    s.run_turns AS RunTurns, s.run_budget_usd AS RunBudgetUsd, s.fix_rounds_card AS FixRoundsCard, s.fix_rounds_feature AS FixRoundsFeature,
                    s.questions AS Questions, s.daily_token_budget AS DailyTokenBudget, s.runs_on AS RunsOn,
-                   s.api_daily_usd AS ApiDailyUsd
+                   s.api_daily_usd AS ApiDailyUsd, s.worker_memory_gb AS WorkerMemoryGb
             FROM project_settings s
             LEFT JOIN github_accounts a ON a.user_id = s.user_id
             WHERE s.project_id = @projectId
@@ -350,7 +377,7 @@ public sealed class ProjectSettingsStore(UserDb database)
             : new ProjectSettings(
                 row.PickupLabel, row.HoldLabel, row.AttentionLabel, row.ReviewLabel, row.WaitsForOwner, row.WaitWhenMarked, row.WaitWhenPaths,
                 row.WaitWhenDecision, row.WaitPaths, TrustedAccounts.Of(row.Mine, row.TrustedLogins).Listed, row.ModelReading, row.ModelBuilding,
-                row.ModelReviewing, row.RunMinutes, row.RunTurns, row.RunBudgetUsd, row.FixRoundsCard, row.FixRoundsFeature, row.Questions, row.DailyTokenBudget, row.RunsOn, row.ApiDailyUsd);
+                row.ModelReviewing, row.RunMinutes, row.RunTurns, row.RunBudgetUsd, row.FixRoundsCard, row.FixRoundsFeature, row.Questions, row.DailyTokenBudget, row.RunsOn, row.ApiDailyUsd, row.WorkerMemoryGb);
     }
 
     /// <summary>The owner's linked login, whatever the link's state, or null without one.</summary>
@@ -369,8 +396,10 @@ public sealed class ProjectSettingsStore(UserDb database)
     /// save before then is kept but does not do it. See "Setting up a project" in
     /// devflow/README.md. Settings that use the API key are saved only while the user has one,
     /// read with a share lock on its row, so removing the key, which takes that row for update
-    /// before it looks for projects on it, never passes a save that moves a project onto it.</summary>
-    public async Task<SaveOutcome> Save(Guid userId, Guid projectId, ProjectSettings settings, TrustedAccounts trusted, DateTimeOffset now, CancellationToken cancellationToken)
+    /// before it looks for projects on it, never passes a save that moves a project onto it. Memory
+    /// per worker is left as it is, and answered as stored with
+    /// <see cref="SaveOutcome.Saved"/>.</summary>
+    public async Task<(SaveOutcome Outcome, int WorkerMemoryGb)> Save(Guid userId, Guid projectId, ProjectSettings settings, TrustedAccounts trusted, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(trusted);
@@ -378,12 +407,22 @@ public sealed class ProjectSettingsStore(UserDb database)
         {
             if (RunsOn.NeedsApiKey(settings.RunsOn) && !await ApiKeyHeld(transaction, userId, cancellationToken))
             {
-                return SaveOutcome.NoApiKey;
+                return (SaveOutcome.NoApiKey, 0);
             }
 
-            return await Update(transaction, projectId, settings, trusted, now, cancellationToken) > 0 ? SaveOutcome.Saved : SaveOutcome.NoProject;
+            return await Update(transaction, projectId, settings, trusted, now, cancellationToken) is { } memory ? (SaveOutcome.Saved, memory) : (SaveOutcome.NoProject, 0);
         }, cancellationToken);
     }
+
+    /// <summary>Sets the project's memory per worker, already checked against
+    /// <see cref="WorkerMemory.Range"/>; false when the user has no such project. It touches no
+    /// other setting, and does not do the setup's settings step.</summary>
+    public async Task<bool> SaveMemory(Guid userId, Guid projectId, int workerMemoryGb, CancellationToken cancellationToken) =>
+        await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            "UPDATE project_settings SET worker_memory_gb = @workerMemoryGb WHERE project_id = @projectId",
+            new { projectId, workerMemoryGb },
+            transaction,
+            cancellationToken: cancellationToken)), cancellationToken) > 0;
 
     /// <summary>Whether the user has an API key, its row held with a share lock until the
     /// transaction ends.</summary>
@@ -394,8 +433,10 @@ public sealed class ProjectSettingsStore(UserDb database)
             transaction,
             cancellationToken: cancellationToken)) is not null;
 
-    private static Task<int> Update(NpgsqlTransaction transaction, Guid projectId, ProjectSettings settings, TrustedAccounts trusted, DateTimeOffset now, CancellationToken cancellationToken) =>
-        transaction.Connection!.ExecuteAsync(new CommandDefinition(
+    /// <summary>Writes every setting but memory per worker, and answers that as stored; null when
+    /// the user has no such project.</summary>
+    private static Task<int?> Update(NpgsqlTransaction transaction, Guid projectId, ProjectSettings settings, TrustedAccounts trusted, DateTimeOffset now, CancellationToken cancellationToken) =>
+        transaction.Connection!.QuerySingleOrDefaultAsync<int?>(new CommandDefinition(
             $"""
             UPDATE project_settings
             SET pickup_label = @PickupLabel, hold_label = @HoldLabel, attention_label = @AttentionLabel, review_label = @ReviewLabel,
@@ -406,6 +447,7 @@ public sealed class ProjectSettingsStore(UserDb database)
                 questions = @Questions, daily_token_budget = @DailyTokenBudget, runs_on = @RunsOn, api_daily_usd = @ApiDailyUsd,
                 accepted_at = coalesce(accepted_at, CASE WHEN EXISTS (SELECT 1 FROM projects p WHERE p.id = @projectId AND {Setup.SetupStore.SettingsDueSql}) THEN @now END)
             WHERE project_id = @projectId
+            RETURNING worker_memory_gb
             """,
             new
             {
@@ -474,5 +516,6 @@ public sealed class ProjectSettingsStore(UserDb database)
         public long? DailyTokenBudget { get; init; }
         public string RunsOn { get; init; } = "";
         public int? ApiDailyUsd { get; init; }
+        public int WorkerMemoryGb { get; init; }
     }
 }

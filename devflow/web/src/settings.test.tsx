@@ -61,11 +61,13 @@ const DEFAULTS: ProjectSettings = {
 	daily_token_budget: null,
 	runs_on: "subscription",
 	api_daily_usd: null,
+	worker_memory_gb: 2,
 	preset: "custom",
 };
 
-/** What saving the defaults sends: every setting, never the preset. */
-const { preset: _, ...REQUEST } = DEFAULTS;
+/** What saving the defaults sends: every setting, never the preset, and
+ * never the memory per worker, which the Workers card saves. */
+const { preset: _, worker_memory_gb: _memory, ...REQUEST } = DEFAULTS;
 
 /** What saving answers: the request, with the owner's login marked. */
 const answered = (settings: SettingsRequest): ProjectSettings => ({
@@ -94,6 +96,8 @@ const answered = (settings: SettingsRequest): ProjectSettings => ({
 	daily_token_budget: settings.daily_token_budget,
 	runs_on: settings.runs_on ?? "",
 	api_daily_usd: settings.api_daily_usd ?? null,
+	// The settings route answers it but never takes it.
+	worker_memory_gb: 2,
 	preset: presetOf({
 		questions: settings.questions ?? false,
 		waits_for_owner: settings.waits_for_owner ?? "",

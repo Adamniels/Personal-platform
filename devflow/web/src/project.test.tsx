@@ -9,14 +9,19 @@ import {
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ApiError } from "./api/client";
 import type { Card as CardView, Feature as FeatureView } from "./cards";
+import type { Machine } from "./machines";
 import {
+	CHOOSE_WHERE,
 	heldNotice,
+	MEMORY_RANGE,
 	NO_WORKER,
 	NOT_COPIED,
 	NOT_COPIED_COMMAND,
 	NOT_MADE,
 	NOT_READ,
 	PASTE,
+	type Placement,
+	type PlacementRequest,
 	ProjectPage,
 	type ProjectPageProps,
 	SHOWN_ONCE,
@@ -30,6 +35,7 @@ import type { ProjectSchedules, SchedulesRequest } from "./schedules";
 import type { ProjectSettings, SettingsRequest } from "./settings";
 import {
 	CHECK_RUNNING,
+	CHOOSE_WHERE_SETUP,
 	COMMENT_ON_PULL,
 	COMMENT_RUNS_AGAIN,
 	NEWER_FAILED,
@@ -140,6 +146,7 @@ const REGISTERED: ProjectSetup = {
 	proposal: null,
 	can_send_back: false,
 	settings_waits: false,
+	placed: true,
 	setup: null,
 };
 
@@ -149,8 +156,14 @@ function renderPage(
 		list?: Partial<WorkerList>;
 		setup?: ProjectSetup;
 		schedules?: ProjectSchedules;
+		machines?: Machine[];
 	} = {},
 ) {
+	// Where its workers run, as Dev flow holds it: a save replaces the list, as
+	// the route does, answered with each machine's name and whether it is
+	// online.
+	const machines: Machine[] = props.machines ?? [];
+	let placements: Placement[] = [];
 	// When it runs, as Dev flow holds it: a save replaces the mode and the
 	// list, as the route does.
 	let schedules: ProjectSchedules = props.schedules ?? ALWAYS;
@@ -200,6 +213,7 @@ function renderPage(
 				daily_token_budget: null,
 				runs_on: "subscription",
 				api_daily_usd: null,
+				worker_memory_gb: 2,
 				preset: "custom" as const,
 			}),
 		),
@@ -266,10 +280,32 @@ function renderPage(
 			return Promise.resolve(schedules);
 		}),
 		saveTimeZone: vi.fn((zone: string) => Promise.resolve(zone)),
+		loadMachines: vi.fn(() => Promise.resolve(machines)),
+		loadPlacements: vi.fn(() => Promise.resolve(placements)),
+		savePlacements: vi.fn((_id: string, request: PlacementRequest[]) => {
+			placements = request.map((each) => {
+				const machine = machines.find((m) => m.id === each.machine_id);
+				return {
+					machine_id: each.machine_id ?? "",
+					name: machine?.name ?? "",
+					online: machine?.online ?? false,
+					workers: each.workers ?? 0,
+				};
+			});
+			return Promise.resolve(placements);
+		}),
+		saveWorkerMemory: vi.fn((_id: string, gb: number) => Promise.resolve(gb)),
 		copy: vi.fn(() => Promise.resolve()),
 		back: vi.fn(),
 	};
-	const { list: _, setup: __, values: ___, schedules: ____, ...rest } = props;
+	const {
+		list: _,
+		setup: __,
+		values: ___,
+		schedules: ____,
+		machines: _____,
+		...rest
+	} = props;
 	render(<ProjectPage id={ID} now={() => NOW} {...api} {...rest} />);
 	return api;
 }
@@ -307,6 +343,7 @@ describe("a project's setup", () => {
 		proposal: null,
 		can_send_back: false,
 		settings_waits: false,
+		placed: true,
 		setup: null,
 	};
 
@@ -330,6 +367,7 @@ describe("a project's setup", () => {
 		proposal: null,
 		can_send_back: false,
 		settings_waits: false,
+		placed: true,
 		setup: {
 			number: 1,
 			branch: "devflow/setup",
@@ -589,6 +627,7 @@ describe("a project's setup", () => {
 			paths: ["migrations/**"],
 		},
 		settings_waits: true,
+		placed: true,
 		setup: {
 			...(waiting.setup as NonNullable<ProjectSetup["setup"]>),
 			state: "done",
@@ -718,6 +757,7 @@ describe("a project's setup", () => {
 					step.step === "check" ? step : { ...step, done: true },
 				),
 				settings_waits: false,
+				placed: true,
 				checking: true,
 			},
 		});
@@ -749,6 +789,7 @@ describe("a project's setup", () => {
 			paths: ["migrations/**"],
 		},
 		settings_waits: true,
+		placed: true,
 	};
 
 	test("the settings step is not offered before the setup's pull request merged", async () => {
@@ -1152,6 +1193,7 @@ describe("a project's page", () => {
 			daily_token_budget: null,
 			runs_on: "subscription",
 			api_daily_usd: null,
+			worker_memory_gb: 2,
 			preset: "only_i_merge" as const,
 		};
 		// The settings as saved where the page reads them, changed by a save on
@@ -1610,6 +1652,126 @@ describe("the workers", () => {
 	});
 });
 
+describe("where its workers run", () => {
+	const machine = (id: string, name: string, online: boolean): Machine => ({
+		id,
+		name,
+		os: "macos",
+		arch: "arm64",
+		program_version: "2026.11.28",
+		docker: "running",
+		online,
+		last_seen_at: "2026-11-17T11:59:00+00:00",
+	});
+	const MINI = machine(
+		"0190a8f0-0000-7000-8000-0000000000a1",
+		"mac-mini",
+		true,
+	);
+	const STUDIO = machine(
+		"0190a8f0-0000-7000-8000-0000000000a2",
+		"studio",
+		false,
+	);
+
+	test("the Workers card places workers on machines and sets their memory", async () => {
+		const api = renderPage({ machines: [MINI, STUDIO] });
+		const card = within(await panel());
+		const where = within(
+			await card.findByRole("region", { name: "Where its workers run" }),
+		);
+
+		// Placed nowhere yet: it says to choose, and lists each machine, online
+		// or not, with a number to choose, and the memory each worker gets.
+		expect(where.getByText(CHOOSE_WHERE)).toBeTruthy();
+		const [mini, studio] = within(
+			where.getByRole("list", { name: "Machines" }),
+		).getAllByRole("listitem");
+		expect(within(mini as HTMLElement).getByText("Online")).toBeTruthy();
+		expect(within(studio as HTMLElement).getByText("Offline")).toBeTruthy();
+		const memory = where.getByLabelText<HTMLInputElement>(
+			"Memory per worker, GB",
+		);
+		await waitFor(() => expect(memory.value).toBe("2"));
+
+		// A memory outside 1 to 16 is refused before anything is saved.
+		fireEvent.change(memory, { target: { value: "17" } });
+		fireEvent.click(where.getByRole("button", { name: "Save" }));
+		expect((await where.findByRole("alert")).textContent).toBe(MEMORY_RANGE);
+		expect(api.savePlacements).not.toHaveBeenCalled();
+
+		// Two on the Mac mini, one on the studio, 4 GB each: both are saved.
+		fireEvent.change(where.getByLabelText("Workers on mac-mini"), {
+			target: { value: "2" },
+		});
+		fireEvent.change(where.getByLabelText("Workers on studio"), {
+			target: { value: "1" },
+		});
+		fireEvent.change(memory, { target: { value: "4" } });
+		fireEvent.click(where.getByRole("button", { name: "Save" }));
+		await waitFor(() =>
+			expect(api.savePlacements).toHaveBeenCalledWith(ID, [
+				{ machine_id: MINI.id, workers: 2 },
+				{ machine_id: STUDIO.id, workers: 1 },
+			]),
+		);
+		expect(api.saveWorkerMemory).toHaveBeenCalledWith(ID, 4);
+
+		// Each machine says how many it is wanted to run, and the card no longer
+		// says to choose.
+		await waitFor(() =>
+			expect(
+				within(mini as HTMLElement).getByText("2 workers wanted"),
+			).toBeTruthy(),
+		);
+		expect(
+			within(studio as HTMLElement).getByText("1 worker wanted"),
+		).toBeTruthy();
+		expect(where.queryByText(CHOOSE_WHERE)).toBeNull();
+		expect(where.queryByRole("alert")).toBeNull();
+
+		// A machine set back to 0 is no longer placed, and the memory left as
+		// it is is not saved again.
+		fireEvent.change(where.getByLabelText("Workers on studio"), {
+			target: { value: "0" },
+		});
+		fireEvent.click(where.getByRole("button", { name: "Save" }));
+		await waitFor(() =>
+			expect(api.savePlacements).toHaveBeenLastCalledWith(ID, [
+				{ machine_id: MINI.id, workers: 2 },
+			]),
+		);
+		expect(api.saveWorkerMemory).toHaveBeenCalledTimes(1);
+	});
+
+	test("with no machine, it points at the Machines tab", async () => {
+		renderPage();
+		const where = within(
+			await within(await panel()).findByRole("region", {
+				name: "Where its workers run",
+			}),
+		);
+		const link = await where.findByRole("link", { name: "Machines tab" });
+		expect(link.getAttribute("href")).toBe("/devflow/machines");
+		expect(where.getByText(CHOOSE_WHERE)).toBeTruthy();
+		expect(where.queryByRole("button", { name: "Save" })).toBeNull();
+	});
+
+	test("a setup placed nowhere says to choose where its workers run", async () => {
+		renderPage({
+			setup: {
+				...REGISTERED,
+				state: "setting_up",
+				steps: REGISTERED.steps.map((step) => ({ ...step, done: false })),
+				placed: false,
+			},
+		});
+		const setup = await screen.findByRole("article", { name: "Setting it up" });
+		const run = within(setup).getByRole("region", { name: "The setup run" });
+		expect(within(run).getByText(CHOOSE_WHERE_SETUP)).toBeTruthy();
+	});
+});
+
 describe("a project's values", () => {
 	const VALUE = "sk_test_throwaway-4f9a1c7e2b";
 
@@ -1828,6 +1990,7 @@ describe("a project's values", () => {
 			setup: {
 				...valuesDue,
 				settings_waits: true,
+				placed: true,
 				steps: valuesDue.steps.map((each) =>
 					each.step === "settings" ? { ...each, done: false } : each,
 				),
@@ -2065,6 +2228,7 @@ describe("a project's page, cards first", () => {
 			daily_token_budget: null,
 			runs_on: "subscription",
 			api_daily_usd: null,
+			worker_memory_gb: 2,
 			preset: "only_i_merge",
 		};
 		const saveSettings = vi.fn((_id: string, request: SettingsRequest) =>
