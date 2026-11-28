@@ -48,6 +48,7 @@ public sealed class TrustedAccountsTests
         ["questions"] = true,
         ["daily_token_budget"] = null,
         ["runs_on"] = "subscription",
+        ["api_daily_usd"] = null,
     };
 
     /// <summary>The list as the route answers it: each login with whether it is the caller's.</summary>

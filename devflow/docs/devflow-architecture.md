@@ -1073,6 +1073,23 @@ most" for the usual single worker. The workers list carries it apart from `held`
 the rule's own sentence, so the project's page says it in the rule's order without an SQL fragment
 or a second wording.
 
+**The credential is decided with the limit, and read again under the lock.** Which credential a
+job carries is `RunsOn.Carried`, from the project's `runs_on` and whether the user's subscription is
+limited now; the dispatcher opens it before the lock, since opening goes through the vault, and
+under the project's row lock reads `runs_on` and the limit again and hands nothing out when the two
+no longer name the same credential. So a job never carries the key once the limit has reset, and
+the first job after the reset carries the subscription with no step that switches a project back.
+The login gate follows the same function: a project needs a Claude login only while its jobs carry
+the subscription.
+
+**The cap on the key sits where the usage limit sits, not with the budget.** The feature placed the
+API cap at the usage limit's position rather than among the reasons that hold every job, and the
+slice settled it so: both are about what a run would be billed to, and a check, which runs no model
+and spends nothing on the key, has no reason to wait for either. It comes after the Claude login and
+the usage limit, so a project on the subscription never meets it, and is worked out as the budget
+is, `ApiCap` summing the `cost_usd` of the day's runs whose `credential` is the key, through
+`DevFlowTime`, and read again under the project's lock for every job that runs a model.
+
 **"Run now anyway" narrows the schedule, it does not lift it.** An override for a feature or a card
 on its own, a row of `run_now`, lets the rule pass the schedule for what it covers and for nothing
 else of the project: outside its schedule with one that holds, the rule goes on through its later
@@ -2333,6 +2350,18 @@ sum. The cost is one indexed range sum over the day's runs each time a worker as
 `runs_finished` keeps small. A run under way counts once it finishes, since only then are its
 figures known; it is never stopped for the budget, so a day overshoots by what was already running.
 
+**Claude's usage limit is the user's, not a project's.** The subscription is the owner's, and its
+limit is reached by all his runs together, so when one project's run finds it every other project of
+his on the subscription would find it too, each paying a failed run and a wait to learn it.
+`subscription_limits` keeps one reset per user, the later of two, set only by a run whose job
+carried the subscription, since a run on the key that names a reset says nothing of the
+subscription; every project on the subscription reads it, through `RunDecision`, and waits with the
+usage limit's reason. The project whose run found it still counts its failure in `project_waits`, as
+before, so its count, its page and "Waiting for you" behave as they did. A project continuing on the
+key counts none: a usage limit is no failure of the machine for a project that has somewhere else to
+run, and counting it would hold the very next job that should go at once, on the key. The row is not
+cleared: a reset in the past holds nothing, so nothing has to run at the reset, as with the budget.
+
 ## Watching the default branch
 
 A worker's push key can reach `main` and merge through the API, see "The program's own writes"
@@ -2609,9 +2638,16 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   beside the token, and scrubbed by the worker from everything it sends back and logs. A test holds
   each, in `ApiKeyTests`, `DispatchTests` and `ClaudeAgentTests`. Accepted, as for the token: code a
   run executes can read the key, and could spend it. What a run may spend is held by its
-  `--max-budget-usd`, the project's `run_budget_usd`; a daily cap in money for the key is the next
-  slice's. And Dev flow does not check the key with Anthropic when it is saved; a refused key fails
-  each run outside its card, as `invalid-api-key.json` recorded.
+  `--max-budget-usd`, the project's `run_budget_usd`, and a day's by its daily cap, `api_daily_usd`.
+  And Dev flow does not check the key with Anthropic when it is saved; a refused key fails each run
+  outside its card, as `invalid-api-key.json` recorded.
+- **The daily cap on the key is an estimate, and a day may overshoot it.** It counts Claude Code's
+  `total_cost_usd` of each run, its estimate, not Anthropic's bill, which may differ; and a run under
+  way counts only once it finishes, so the day's last run can take the spend past the cap by up to
+  its own `--max-budget-usd`, and two workers by two runs. Accepted, as for the daily budget: the
+  alternative, stopping a run mid way at the cap, would waste what it had spent and leave its card
+  half done. The cap is the owner's guard against a day of runs, not an exact limit; Anthropic's own
+  spend limits on the key are the hard one, and the README says so where the cap is set.
 - **The program writes as the app, through a second typed path.** What the program does on GitHub
   is the app's, see "The program's own writes" above, made with an `AppWriteToken`, which only the
   installation token issuer and the fake's make, and which a read token or the owner's token

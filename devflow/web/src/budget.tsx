@@ -21,6 +21,10 @@ export const budgetPath = (id: string) => `${settingsPath(id)}#${USAGE_ANCHOR}`;
  * and Running now. */
 export const RAISE_THE_BUDGET = "Raise the budget";
 
+/** What Running now says to do at the usage limit or the daily cap on the
+ * API key, linking to the same card, where "Runs on" and the cap are. */
+export const CHANGE_HOW_IT_RUNS = "Change how it runs";
+
 /** The item's title on "Waiting for you". */
 export const budgetTitle = (item: BudgetReachedItem) =>
 	`${item.owner}/${item.project_name} reached its daily budget`;

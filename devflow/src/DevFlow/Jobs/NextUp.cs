@@ -26,6 +26,10 @@ public static class NextLink
 
     /// <summary>The card's project's daily budget, "Usage" on its settings page.</summary>
     public const string Budget = "budget";
+
+    /// <summary>What the card's project runs on, "Runs on" in "Usage" on its settings page, for the
+    /// usage limit and the daily cap on the API key.</summary>
+    public const string RunsOn = "runs_on";
 }
 
 /// <summary>A card that comes next, as "Next up" on "Running now" shows it.</summary>
@@ -156,6 +160,7 @@ public static class NextUp
             ActedOn.WaitingForYou => NextLink.WaitingForYou,
             ActedOn.Schedules => NextLink.Schedules,
             ActedOn.Budget => NextLink.Budget,
+            ActedOn.RunsOn => NextLink.RunsOn,
             _ => null,
         }, null),
         _ => (null, null, null),

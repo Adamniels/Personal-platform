@@ -11,7 +11,7 @@ import { type ReactNode, useState } from "react";
 import { navigate, plainClick, useSearch } from "./address";
 import type { GetAnswer } from "./api/client";
 import { cardPath, featurePath } from "./sections";
-import { TokensPerDay } from "./tokens-per-day";
+import { dayLabel, TokensPerDay } from "./tokens-per-day";
 import styles from "./usage.module.css";
 
 export type UsageView = GetAnswer<"/usage">;
@@ -285,7 +285,44 @@ function ProjectTable({ project }: { project: UsageProject }) {
 				rowKey={(row) => row.key}
 			/>
 			<TokensPerDay project={project.name} days={project.days} />
+			<KeySpend project={project.name} days={project.days} />
 		</div>
+	);
+}
+
+type UsageDay = UsageProject["days"][number];
+
+/** What the API key cost on a day, as the page says it, "API key: 3.20 USD". */
+export const keySpend = (usd: number) => `API key: ${usd.toFixed(2)} USD`;
+
+/** Each day of the last 30 the project ran on the API key, with what the key
+ * cost that day by Claude Code's estimate, oldest first; nothing for a
+ * project that never ran on it. The one place Dev flow shows money, since
+ * the key's spend is real. */
+function KeySpend({
+	project,
+	days,
+}: {
+	project: string;
+	days: readonly UsageDay[];
+}) {
+	const spent = days.filter(
+		(day): day is UsageDay & { api_key_usd: number } =>
+			day.api_key_usd !== null && day.api_key_usd !== undefined,
+	);
+	if (spent.length === 0) return null;
+	return (
+		<ul
+			className={styles.spend}
+			aria-label={`${project}: API key spend per day`}
+		>
+			{spent.map((day) => (
+				<li key={day.date} className={styles.spendDay}>
+					<span>{dayLabel(day.date)}</span>
+					<span className={styles.amount}>{keySpend(day.api_key_usd)}</span>
+				</li>
+			))}
+		</ul>
 	);
 }
 

@@ -389,10 +389,17 @@ bar:
   ends a run that reaches it." as its own. The project page's settings summary shows no limit, the
   spend among them.
 - **"Usage"**: its id `usage`, which "Raise the budget" on "Waiting for you", the project's page
-  and Running now opens, `/devflow/projects/<id>/settings#usage`, scrolled to once the form is
-  drawn. First the select "Runs on", "Your subscription" and "The API key only", the second
-  disabled with "Give an API key on the Projects tab first" as help while no API key is given, as
-  `GET /devflow/api/api-key` answers when the page opens, see "The API key". Then the package's
+  and Running now, and "Change how it runs" on Running now, open,
+  `/devflow/projects/<id>/settings#usage`, scrolled to once the form is drawn. First the select
+  "Runs on", "Your subscription, waiting at its limit", "Your subscription, then the API key at its
+  limit" and "The API key only", the last two disabled with "Give an API key on the Projects tab
+  first" as help while no API key is given, as `GET /devflow/api/api-key` answers when the page
+  opens, see "The API key". On either of the last two, the number field "API key spend a day, USD"
+  in the mono font, `api_daily_usd`, proposing 20 for a project that had none, with "1 to 1000.
+  Counted from Claude Code's estimate of each run. When reached, nothing new starts on the key until
+  midnight." as help; it is sent with the rest, and null on the subscription alone. Choosing a way to
+  run is one change on the Save bar, and a changed cap is another only while the project stays on
+  the key. Then the package's
   `Switch` "Daily budget", off for a budget of null, and, on, the number field
   "Million tokens a day" in the mono font, with "Counts input, cache writes and output. When
   reached, nothing new starts until midnight." as help. Saved with the rest, in tokens, null while
@@ -427,11 +434,11 @@ bar:
 
 The Save bar, the region "Save the settings", is one bar at the foot of the form: a mono count of
 unsaved changes, "No unsaved changes", "1 unsaved change" or "<n> unsaved changes", counting each
-of the twenty-one settings that differs from the settings as last read or saved; then "Undo changes",
+of the twenty-two settings that differs from the settings as last read or saved; then "Undo changes",
 a ghost, disabled with nothing changed, which puts the form back to the settings as last read or
 saved; and "Save", the page's one primary. Save stays enabled with nothing changed, since saving
 the settings once does the setup's settings step. Lines of "Paths" are trimmed and blank ones
-dropped as it is saved. "Save" puts all twenty-one in one `PUT`, never the preset, and then says
+dropped as it is saved. "Save" puts all twenty-two in one `PUT`, never the preset, and then says
 "Saved."; a limit that is not a whole number is named under its field and nothing is sent; a value
 Dev flow refuses is shown under its field as the field's error, from the problem's `errors`; any
 other failure is the alert "The settings were not saved. Try again.", and what was typed is kept.
@@ -769,6 +776,11 @@ focus ring drawn round the bars. The drawing is an image whose label sums it up 
 "<project>: tokens per day, the last 30 days, most on 20 Nov, 24,358", the latest day of the
 highest if two tie, or "…, none" when the 30 days used nothing.
 
+Under the chart, for a project that ran on the API key in the 30 days, a list in a frame of its
+own, "<project>: API key spend per day", one line a day the key was used, oldest first: the day,
+"26 Nov", and "API key: 3.20 USD", mono. The one place Dev flow shows money, since the key's spend
+is real; a project that never ran on the key shows none. See "The API key".
+
 With no run in the period, the `EmptyState` "Nothing used in the last 7 days", "Nothing used in the
 last 30 days" or, for all time, "Nothing used yet", "What each project, feature and card uses shows
 here once a worker has run a job."; a list that cannot be read says so as an alert.
@@ -789,7 +801,9 @@ to its project's Setting up; and a card counts to the feature it is a card of no
 `cards.feature_id`. Each project has `days` too, its tokens per day: 30, ending today in the
 caller's zone, read through `DevFlowTime`, oldest first, whatever the period, each `date`, `2026-11-27`, and `tokens`, the
 tokens of every run of the project started that day, its cards', its features' and Setting up's
-alike, 0 with none. The days' bounds are `DevFlowTime`'s, a day 23 or 25 hours long across a change
+alike, 0 with none, and `api_key_usd`, what its runs on the key that finished that day cost by
+Claude Code's estimate, counted by when they finished as the daily cap counts them, or null when
+none did. The days' bounds are `DevFlowTime`'s, a day 23 or 25 hours long across a change
 of summer time, and are handed to the query, so Postgres never counts a day by a zone of its own.
 
 ### The address
@@ -1780,7 +1794,7 @@ in `src/DevFlow/Cards/`.
 
 ### Settings
 
-Twenty-one, and only the twenty-one something reads, with the preset they match, see "Presets" below:
+Twenty-two, and only the twenty-two something reads, with the preset they match, see "Presets" below:
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -1802,7 +1816,8 @@ Twenty-one, and only the twenty-one something reads, with the preset they match,
 | `run_budget_usd` | 25 | The most a run may cost, a whole number of US dollars from 1 to 100, which Claude Code enforces as `--max-budget-usd`, overshooting by about a turn; on the subscription it is Claude Code's estimate. Reached, the run fails in the card, "it reached its budget of <n> USD". The route takes any number and refuses one with a fraction with 422 naming it, as it does one out of range. Outside every preset |
 | `fix_rounds_card` | 3 | The fix rounds a card's reviews may start, 0 to 10; a `changes` verdict after them stops the card, see "Fixing" |
 | `fix_rounds_feature` | 3 | The fix rounds a whole feature's reviews may start, 0 to 10; a `changes` verdict after them has it wait for the owner, see "Fixing a feature" |
-| `runs_on` | `subscription` | What the project's runs log in with: `subscription`, the Claude login's token, or `api_key`, the user's API key, billed to his Anthropic account, see "The API key". The settings page's "Usage" card offers it as "Runs on", "Your subscription" and "The API key only", the second disabled with "Give an API key on the Projects tab first" while none is given, and the project page's settings summary says it. The route refuses anything else with 422 naming it, and `api_key` while no key is given with 422 naming it, "Give an API key on the Projects tab first", checked under a share lock on the key's row so a removal cannot pass it. Outside every preset. The next slice adds a third value, `subscription_then_api_key` |
+| `runs_on` | `subscription` | What the project's runs log in with: `subscription`, the Claude login's token, waiting at its usage limit; `subscription_then_api_key`, the subscription, then the user's API key while their subscription is at its limit; or `api_key`, the API key alone, billed to his Anthropic account, see "The API key". The settings page's "Usage" card offers it as "Runs on", "Your subscription, waiting at its limit", "Your subscription, then the API key at its limit" and "The API key only", the last two disabled with "Give an API key on the Projects tab first" while none is given, and the project page's settings summary says it in the same words, with the cap. The route refuses anything else with 422 naming it, and either of the last two while no key is given with 422 naming it, "Give an API key on the Projects tab first", checked under a share lock on the key's row so a removal cannot pass it. Outside every preset |
+| `api_daily_usd` | null | The project's daily cap on the API key, whole US dollars from 1 to 1000, required when `runs_on` is not `subscription` and null when it is, else 422 naming it; left out, it is null, which a project on the key is refused. Counted from the `cost_usd` of its runs on the key that finished today in the user's zone, see "The daily cap" under "The API key". The settings page's "Usage" card shows it on either way of running on the key, as "API key spend a day, USD", mono, proposing 20, with "1 to 1000. Counted from Claude Code's estimate of each run. When reached, nothing new starts on the key until midnight." Outside every preset |
 | `daily_token_budget` | null, off | The tokens the project's runs may use in a day, in the user's time zone, a whole number of millions from 1 to 10 000, which the settings page takes in millions; reached, the project starts nothing new until midnight there, see "The daily budget" under "Stops". The route refuses anything but null or such a number with 422 naming it, and a request that leaves it out, rather than reading that as off, with 400 |
 | `questions` | true | Questions before starting: on, a card its reading found questions in is `needs_answers` and waits for the owner's answers under "Questions before starting" on "Waiting for you"; off, it is built on the reader's recommendations, which the app posts on it. See "Reading a card" under "Jobs" |
 
@@ -1863,16 +1878,17 @@ not; without a link nobody is known to be him, and nothing is trusted. A login i
 letters, digits and single hyphens, with no hyphen at either end, GitHub's rule. Who changes a label
 is read by the list too, see "Cards" below.
 
-- `GET /devflow/api/projects/{id}/settings` answers the twenty-one and `preset`,
+- `GET /devflow/api/projects/{id}/settings` answers the twenty-two and `preset`,
   `{"pickup_label", "hold_label", "attention_label", "review_label", "waits_for_owner",
   "wait_when_marked", "wait_when_paths", "wait_when_decision", "wait_paths", "trusted_logins",
   "model_reading", "model_building", "model_reviewing", "run_minutes", "run_turns",
-  "run_budget_usd", "fix_rounds_card", "fix_rounds_feature", "questions", "daily_token_budget", "runs_on"}`, the three conditions and `questions` booleans, `wait_paths` a list of
+  "run_budget_usd", "fix_rounds_card", "fix_rounds_feature", "questions", "daily_token_budget", "runs_on",
+  "api_daily_usd"}`, the three conditions and `questions` booleans, `wait_paths` a list of
   patterns in their order, `trusted_logins` a list of `{"login", "mine"}`, the caller's linked login
   first with `mine` true, then the others in the order they were given, the five limits whole
-  numbers, `daily_token_budget` a number of tokens or null, and `preset` one of `fully_automatic`, `guided`, `only_i_merge` and `custom`, computed
+  numbers, `daily_token_budget` a number of tokens or null, `api_daily_usd` whole US dollars or null, and `preset` one of `fully_automatic`, `guided`, `only_i_merge` and `custom`, computed
   and never stored. Another user's project, or none, is `404`.
-- `PUT /devflow/api/projects/{id}/settings` takes all twenty-one, `trusted_logins` as a list of logins,
+- `PUT /devflow/api/projects/{id}/settings` takes all twenty-two, `trusted_logins` as a list of logins,
   and answers them as saved, with the preset they match. A `preset` sent with them is not read. One that breaks a rule, or is missing, is `422`, a validation problem
   whose `errors` names each field, and nothing changes: a label that is another's whatever its case,
   named on the later of the two, `sometimes` with no condition ticked, under `waits_for_owner`, a
@@ -1921,7 +1937,7 @@ The mode is `project_settings.runs_by`, `always` or `schedule`, and the windows 
 `project_schedules`, `(project_id, user_id, id, name, days, from_time, to_time, active, position)`,
 guarded like every scoped table, a name unique in its project whatever its case. The zone is
 `user_settings`, `(user_id, time_zone)`, guarded the same way, a user without a row in
-`Europe/Stockholm`. Neither is one of the twenty-one settings: each saves at once through its own
+`Europe/Stockholm`. Neither is one of the twenty-two settings: each saves at once through its own
 route, never through the settings page's "Save".
 
 **The rules**, which the route checks and the table's checks repeat:
@@ -3219,15 +3235,50 @@ token removes the login.
 ## The API key
 
 The API key is an Anthropic API key the owner makes in the Claude Console and gives Dev flow once,
-which a run of a project set to run on it, `runs_on` `api_key` in "Settings" under "Cards", is
-handed in place of the Claude login, so the run is billed to his Anthropic account rather than
+which a run of a project set to run on it, `runs_on` `api_key` or `subscription_then_api_key` in
+"Settings" under "Cards", is handed in place of the Claude login, so the run is billed to his Anthropic account rather than
 drawn from his subscription. Why it is one per user, and how it reaches a run, is "Workers" in
 `docs/devflow-architecture.md`.
 
 **As the owner does it.** On the Projects tab press "Give a key" on the Anthropic API key's line,
-paste the key, then "Save"; then, on a project's settings page, choose "The API key only" under
-"Runs on" in "Usage" and save. "Replace" gives another; "Remove", beside its field, forgets it,
-and is refused while any project runs on it.
+paste the key, then "Save"; then, on a project's settings page, choose "Your subscription, then the
+API key at its limit" or "The API key only" under "Runs on" in "Usage", set "API key spend a day,
+USD", and save. "Replace" gives another; "Remove", beside its field, forgets it, and is refused
+while any project runs on it.
+
+**Three ways to run.** `runs_on` is `subscription`, the default, which waits at the subscription's
+usage limit, see "The usage limit's reset" under "Stops"; `subscription_then_api_key`, which runs on
+the subscription and continues on the key while the user's subscription is limited; or `api_key`,
+the key alone. Which credential a job carries is `RunsOn.Carried(runs_on, limited)`, read when the
+job is handed out and again under the project's lock: the key on `api_key`, and on
+`subscription_then_api_key` while `subscription_limits` holds a reset still to come; the
+subscription otherwise. Nothing switches a project continuing on the key back but the reset: the
+first job handed out after it carries the subscription again. Such a project needs a Claude login
+only while its jobs carry the subscription, and the key only while they carry the key, though
+saving it onto the key needs one given, as `api_key` does.
+
+**The daily cap**, `api_daily_usd` in "Settings" under "Cards", is required on either way of running
+on the key, a whole number of US dollars from 1 to 1000, the page proposing 20, and null on the
+subscription alone. `ApiCap` in `src/DevFlow/Usage/` counts the `cost_usd` of the project's runs
+whose `credential` is `api_key` and that finished since the latest midnight in the user's zone, read
+through `DevFlowTime`; a run under way counts once it finishes, so a day overshoots by one run at
+most, which the spend per run bounds. It is Claude Code's estimate, not Anthropic's bill, so it is a
+guard against a day of runs rather than an exact limit; the spend limits set on the key in the
+Claude Console are the hard one. While the project's jobs carry the key and that spend is at
+least the cap, `RunDecision` answers `WaitReason.ApiCapReached(Spent, Cap, LiftsAt)`, "API key spend
+reached for today, <spent> of <cap> USD", where the usage limit's reason sits, after the budget and
+the schedules, so a check, which runs no model and spends nothing on the key, still goes. It lifts at
+the next midnight, at once on a raise, and for a project continuing on the key at the subscription's
+reset when that comes first, since its jobs then carry the subscription. Worked out each time and
+never stored, like the daily budget, and not an item on "Waiting for you", as the usage limit is
+not; Running now says it, with "Change how it runs", which opens the card "Usage". Handing out a job
+that runs a model reads it again under the project's lock.
+
+**Where money shows.** Tokens and time are what Dev flow shows; the key's spend is the one place
+money is real. While a project's jobs carry the key, its page's Workers card says "Running on the API
+key until <time>", the subscription's reset as wall clock in the user's zone, or "Running on the API
+key" on the key alone, with "<spent> of <cap> USD today", from `on_the_key` in the workers list. Usage
+and history lists, per project, each day of its last 30 the key was used, "API key: <n> USD".
 
 **One per user**, as the Claude login is. The key is sealed in the vault, see "The vault", under the
 purpose `anthropic-api-key`, and nowhere else. `ApiKeys`, beside `ClaudeLogins` in
@@ -3258,14 +3309,17 @@ opens through the door as the run's user, and the vault's binding to the user it
 refuses a key moved to another, with `VaultException`. It answers an `ApiKey`, which prints as
 `ApiKey { sealed }`. It is called only when a job of a project on the key is handed out, so the key
 leaves Dev flow only inside a job's answer to its own user's worker, as its `credential`, see
-"Jobs". A project on the key needs no Claude login: `no_claude_login` and `claude_login_expired`
-hold only projects on the subscription.
+"Jobs". A project whose jobs carry the key needs no Claude login: `no_claude_login` and
+`claude_login_expired` hold only projects whose jobs carry the subscription.
 
 The table, from `migrations/0059_api_keys.sql`, guarded like every scoped one: `api_keys`,
 `user_id`, its primary key, `secret_purpose`, always `anthropic-api-key`, and `given_at`.
 `(user_id, secret_purpose)` references `secrets (user_id, purpose)` with `ON DELETE CASCADE`. The
 setting `runs_on` and each run's `credential`, `subscription` or `api_key`, so spend on the key can
-be counted apart, are from `migrations/0060_runs_on.sql`.
+be counted apart, are from `migrations/0060_runs_on.sql`; `subscription_then_api_key` from
+`migrations/0062_subscription_then_api_key.sql`; and `api_daily_usd`, with the check that it is null
+exactly on the subscription alone, from `migrations/0063_api_daily_usd.sql`, which gave a project
+already on the key 20.
 
 ## Jobs
 
@@ -5444,6 +5498,18 @@ as `until_reset`, so the wait is `UsageLimit`; otherwise the doubling holds. A u
 holds every job that runs an agent and not a setup version's check, which runs none; see the gates
 under "Handing out" in "Jobs".
 
+**The limit is the user's.** A run whose job carried the subscription, other than a check, that
+fails outside its card with a believed `resets_at`, `ProjectWaits.Believed`, also records the
+user's subscription limited until then in `subscription_limits`, by `SubscriptionLimits`, the later
+of two resets kept. Until that reset every project of the user on `subscription` hands out no job
+that runs a model, answering `UsageLimit` with the later of its own wait's reset and the user's, as
+wall clock in the user's zone, "At the usage limit, until <day time>", with "Change how it runs" on
+Running now; a check is still handed out. The project whose run found it counts the failure in
+`project_waits` as above. A project on `subscription_then_api_key` counts no wait for it: its card
+is put back and its next job goes at once, carrying the key, see "The API key". The row is never
+cleared; once its reset has passed it holds nothing. A run on the key that names a reset is not the
+subscription's limit, and waits as above.
+
 **The usage limit's reset.** It is read from the stream first: the last `rate_limit_event` whose
 `rate_limit_info` has `status` `rejected` and `resetsAt` set, a Unix time in seconds, gives it
 exactly, whatever the `result` text says. An event that let the request through, `allowed` or
@@ -5513,7 +5579,9 @@ project's failures outside its cards are counted: `project_id`, `user_id`, `fail
 `reason`, `wait_until` and `since`. From `migrations/0050_dropped_cards.sql`, `cards` gains
 `dropped_at`, null unless the owner dropped it, and only on an `ignored` card. From
 `migrations/0051_wait_until_reset.sql`, `project_waits` gains `until_reset`, true when `wait_until`
-is the usage limit's reset its last failure carried rather than the doubling wait.
+is the usage limit's reset its last failure carried rather than the doubling wait. From
+`migrations/0061_subscription_limits.sql`, `subscription_limits`, guarded like every scoped table,
+one row a user: `user_id`, its primary key, `resets_at` and `recorded_at`.
 
 ## Registering the GitHub App
 

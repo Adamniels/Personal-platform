@@ -92,7 +92,10 @@ public sealed record UsageProject(
 /// <param name="Date">The day, in the user's zone.</param>
 /// <param name="Tokens">The tokens, by the one definition, of every run of the project started on it,
 /// 0 with none.</param>
-public sealed record UsageDay(DateOnly Date, long Tokens);
+/// <param name="ApiKeyUsd">What the project's runs on the API key that finished on it cost, in US
+/// dollars by Claude Code's estimate, counted as the daily cap counts them, <see cref="ApiCap"/>;
+/// null when none did, so a day the key was not used shows nothing.</param>
+public sealed record UsageDay(DateOnly Date, long Tokens, decimal? ApiKeyUsd = null);
 
 /// <summary>What <c>GET /devflow/api/usage</c> answers.</summary>
 /// <param name="Period">The period counted, <c>7d</c>, <c>30d</c> or <c>all</c>.</param>
@@ -129,7 +132,7 @@ public static class UsageStore
     {
         ArgumentNullException.ThrowIfNull(database);
         var since = Periods[period] is { } span ? now - span : (DateTimeOffset?)null;
-        var (groups, cards, features, projects, (days, perDay)) = await database.InUserTransaction(userId, async transaction =>
+        var (groups, cards, features, projects, (days, perDay, keyPerDay)) = await database.InUserTransaction(userId, async transaction =>
         {
             // The days are the user's, in their zone as this transaction reads it.
             var zone = await DevFlowTime.ZoneOf(transaction, cancellationToken);
@@ -179,7 +182,19 @@ public static class UsageStore
                 new { starts = days.Select(day => DevFlowTime.StartOf(day, zone)).ToArray(), ends = days.Select(day => DevFlowTime.EndOf(day, zone)).ToArray() },
                 transaction,
                 cancellationToken: cancellationToken))).ToDictionary(day => (day.ProjectId, day.Place), day => day.Tokens);
-            return (groups, cards, features, projects, (Days: days, Tokens: perDay));
+            // What the key cost each day, by when each run on it finished, as the cap counts it, so
+            // a day here is the day the cap read.
+            var keyPerDay = (await transaction.Connection!.QueryAsync<KeyDayRow>(new CommandDefinition(
+                $"""
+                SELECT r.project_id AS ProjectId, d.place::int AS Place, sum(coalesce(r.cost_usd, 0)) AS Usd
+                FROM unnest(@starts::timestamptz[], @ends::timestamptz[]) WITH ORDINALITY AS d(starts, ends, place)
+                JOIN runs r ON r.finished_at >= d.starts AND r.finished_at < d.ends AND r.credential = '{Protocol.JobCredential.ApiKey}'
+                GROUP BY r.project_id, d.place
+                """,
+                new { starts = days.Select(day => DevFlowTime.StartOf(day, zone)).ToArray(), ends = days.Select(day => DevFlowTime.EndOf(day, zone)).ToArray() },
+                transaction,
+                cancellationToken: cancellationToken))).ToDictionary(day => (day.ProjectId, day.Place), day => day.Usd);
+            return (groups, cards, features, projects, (Days: days, Tokens: perDay, Usd: keyPerDay));
         }, cancellationToken);
 
         var shown = new List<UsageProject>();
@@ -247,7 +262,10 @@ public static class UsageStore
                 settingUp,
                 [.. shownFeatures.OrderByDescending(feature => feature.Tokens).ThenBy(feature => feature.Number)],
                 alone,
-                [.. days.Select((day, index) => new UsageDay(day, perDay.GetValueOrDefault((project.Id, index + 1))))]));
+                [.. days.Select((day, index) => new UsageDay(
+                    day,
+                    perDay.GetValueOrDefault((project.Id, index + 1)),
+                    keyPerDay.TryGetValue((project.Id, index + 1), out var usd) ? usd : null))]));
         }
 
         return new UsageView(period, [.. shown.OrderByDescending(project => project.Tokens).ThenBy(project => project.Name, StringComparer.Ordinal)]);
@@ -288,4 +306,6 @@ public static class UsageStore
     private sealed record ProjectRow(Guid Id, string Name);
 
     private sealed record DayRow(Guid ProjectId, int Place, long Tokens);
+
+    private sealed record KeyDayRow(Guid ProjectId, int Place, decimal Usd);
 }

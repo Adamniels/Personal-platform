@@ -492,7 +492,7 @@ public static class RunStore
                        head_commit AS HeadCommit, from_commit AS FromCommit, default_commit AS DefaultCommit, fix_round AS FixRound,
                        coalesce((SELECT c.fix_rounds FROM cards c WHERE c.project_id = runs.project_id AND c.number = runs.card_number),
                                 (SELECT s.fix_rounds FROM setups s WHERE s.project_id = runs.project_id AND s.number = runs.setup_number), 0) AS RoundsUsed,
-                       recipe_version AS RecipeVersion, setup_number AS SetupNumber
+                       recipe_version AS RecipeVersion, setup_number AS SetupNumber, credential AS Credential
                 FROM runs
                 WHERE id = @runId AND project_id = @projectId AND worker_id = @workerId AND finished_at IS NULL
                 FOR UPDATE OF runs
@@ -613,10 +613,23 @@ public static class RunStore
             }
 
             // A failure outside the card, or a feature's job, never counts against it, but makes its
-            // project wait; a success ends the wait.
+            // project wait; a success ends the wait. One on the subscription at its usage limit, with
+            // a reset believed, limits the user's subscription, so every project of theirs on it
+            // waits for that reset, not only this one; a check runs no model and finds no limit. A
+            // project that continues on the API key counts no wait for it, so its next job goes at
+            // once, on the key.
             if (ending.Result == "failed_outside_card")
             {
-                await ProjectWaits.Failed(transaction, projectId, userId, ending.Reason ?? "", result.ResetsAt, now, cancellationToken);
+                var limit = !check && run.Credential == JobCredential.Subscription && ProjectWaits.Believed(result.ResetsAt, now);
+                if (limit)
+                {
+                    await SubscriptionLimits.Record(transaction, userId, result.ResetsAt!.Value, now, cancellationToken);
+                }
+
+                if (!limit || settings.RunsOn != RunsOn.SubscriptionThenApiKey)
+                {
+                    await ProjectWaits.Failed(transaction, projectId, userId, ending.Reason ?? "", result.ResetsAt, now, cancellationToken);
+                }
             }
             else if (ending.Result == "succeeded" || (check && ending.Result == "check_failed"))
             {
@@ -1022,7 +1035,7 @@ public static class RunStore
         : char.IsHighSurrogate(reason[MostReason - 1]) && char.IsLowSurrogate(reason[MostReason]) ? reason[..(MostReason - 1)]
         : reason[..MostReason];
 
-    private sealed record HeldRun(int? CardNumber, int? FeatureNumber, string Branch, string Base, string Kind, string? HeadCommit, string? FromCommit, string? DefaultCommit, int? FixRound, int RoundsUsed, string? RecipeVersion, int? SetupNumber);
+    private sealed record HeldRun(int? CardNumber, int? FeatureNumber, string Branch, string Base, string Kind, string? HeadCommit, string? FromCommit, string? DefaultCommit, int? FixRound, int RoundsUsed, string? RecipeVersion, int? SetupNumber, string Credential);
 
     /// <summary>
     /// Moves a feature whose conflict run has just ended to <paramref name="ending"/>'s state, only

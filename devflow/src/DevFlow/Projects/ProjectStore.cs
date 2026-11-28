@@ -197,11 +197,12 @@ public sealed class ProjectStore(UserDb database, UserTokens tokens, ICodeHost h
                        {ProjectWaits.CannotRunReasonSql} AS CannotRunReason,
                        {SetupStore.RegisteredSql} AS Registered,
                        (SELECT r.last_success_at FROM project_reads r WHERE r.project_id = p.id) AS LastReadAt,
-                       coalesce((SELECT s.runs_on FROM project_settings s WHERE s.project_id = p.id), '{RunsOn.Subscription}') AS RunsOn
+                       coalesce((SELECT s.runs_on FROM project_settings s WHERE s.project_id = p.id), '{RunsOn.Subscription}') AS RunsOn,
+                       EXISTS (SELECT 1 FROM subscription_limits l WHERE l.user_id = p.user_id AND l.resets_at > @now) AS Limited
                 FROM projects p
                 ORDER BY lower(p.owner), lower(p.name), p.id
                 """,
-                new { watchedSince = time.GetUtcNow() - BranchWatch.UnwatchedAfter },
+                new { watchedSince = time.GetUtcNow() - BranchWatch.UnwatchedAfter, now = time.GetUtcNow() },
                 transaction,
                 cancellationToken: cancellationToken));
             var cards = await transaction.Connection!.QueryAsync<CountsRow>(new CommandDefinition(
@@ -241,10 +242,10 @@ public sealed class ProjectStore(UserDb database, UserTokens tokens, ICodeHost h
             return (projects.ToList(), cards.ToDictionary(row => row.ProjectId), features.ToDictionary(row => row.ProjectId));
         }, cancellationToken);
 
-        // Asked once, and only when a project on the subscription has no hold of its own that
-        // already says why.
+        // Asked once, and only when a project whose jobs carry the subscription has no hold of its
+        // own that already says why.
         ClaudeLoginStatus? login = null;
-        if (projects.Any(row => row.Held is null && RunsOn.NeedsClaudeLogin(row.RunsOn)))
+        if (projects.Any(row => row.Held is null && RunsOn.NeedsClaudeLogin(row.RunsOn, row.Limited)))
         {
             login = await logins.Status(userId, cancellationToken);
         }
@@ -268,7 +269,7 @@ public sealed class ProjectStore(UserDb database, UserTokens tokens, ICodeHost h
             var workers = new WorkersHealth(
                 row.Workers,
                 row.LastSeenAt is { } seen ? GitHubLink.Utc(seen) : null,
-                row.Held ?? (login is null ? null : Dispatcher.HeldFor(login, row.RunsOn)),
+                row.Held ?? (login is null ? null : Dispatcher.HeldFor(login, row.RunsOn, row.Limited)),
                 row.CannotRunReason is { } reason ? ProjectWaits.CannotRun(row.Name, reason) : null);
             listed.Add(new ListedProject(row.Id, row.InstallationId, row.RepositoryId, row.Owner, row.Name, GitHubLink.Utc(row.CreatedAt),
                 row.LastReadAt is { } read ? GitHubLink.Utc(read) : null,
@@ -303,7 +304,7 @@ public sealed class ProjectStore(UserDb database, UserTokens tokens, ICodeHost h
     };
 
     private sealed record Row(Guid Id, long InstallationId, long RepositoryId, string Owner, string Name, DateTime CreatedAt,
-        int Workers, DateTime? LastSeenAt, string? Held, DateTime? PausedAt, string? CannotRunReason, bool Registered, DateTime? LastReadAt, string RunsOn);
+        int Workers, DateTime? LastSeenAt, string? Held, DateTime? PausedAt, string? CannotRunReason, bool Registered, DateTime? LastReadAt, string RunsOn, bool Limited);
 
     private sealed record CountsRow(Guid ProjectId, int NeedsYou, int InProgress, int Queued, int Done);
 

@@ -43,7 +43,34 @@ public sealed record Worker(Guid Id, string Name, string RecipeVersion, string B
 /// <param name="Budget">The project's daily budget once its runs reached it today, worked out by
 /// <see cref="Usage.DailyBudget"/>, which holds it after a pause in <paramref name="Held"/> and
 /// before every other hold there; null when it has none or used less.</param>
-public sealed record WorkerList(DateTimeOffset? KeyMadeAt, string? RecipeVersion, string StartCommand, IReadOnlyList<Worker> Workers, string? Held, string? CannotRun = null, BudgetHold? Budget = null);
+/// <param name="OnTheKey">While the project's jobs carry the API key, alone or continuing on it
+/// while the user's subscription is limited, until when and what the key cost today, by
+/// <see cref="Usage.ApiCap"/>; null while they carry the subscription.</param>
+public sealed record WorkerList(DateTimeOffset? KeyMadeAt, string? RecipeVersion, string StartCommand, IReadOnlyList<Worker> Workers, string? Held, string? CannotRun = null, BudgetHold? Budget = null, KeyState? OnTheKey = null);
+
+/// <summary>A project whose jobs carry the API key, as its page says it.</summary>
+/// <param name="Until">For one continuing on the key, the subscription's reset, in the user's
+/// zone's own offset; null for one on the key alone.</param>
+/// <param name="Spent">What its runs on the key that finished today cost, in US dollars.</param>
+/// <param name="Cap">Its daily cap on the key, in whole US dollars.</param>
+/// <param name="Sentence">"Running on the API key until &lt;day time&gt;", or "Running on the API
+/// key" on it alone.</param>
+/// <param name="Spend">"&lt;spent&gt; of &lt;cap&gt; USD today".</param>
+public sealed record KeyState(DateTimeOffset? Until, decimal Spent, int Cap, string Sentence, string Spend)
+{
+    /// <summary>The page's state of <paramref name="state"/>, or null while the project's jobs
+    /// carry the subscription.</summary>
+    public static KeyState? Of(Usage.OnTheKey? state) => state is { } key
+        ? new KeyState(
+            key.Until,
+            key.Spent,
+            key.Cap,
+            key.Until is { } until
+                ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Running on the API key until {until:ddd HH:mm}")
+                : "Running on the API key",
+            string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{key.Spent:0.00} of {key.Cap} USD today"))
+        : null;
+}
 
 /// <summary>A project's daily budget reached, as the project's page says it.</summary>
 /// <param name="Used">The tokens its runs that finished today used, by the one definition.</param>
@@ -214,6 +241,8 @@ public sealed class WorkerStore(UserDb database, TimeProvider time)
             }
 
             var budget = await Usage.DailyBudget.ReachedIn(transaction, projectId, time.GetUtcNow(), cancellationToken);
+            var limited = await Stops.SubscriptionLimits.UntilIn(transaction, time.GetUtcNow(), cancellationToken);
+            var onTheKey = await Usage.ApiCap.StateIn(transaction, projectId, limited, time.GetUtcNow(), cancellationToken);
             var made = await transaction.Connection!.QuerySingleOrDefaultAsync<DateTime?>(new CommandDefinition(
                 "SELECT created_at FROM worker_keys WHERE project_id = @projectId",
                 new { projectId },
@@ -236,7 +265,8 @@ public sealed class WorkerStore(UserDb database, TimeProvider time)
                 start.StartCommand(project.Name),
                 [.. rows.Select(row => new Worker(row.Id, row.Name, row.RecipeVersion, row.BaseImage, GitHubLink.Utc(row.FirstSeenAt), GitHubLink.Utc(row.LastSeenAt), row.Rebuild))],
                 project.Held,
-                Budget: BudgetHold.Of(budget));
+                Budget: BudgetHold.Of(budget),
+                OnTheKey: KeyState.Of(onTheKey));
         }, cancellationToken);
 
     /// <summary>Now, as Postgres keeps it, to the microsecond.</summary>

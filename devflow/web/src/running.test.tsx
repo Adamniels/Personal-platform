@@ -348,6 +348,33 @@ describe("Running now", () => {
 		);
 	});
 
+	test("a card at the usage limit or the key's cap says why, with Change how it runs", async () => {
+		const reason = "API key spend reached for today, 10.00 of 10 USD";
+		openRunning(
+			list(
+				[run()],
+				[
+					nextCard({
+						number: 63,
+						title: "Over the cap",
+						reason,
+						link: "runs_on",
+						link_card: null,
+					}),
+				],
+			),
+		);
+		await screen.findByRole("article", { name: "#51 Share a plan by link" });
+		const shown = nextRow("#63 Over the cap");
+		expect(within(shown).getAllByText(reason).length).toBeGreaterThan(0);
+		expect(within(shown).queryByRole("link", { name: reason })).toBeNull();
+		linksTo(
+			shown,
+			"Change how it runs",
+			`/devflow/projects/${PROJECT}/settings#usage`,
+		);
+	});
+
 	test("a card outside its schedule offers run now anyway, for its feature or itself", async () => {
 		const runNow = vi.fn<RunningApi["runNow"]>(() => Promise.resolve());
 		openRunning(

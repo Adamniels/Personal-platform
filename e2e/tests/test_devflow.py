@@ -7,7 +7,7 @@ import json
 import re
 import struct
 import zlib
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -7195,9 +7195,12 @@ def test_every_item_kind_follows_the_detail_rule(
             page.screenshot(path=str(SCREENSHOTS / f"{shot}-detail-phone.png"))
 
 
-def _fake_build(page: Page, base_url: str, project: str, usage: dict) -> dict:
+def _fake_build(
+    page: Page, base_url: str, project: str, usage: dict, cost: float | None = None
+) -> dict:
     """The fake worker takes the project's next job, a card's build, and ends
-    it succeeded with Claude's `usage` figures. What it answered."""
+    it succeeded with Claude's `usage` figures, and with `cost`, Claude
+    Code's estimate in US dollars, when given. What it answered."""
     ran = page.request.post(
         "/devflow/api/fake/worker/run",
         data={
@@ -7208,7 +7211,8 @@ def _fake_build(page: Page, base_url: str, project: str, usage: dict) -> dict:
                 "failure": None,
                 "check": {"exit_code": 0, "output": "Tests: 12 passed"},
                 "auth_method": "oauth_token",
-                "usage": {"usage": usage, "num_turns": 23},
+                "usage": {"usage": usage, "num_turns": 23}
+                | ({} if cost is None else {"total_cost_usd": cost}),
                 "duration_ms": 184213,
                 "stderr": "",
             },
@@ -7607,10 +7611,13 @@ def test_i_pause_everything(
     expect(switch).to_be_checked()
     strip = page.locator("main > header").get_by_text(EVERYTHING_PAUSED)
     expect(strip).to_be_visible()
-    # Next up says why fodr's card does not run.
+    # Next up says why fodr's card does not run. Its row alone: whether
+    # Personal-platform's card is listed too depends on how far its read has
+    # got, and it would say the same.
     next_up = page.get_by_role("table", name="Next up")
+    fodr_row = next_up.get_by_role("row").filter(has_text="Dark mode")
     expect(
-        next_up.get_by_text("Everything is paused: continue it").filter(visible=True)
+        fodr_row.get_by_text("Everything is paused: continue it").filter(visible=True)
     ).to_be_visible()
 
     # Every project of mine is held, both of them.
@@ -7890,3 +7897,124 @@ def test_a_project_reaches_its_budget(
     page.goto("/devflow")
     expect(page.get_by_role("tab", name="Waiting for you")).to_be_visible()
     expect(page.get_by_role("link", name=title)).to_have_count(0)
+
+
+def test_a_project_continues_on_the_key_at_the_limit(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    """A project on "then the API key" whose build finds Claude's usage limit
+    goes on on the key: its page says "Running on the API key until <time>",
+    with what the key cost today of its cap, and the run on the key shows its
+    spend on Usage and history. See "The API key" and "Stops" in
+    devflow/README.md."""
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    add_issue(world, 61, "Make the feature's branch", labels=["devflow"])
+    add_issue(world, 62, "Name the feature's branch", labels=["devflow"])
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    for path, body in (
+        ("/devflow/api/claude-login", {"token": CLAUDE_TOKEN}),
+        ("/devflow/api/api-key", {"key": API_KEY}),
+    ):
+        given = page.request.put(path, data=body, headers={"Origin": base_url})
+        assert given.status == 200, given.text()
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+    _fake_read(page, base_url, project, [_ready(61), _ready(62)])
+
+    # On the settings page, "Runs on" offers the three choices; continuing on
+    # the key asks for its daily cap, proposing 20.
+    content = _edit_settings(page)
+    usage = content.get_by_role("article", name="Usage", exact=True)
+    runs_on = usage.get_by_label("Runs on")
+    expect(runs_on.locator("option")).to_have_text(
+        [
+            "Your subscription, waiting at its limit",
+            "Your subscription, then the API key at its limit",
+            "The API key only",
+        ]
+    )
+    expect(usage.get_by_label("API key spend a day, USD")).to_have_count(0)
+    runs_on.select_option(label="Your subscription, then the API key at its limit")
+    cap = usage.get_by_label("API key spend a day, USD")
+    expect(cap).to_have_value("20")
+    expect(
+        usage.get_by_text(
+            "1 to 1000. Counted from Claude Code's estimate of each run. When "
+            "reached, nothing new starts on the key until midnight."
+        )
+    ).to_be_visible()
+    content.get_by_role("button", name="Save", exact=True).click()
+    expect(content.get_by_text("Saved.", exact=True)).to_be_visible()
+    saved = page.request.get(f"/devflow/api/projects/{project}/settings").json()
+    assert (saved["runs_on"], saved["api_daily_usd"]) == (
+        "subscription_then_api_key",
+        20,
+    )
+    usage.scroll_into_view_if_needed()
+    _looks_right(page)
+    capture(page, "devflow-settings-usage")
+
+    # The first build carries the subscription and finds the usage limit,
+    # which resets in two hours.
+    reset = datetime.now(UTC).replace(microsecond=0) + timedelta(hours=2)
+    failed = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={
+            "project_id": project,
+            "result": {
+                "outcome": "failed",
+                "report": None,
+                "failure": {
+                    "reason": "Claude's usage limit was reached",
+                    "in_card": False,
+                    "resets_at": reset.isoformat(),
+                },
+                "check": None,
+                "auth_method": None,
+                "usage": {},
+                "duration_ms": 1000,
+                "stderr": "",
+            },
+        },
+        headers={"Origin": base_url},
+    )
+    assert failed.status == 200, failed.text()
+
+    # Its next build goes at once, on the key, and costs 3.25 USD.
+    built = _fake_build(
+        page,
+        base_url,
+        project,
+        {"input_tokens": 1_000, "output_tokens": 500},
+        cost=3.25,
+    )
+    assert built["card"] in (61, 62)
+
+    # The project's page says it runs on the key until the reset, as wall
+    # clock in Stockholm, with what the key cost today of its cap.
+    page.goto(f"/devflow/projects/{project}")
+    until = reset.astimezone(ZoneInfo("Europe/Stockholm")).strftime("%a %H:%M")
+    expect(page.get_by_text(f"Running on the API key until {until}")).to_be_visible()
+    expect(page.get_by_text("3.25 of 20 USD today")).to_be_visible()
+    expect(
+        page.get_by_text(
+            "Your subscription, then the API key at its limit, 20 USD a day on the key"
+        )
+    ).to_be_visible()
+
+    # Usage and history shows the day's spend on the key.
+    page.goto("/devflow/usage")
+    spend = page.get_by_role("list", name=f"{NAME}: API key spend per day")
+    expect(spend).to_contain_text("API key: 3.25 USD")
+    spend.scroll_into_view_if_needed()
+    _looks_right(page)
+    capture(page, "devflow-usage-api-spend")

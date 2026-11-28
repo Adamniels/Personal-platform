@@ -33,6 +33,7 @@ import {
 	PRESET_FILLS,
 	PRESET_NAMES,
 	type ProjectSettings,
+	RUNS_ON,
 	requestOf,
 	NOT_READ as SETTINGS_NOT_READ,
 	type SettingsApi,
@@ -525,10 +526,17 @@ const WAITS: Record<string, string> = {
 	always: "Always",
 };
 
-/** What a project runs on, as its settings page's "Runs on" names it. */
-const RUNS_ON: Record<string, string> = {
-	subscription: "Your subscription",
-	api_key: "The API key only",
+/** What a project runs on, in the words of its settings page's "Runs on",
+ * with its daily cap on the API key when it may run on it. */
+export const runsOnLine = (
+	settings: Pick<ProjectSettings, "runs_on" | "api_daily_usd">,
+) => {
+	const label =
+		RUNS_ON.find((each) => each.value === settings.runs_on)?.label ??
+		settings.runs_on;
+	return settings.api_daily_usd === null
+		? label
+		: `${label}, ${settings.api_daily_usd} USD a day on the key`;
 };
 
 /** The settings in the side column: the preset, questions before starting,
@@ -551,7 +559,7 @@ function SettingsSummary({
 					WAITS[settings.waits_for_owner] ?? settings.waits_for_owner,
 				],
 				["Daily budget", budgetLine(settings.daily_token_budget)],
-				["Runs on", RUNS_ON[settings.runs_on] ?? settings.runs_on],
+				["Runs on", runsOnLine(settings)],
 				["Pick-up label", settings.pickup_label],
 				["Hold label", settings.hold_label],
 				["Attention label", settings.attention_label],
@@ -748,6 +756,15 @@ function WorkersPanel({
 						<p className={styles.held}>
 							<Status tone="needs-you">No work</Status>
 							<span>{heldNotice(list.held)}</span>
+						</p>
+					) : null}
+					{/* While its jobs carry the API key, alone or continuing on it at
+					    the subscription's usage limit, until when and what the key
+					    cost today, as the one rule reads it. */}
+					{list?.on_the_key ? (
+						<p className={styles.held} role="status">
+							<span>{list.on_the_key.sentence}</span>
+							<span className={styles.mono}>{list.on_the_key.spend}</span>
 						</p>
 					) : null}
 					{/* Six runs in a row failed outside their cards: a broken machine, a

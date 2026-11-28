@@ -17,7 +17,9 @@ const OTHER = "22222222-2222-2222-2222-222222222222";
 
 /** 30 days ending 27 November 2026, each with the tokens `used` names for it
  * and 0 for any other, as the service sends them. */
-function days(used: Record<string, number> = {}) {
+function days(
+	used: Record<string, number> = {},
+): UsageView["projects"][number]["days"] {
 	return Array.from({ length: 30 }, (_, back) => {
 		const date = new Date(Date.UTC(2026, 10, 27 - 29 + back))
 			.toISOString()
@@ -258,6 +260,37 @@ describe("Usage and history", () => {
 			}),
 		);
 		expect(names(table)).not.toContain("#11 Add Tokens.Of");
+	});
+
+	test("a project's days on the API key say what the key cost", async () => {
+		const spent = days();
+		spent[27] = { ...(spent[27] as (typeof spent)[number]), api_key_usd: 3.2 };
+		spent[29] = { ...(spent[29] as (typeof spent)[number]), api_key_usd: 0.05 };
+		const base = view();
+		const [first, second] = base.projects;
+		open("/devflow/usage", () =>
+			Promise.resolve(
+				view({
+					projects: [
+						{ ...(first as UsageView["projects"][number]), days: spent },
+						second as UsageView["projects"][number],
+					],
+				}),
+			),
+		);
+		const list = await screen.findByRole("list", {
+			name: "Personal-platform: API key spend per day",
+		});
+		expect(
+			within(list)
+				.getAllByRole("listitem")
+				.map((item) => item.textContent),
+		).toEqual(["25 NovAPI key: 3.20 USD", "27 NovAPI key: 0.05 USD"]);
+
+		// fodr never ran on the key: no list for it.
+		expect(
+			screen.queryByRole("list", { name: "fodr: API key spend per day" }),
+		).toBeNull();
 	});
 
 	test("the period is in the address", async () => {

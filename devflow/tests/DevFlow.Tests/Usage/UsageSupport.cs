@@ -101,8 +101,10 @@ internal sealed class UsageWorld : IAsyncDisposable
         long? input = null,
         long? cacheCreation = null,
         long? cacheRead = null,
-        long? output = null) =>
-        RunAt(project, kind, Now - startedAgo, endedAgo is { } ago ? Now - ago : null, card, feature, durationMs, input, cacheCreation, cacheRead, output);
+        long? output = null,
+        string credential = "subscription",
+        decimal? cost = null) =>
+        RunAt(project, kind, Now - startedAgo, endedAgo is { } ago ? Now - ago : null, card, feature, durationMs, input, cacheCreation, cacheRead, output, credential, cost);
 
     /// <summary>As <see cref="Run"/>, started at <paramref name="started"/> and ended at
     /// <paramref name="ended"/>, whatever the app's clock says, for a test that reads the store at a
@@ -118,7 +120,9 @@ internal sealed class UsageWorld : IAsyncDisposable
         long? input = null,
         long? cacheCreation = null,
         long? cacheRead = null,
-        long? output = null)
+        long? output = null,
+        string credential = "subscription",
+        decimal? cost = null)
     {
         int? setup = null;
         if (kind is "setup" or "setup_review")
@@ -137,7 +141,7 @@ internal sealed class UsageWorld : IAsyncDisposable
             """
             INSERT INTO runs (id, project_id, user_id, card_number, feature_number, worker_id, kind, branch, base, started_at, finished_at, result,
                               run_minutes, duration_ms, input_tokens, cache_creation_input_tokens, cache_read_input_tokens, output_tokens,
-                              head_commit, from_commit, default_commit, recipe_version, setup_number)
+                              head_commit, from_commit, default_commit, recipe_version, setup_number, credential, cost_usd)
             SELECT gen_random_uuid(), @project, user_id, @card, @feature, @worker, @kind, 'devflow/usage', 'main', @started, @ended,
                    CASE WHEN @ended::timestamptz IS NULL THEN NULL ELSE 'succeeded' END,
                    90, @durationMs, @input, @cacheCreation, @cacheRead, @output,
@@ -145,7 +149,7 @@ internal sealed class UsageWorld : IAsyncDisposable
                    CASE WHEN @kind IN ('fix', 'feature_fix', 'check', 'conflict') THEN @commit END,
                    CASE WHEN @kind = 'conflict' THEN @commit END,
                    CASE WHEN @kind = 'check' THEN '1' END,
-                   @setup
+                   @setup, @credential, @cost
             FROM projects WHERE id = @project
             """,
             new
@@ -164,6 +168,8 @@ internal sealed class UsageWorld : IAsyncDisposable
                 output,
                 commit = Commit,
                 setup,
+                credential,
+                cost,
             });
     }
 

@@ -48,6 +48,7 @@ public sealed class SettingsTests
         ["questions"] = true,
         ["daily_token_budget"] = null,
         ["runs_on"] = "subscription",
+        ["api_daily_usd"] = null,
     };
 
     /// <summary>What the route answers for <paramref name="body"/>: the settings, and the preset
@@ -285,6 +286,7 @@ public sealed class SettingsTests
         // The API key without one given is refused, naming runs_on, with what to do first.
         var onTheKey = Settings();
         onTheKey["runs_on"] = "api_key";
+        onTheKey["api_daily_usd"] = 20;
         var refused = await Put(routes, project, onTheKey);
         Assert.Equal(StatusCodes.Status422UnprocessableEntity, refused.Response.StatusCode);
         var problem = JsonNode.Parse(await Harness.Body(refused))!.AsObject();
@@ -300,10 +302,10 @@ public sealed class SettingsTests
         Assert.Equal("api_key", await RunsOn(routes, project));
         Assert.Equal("api_key", (string)(await Get(routes, project))["runs_on"]!);
 
-        // Anything but the two, left out among them, is refused naming the field alone, and it
+        // Anything but the three, left out among them, is refused naming the field alone, and it
         // stays as it was.
         var wrongs = new List<JsonObject>();
-        foreach (var wrong in new JsonNode?[] { "Subscription", "api-key", "", "subscription_then_api_key", 1, null })
+        foreach (var wrong in new JsonNode?[] { "Subscription", "api-key", "", "subscription_then_api_keys", "subscription_then", 1, null })
         {
             var body = Settings();
             body["runs_on"] = wrong;
@@ -333,6 +335,97 @@ public sealed class SettingsTests
             "UPDATE project_settings SET runs_on = 'both' WHERE project_id = @project",
             new { project },
             cancellationToken: Ct)));
+    }
+
+    [Fact]
+    public async Task TheCapIsChecked()
+    {
+        await using var routes = await Routes.Start();
+        var project = await routes.Project(Routes.User);
+
+        // Continuing on the key without one given is refused naming runs_on, as the key alone is.
+        var continuing = Settings();
+        continuing["runs_on"] = "subscription_then_api_key";
+        continuing["api_daily_usd"] = 20;
+        var refused = await Put(routes, project, continuing);
+        Assert.Equal(StatusCodes.Status422UnprocessableEntity, refused.Response.StatusCode);
+        Assert.Equal(["runs_on"], await Errors(refused));
+
+        // A new project on the subscription has no cap, and one given there is refused.
+        Assert.Null((await Get(routes, project))["api_daily_usd"]);
+        var capped = Settings();
+        capped["api_daily_usd"] = 20;
+        refused = await Put(routes, project, capped);
+        Assert.Equal(StatusCodes.Status422UnprocessableEntity, refused.Response.StatusCode);
+        Assert.Equal(["api_daily_usd"], await Errors(refused));
+
+        // With a key given, either way of running on it needs a whole number of US dollars from 1
+        // to 1000: left out, null, below, above or with a fraction is refused, naming it alone.
+        await routes.App.Services.GetRequiredService<ApiKeys>().Set(Routes.User, "sk-ant-api03-settings-test-key", Ct);
+        foreach (var runsOn in new[] { "api_key", "subscription_then_api_key" })
+        {
+            var bodies = new List<JsonObject>();
+            foreach (var wrong in new JsonNode?[] { null, 0, -5, 1001, 20.5 })
+            {
+                var body = Settings();
+                body["runs_on"] = runsOn;
+                body["api_daily_usd"] = wrong;
+                bodies.Add(body);
+            }
+
+            var left = Settings();
+            left["runs_on"] = runsOn;
+            bodies.Add(Without(left, "api_daily_usd"));
+            foreach (var body in bodies)
+            {
+                var answer = await Put(routes, project, body);
+                Assert.Equal(StatusCodes.Status422UnprocessableEntity, answer.Response.StatusCode);
+                Assert.Equal(["api_daily_usd"], await Errors(answer));
+                Assert.Null(await Cap(routes, project));
+            }
+
+            foreach (var cap in new[] { 1, 1000, 20 })
+            {
+                var body = Settings();
+                body["runs_on"] = runsOn;
+                body["api_daily_usd"] = cap;
+                var saved = await Put(routes, project, body);
+                Assert.Equal(StatusCodes.Status200OK, saved.Response.StatusCode);
+                Assert.Equal(Answer(body, "only_i_merge").ToJsonString(), JsonNode.Parse(await Harness.Body(saved))!.ToJsonString());
+                Assert.Equal(cap, await Cap(routes, project));
+            }
+
+            // Back on the subscription alone the cap is null again.
+            Assert.Equal(StatusCodes.Status200OK, (await Put(routes, project, Settings())).Response.StatusCode);
+            Assert.Null(await Cap(routes, project));
+        }
+
+        // The table refuses a row written around the route: the key without a cap, a cap on the
+        // subscription, or one out of range.
+        await using var admin = await routes.Database.OpenAdmin(Ct);
+        foreach (var sql in new[]
+        {
+            "UPDATE project_settings SET runs_on = 'api_key', api_daily_usd = NULL WHERE project_id = @project",
+            "UPDATE project_settings SET runs_on = 'subscription', api_daily_usd = 20 WHERE project_id = @project",
+            "UPDATE project_settings SET runs_on = 'api_key', api_daily_usd = 1001 WHERE project_id = @project",
+        })
+        {
+            await Assert.ThrowsAsync<Npgsql.PostgresException>(() => admin.ExecuteAsync(new CommandDefinition(sql, new { project }, cancellationToken: Ct)));
+        }
+    }
+
+    /// <summary>The fields a 422 names.</summary>
+    private static async Task<List<string>> Errors(HttpContext answer) =>
+        [.. JsonNode.Parse(await Harness.Body(answer))!["errors"]!.AsObject().Select(error => error.Key)];
+
+    /// <summary>The project's cap on the key as stored, read past row level security.</summary>
+    private static async Task<int?> Cap(Routes routes, Guid project)
+    {
+        await using var admin = await routes.Database.OpenAdmin(Ct);
+        return await admin.QuerySingleAsync<int?>(new CommandDefinition(
+            "SELECT api_daily_usd FROM project_settings WHERE project_id = @project",
+            new { project },
+            cancellationToken: Ct));
     }
 
     /// <summary>What the project runs on as stored, read past row level security.</summary>
