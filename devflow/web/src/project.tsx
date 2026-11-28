@@ -2,8 +2,9 @@
 // a header with the way back, a mono caption with the repository, when it was read and the preset
 // its saved settings match, the name as the page title, a summary line and the stat pills; then
 // the cards column, its features and cards on their own, or while the project is setting up its
-// Setup panel in their place; and beside it the side column, the Workers card and the settings
-// summary, whose "Edit settings" opens the project's settings page. The Workers card shows
+// Setup panel in their place; and beside it the side column, the Workers card, the card "When it
+// runs", with its windows' switches and when it runs next, and the settings summary, whose "Edit
+// settings" opens the project's settings page. The Workers card shows
 // the workers that have said hello with the project's key, each saying when it needs building
 // again, why no work is handed out when none is, and, behind "Start a worker", the two commands
 // that start one. The key is shown once, as the answer that made it, with the command that saves
@@ -25,6 +26,7 @@ import {
 } from "./cards";
 import styles from "./project.module.css";
 import type { Project } from "./projects";
+import { type SchedulesApi, WhenItRunsCard } from "./schedules";
 import { settingsPath } from "./sections";
 import {
 	PRESET_FILLS,
@@ -95,7 +97,8 @@ export const QUIET_MS = 10 * 60 * 1000;
 export type ProjectApi = SettingsApi &
 	CardsApi &
 	SetupApi &
-	ValuesApi & {
+	ValuesApi &
+	SchedulesApi & {
 		loadProjects: () => Promise<Project[]>;
 		loadWorkers: (id: string) => Promise<WorkerList>;
 		/** Makes the project's key, replacing its last, and answers it with
@@ -159,6 +162,8 @@ export function ProjectPage({
 	loadValues,
 	giveValue,
 	removeValue,
+	loadSchedules,
+	saveSchedules,
 }: ProjectPageProps) {
 	const [project, setProject] = useState<Project | null>();
 	const [failed, setFailed] = useState(false);
@@ -414,6 +419,12 @@ export function ProjectPage({
 						loadWorkers={loadWorkers}
 						makeKey={makeKey}
 						primary={!setupShown}
+					/>
+					<WhenItRunsCard
+						id={id}
+						className={styles.card}
+						loadSchedules={loadSchedules}
+						saveSchedules={saveSchedules}
 					/>
 					<SettingsSummary id={id} settings={settings} />
 				</div>

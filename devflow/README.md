@@ -117,6 +117,9 @@ program that calls it: everything else the tabs will show arrives with later sli
   project and every project of the caller, `GET /devflow/api/paused`, whether everything is paused,
   and `POST /devflow/api/projects/{id}/stop-now`, which pauses a project and stops every run of it
   under way, see "Pausing" under "Jobs". Without a valid token, `401` with an empty body.
+- `GET` and `PUT /devflow/api/projects/{id}/schedules`, when a project runs, always or by its
+  windows, and `GET` and `PUT /devflow/api/time-zone`, the caller's time zone, see "Schedules" under
+  "Cards". Without a valid token, `401` with an empty body.
 - `GET /devflow`, `/devflow/running`, `/devflow/projects`, `/devflow/usage`, `/devflow/projects/{id}`, a project's page, and
   `/devflow/projects/{id}/cards/{number}`, a card's page, and
   `/devflow/projects/{id}/features/{number}`, a feature's page, with any query, the page:
@@ -267,7 +270,7 @@ phone. The cards column holds the region "Cards", see "Cards", or, while the pro
 the "Setting it up" card in its place, and above the cards the "Check failed" card when a
 registered project's newest check failed, as `setupShows` decides, see "Setting up a project". The
 side column holds the Workers
-card and the settings summary. The page has one primary button at most: while a setup card shows,
+card, the card "When it runs" and the settings summary. The page has one primary button at most: while a setup card shows,
 its current step's, "Accept", "Merge" or "Check again", and "Make a key" is a secondary; otherwise
 "Make a key" before the project has a key.
 
@@ -319,6 +322,18 @@ reads the settings each time it opens, so a save on the settings page shows in t
 preset's badge once back, as accepting a setup run's proposal does at once; settings that could not
 be read are an alert.
 
+The card "When it runs", `WhenItRunsCard` in `src/schedules.tsx`, the package's `Card` above the
+settings summary, is read from `GET /devflow/api/projects/{id}/schedules` as the page loads. Its
+first line says when the project runs: "Always"; "Running now, until <time>" inside a window that is
+on, from `running_until`; "Runs next <day time>", such as "Runs next Fri 22:00", from `next_start`;
+or "No schedule is on, so nothing runs". Times are wall clock in the user's zone, the answer's
+`time_zone`, through `Intl.DateTimeFormat`, as the rule's own sentences say them. By schedule, each
+window is an inset row with the package's `Switch`, named by the window, with its days and times as
+its help, "Mon–Fri · 22:00–06:00"; a switch moves as it is clicked and saves at once, the whole list
+with that window changed, through `PUT .../schedules`, going back with an alert if Dev flow refuses.
+"Edit schedules", a link drawn as a secondary button, opens the settings page at its card, see
+"Schedules" under "Cards".
+
 ### A project's settings page
 
 `/devflow/projects/<id>/settings`, `SettingsPage` in `src/settings.tsx`, under the Projects tab,
@@ -332,7 +347,8 @@ it in place; a mono caption with `OWNER/NAME`; "Settings" as the page title; and
 Dev flow does on its own in <name>, which cards it takes, and how its runs are set." Under it is a
 wrapping row: the form, `flex: 999 1 560px`, and the side column, `flex: 1 1 300px`, which stacks
 under the form on phone. The settings are read from `GET /devflow/api/projects/{id}/settings`; the
-form is three of the package's `Card`s, then the Values card and the Save bar:
+form is three of the package's `Card`s, then the cards "When it runs" and "Values" and the Save
+bar:
 
 - **"How much happens alone"**: "Preset", a radio group drawn as the Tabs track of `design/DESIGN.md`
   section 4 rather than the `Tabs` component, which is a tablist: "Fully automatic", "Guided" and
@@ -353,6 +369,24 @@ form is three of the package's `Card`s, then the Values card and the Save bar:
 - **"Runs"**: the selects "Reading model", "Building model", with "A build, a fix, a conflict." as
   its help, and "Reviewing model"; then the four limits as number fields in the mono font, each with
   its range as help.
+- **"When it runs"**: `SchedulesCard` in `src/schedules.tsx`, its anchor `settings-schedules`,
+  which "Edit schedules" on the project's page and on Running now opens. A radio group drawn as the
+  Tabs track, as the preset's is, "Always" and "By schedule", then the help "Outside every schedule
+  that is on, the run under way finishes and nothing new starts." By schedule, each window is an
+  inset row: the package's `Switch`, named by the window, with its days as short names, three or
+  more in a row as a range, "Every day" for all seven, and "22:00–06:00" as its help, then "Edit"
+  and "Remove", in the danger colour. "Add a schedule" opens a form, "A new schedule", or "Edit
+  <name>" for one being edited, in its row's place: the field "Name", seven day toggles, "Mon" to
+  "Sun", as checkboxes drawn as one track of equal segments, and the time fields "From" and "To",
+  with "A window whose To is earlier than its From ends the next day."; "Add" or "Save", and
+  "Cancel". Under them, "Times are in <zone>" with "Change", which puts a select "Time zone" in its
+  place, "Used by every project", of the browser's IANA zones, `Intl.supportedValuesOf`, with `UTC`
+  and the zone saved; choosing one saves it at once through `PUT /devflow/api/time-zone` and reads
+  the schedules again, since the next start moves with it. Every change saves at once through the
+  schedules' own route, never through "Save", and says "Saved."; the mode and a switch move as they
+  are clicked and go back if Dev flow refuses; a refusal is shown under its field, from the
+  problem's `errors`, `schedules[i].name` under the name of the window being edited, and anything
+  else as an alert.
 - **"Values"**: `ValuesCard` in `src/values.tsx`, what values are for as help; each value an inset,
   its name in the mono font, "set <date>" or "not set", and "Replace", or "Give" for one its setup
   run listed and nobody gave, with "Remove" in the danger colour for one given; "Add a value" opens
@@ -376,7 +410,7 @@ On phone the bar sticks to the bottom above the tab bar.
 The side column: the `Card` "These settings", the preset the form matches as its hero label, or
 "Custom", a line of what it means, and "A change counts from the next decision Dev flow makes. A
 run under way keeps the model and limits it started with."; the navigation "Sections", links to
-the four cards, not shown on phone; and "Disconnect <name>", a ghost in the danger colour, behind a
+the five cards, not shown on phone; and "Disconnect <name>", a ghost in the danger colour, behind a
 destructive `Dialog`, "Disconnect <owner>/<name>?", which says Dev flow forgets the project and
 everything it read for it and that nothing changes on GitHub. Once disconnected, the page goes to
 the Projects tab; a disconnect that fails says so as an alert.
@@ -635,7 +669,9 @@ page; Project; State, a `Badge` in words, "Queued", "To read" for a queued card 
 "To review" or "To fix"; and "Why it is not running", the sentence of the reason the one rule gives
 the card, see "Jobs", as a link where the reason has a place to act: the card it waits for, when that
 is a card of the project, "Waiting for you", the project's page, or the Projects tab, whose
-Connections hold the Claude login. A card that runs as soon as a worker asks has no reason and says
+Connections hold the Claude login. Outside its project's schedule the sentence, "Outside its
+schedule, runs again <day time>" or "No schedule is on", is said and not linked, since it says when
+rather than what to do, and "Edit schedules" after it links the settings page's card. A card that runs as soon as a worker asks has no reason and says
 "Next to start". On a phone it is a list: the last three columns are priority 3, and the Card cell
 holds the project and the state on a mono line under the title, "fodr · To read", and the reason
 under that. Past 50 cards, "and 7 more" under the table; with none, "Nothing waits to run." in its
@@ -685,7 +721,8 @@ line under it, "2 runs · 4 min agent · 0 s elapsed · 25,210 tokens · 512,870
 rounds · sent back 0".
 
 Under each project's table, in a frame of its own, its tokens per day, `src/tokens-per-day.tsx`:
-30 bars in plain SVG, one a day ending today in Dev flow's time zone, oldest first, each as high as
+30 bars in plain SVG, one a day ending today in the owner's time zone, see "Schedules" under
+"Cards", oldest first, each as high as
 the day's tokens by the one definition against the highest day's, in `--info` on a 1px `--border`
 baseline, with no chart library. It is always the last 30 days, whatever the period chosen. Over
 the bars "Tokens per day" on the left and, on the right, the day shown, "26 Nov: 1,000 tokens";
@@ -715,8 +752,8 @@ for one Dev flow no longer holds, the four, `elapsed_ms`, `fix_rounds`, `cards.f
 card and `feature_number` to its feature, so a feature's reading counts to the feature even though
 a card's page lists it, and nothing counts twice; a run with neither, a check or a setup's, counts
 to its project's Setting up; and a card counts to the feature it is a card of now, by
-`cards.feature_id`. Each project has `days` too, its tokens per day: 30, ending today in
-`DevFlowTime.Zone`, oldest first, whatever the period, each `date`, `2026-11-27`, and `tokens`, the
+`cards.feature_id`. Each project has `days` too, its tokens per day: 30, ending today in the
+caller's zone, read through `DevFlowTime`, oldest first, whatever the period, each `date`, `2026-11-27`, and `tokens`, the
 tokens of every run of the project started that day, its cards', its features' and Setting up's
 alike, 0 with none. The days' bounds are `DevFlowTime`'s, a day 23 or 25 hours long across a change
 of summer time, and are handed to the query, so Postgres never counts a day by a zone of its own.
@@ -1391,7 +1428,7 @@ of what Dev flow is:
 - `POST /devflow/api/fake/usage-history` with `{"project_id", "days": [{"days_ago": 3, "tokens":
   52000}]}` gives the caller's project a day of use for each entry, so a test sees a month of tokens
   per day without a month of runs: a copy of the project's last finished run, started at noon that
-  many days before today in `DevFlowTime.Zone`, or just before the run copied when that is earlier,
+  many days before today in the caller's zone, or just before the run copied when that is earlier,
   with the day's tokens as its input, no cache figures and 10 minutes of time, `204`; `404` for a
   project the caller does not have or that has no finished run, and `400` without `project_id` or
   `days`, or for a negative `days_ago` or `tokens`, naming it. See "Usage and history".
@@ -1828,6 +1865,72 @@ policy is forced, so the migration lifts it for that one update and forces it ag
 trigger on `projects`
 makes a project's row when the project is made, running as the caller, and the migration made one
 for every project before it.
+
+### Schedules
+
+A project runs always, the default, or by schedule: inside any of its windows that is on, and with
+none on, never. Outside, nothing new of it starts, see "Schedules" under "Jobs". Every window is
+wall clock in its user's time zone, one per user. It is `src/DevFlow/Schedules/`, `ScheduleRules`,
+`Schedule`, `ScheduleStore` and `ScheduleEndpoints`, and `DevFlowTime` in `src/DevFlow/`, the one
+place a zone is read; why the zone is the user's and why a window is wall clock is "Projects" in
+`docs/devflow-architecture.md`.
+
+The mode is `project_settings.runs_by`, `always` or `schedule`, and the windows are
+`project_schedules`, `(project_id, user_id, id, name, days, from_time, to_time, active, position)`,
+guarded like every scoped table, a name unique in its project whatever its case. The zone is
+`user_settings`, `(user_id, time_zone)`, guarded the same way, a user without a row in
+`Europe/Stockholm`. Neither is one of the eighteen settings: each saves at once through its own
+route, never through the settings page's "Save".
+
+**The rules**, which the route checks and the table's checks repeat:
+
+- `runs_by` is `always` or `schedule`.
+- `schedules` is a list, empty for none, of at most 20 windows.
+- A window's `name` is 1 to 60 characters once trimmed, and unique in the project whatever its case.
+- `days` is a non-empty set of `mon`, `tue`, `wed`, `thu`, `fri`, `sat` and `sun`, kept once each in
+  the week's order.
+- `from` and `to` are `HH:MM` in 24 hours, and different. A `to` earlier than `from` crosses
+  midnight, and the window belongs to the day it starts: Friday 22:00 to 06:00 runs on Saturday at
+  05:59 and not on Saturday at 22:00.
+- `active` is true or false.
+- An `id` is given at most once; a window without one gets a new one, and one with an id keeps it.
+
+Times are wall clock in the zone, by `DevFlowTime.At`: a start a change of clocks skips starts at the
+first instant after it, so in Stockholm a 02:30 start on the day summer time starts is at 03:00, and
+a start it repeats is the first, so on the day it ends 02:30 is the first 02:30. An end is read the
+same way.
+
+**Inside or outside**, `Schedule.At`: "always" is always inside. "By schedule" is inside when now is
+in any window that is on, from its start to its end, the end not in it. Windows that meet or overlap
+run on as one, so `running_until` is when the last of them ends. The next start is that of a window
+that is on, after the one it is inside ends when it is inside one, looked for over the next 8 days,
+or none.
+
+**The routes**, under the `Api` policy and the origin check, through the door as the caller:
+
+- `GET /devflow/api/projects/{id}/schedules` answers
+  `{"runs_by", "time_zone", "schedules": [{"id", "name", "days", "from", "to", "active"}], "next_start": time|null, "running_until": time|null}`,
+  the windows in their order, `next_start` null with none on and for a project that runs always,
+  `running_until` set only by schedule inside a window that is on; both instants carry the zone's
+  own offset. `404` for a project the caller does not have.
+- `PUT /devflow/api/projects/{id}/schedules` with `{"runs_by", "schedules": [...]}`, each window as
+  above with an optional `id`, replaces the mode and the list in one transaction and answers `200`
+  with what it left, as the `GET` does. It takes the project's row `FOR NO KEY UPDATE` first, which
+  the dispatcher's `FOR SHARE` waits for, so once it answers no job is handed out by the schedules it
+  replaced. In order: `404` for a project the caller does not have; `422` naming each field that
+  breaks a rule, `runs_by`, `schedules` or `schedules[i].<field>`, and nothing is saved.
+- `GET /devflow/api/time-zone` answers `{"time_zone"}`, `Europe/Stockholm` until the caller sets
+  another.
+- `PUT /devflow/api/time-zone` with `{"time_zone"}` takes an IANA id: `UTC`, or an area and a place
+  joined by `/`, of letters, digits, `_`, `+` and `-`, at most 64 characters, that .NET's own
+  `TimeZoneInfo.FindSystemTimeZoneById` finds. The shape is checked first, so a Windows id such as
+  `W. Europe Standard Time`, which .NET would convert, and a path, which on Linux it would look for
+  as a file, are refused without being asked about. `200` with the zone as saved; `422` naming
+  `time_zone` otherwise. It is every project's of the caller at once, their schedules and their
+  days.
+
+The zone needs the IANA database where Dev flow runs: `mcr.microsoft.com/dotnet/aspnet:10.0`, the
+image's final stage, has `tzdata`, so `devflow/Dockerfile` adds nothing for it.
 
 ### Cards
 
@@ -3090,25 +3193,29 @@ first that holds deciding, each with the sentence the page shows:
 1. `AllPaused`, the owner paused every project, see "Pausing" below: "Everything is paused:
    continue it", acted on by the switch on Running now, the same tab, so not linked.
 2. `Paused`, the owner paused the project: "Paused: continue it", on the project's page.
-3. `NeedsRebuild`, the worker needs a rebuild, see "Starting a worker": "Its worker needs building
+3. `OutsideSchedule(next start)`, the project runs by schedule and now is in no window that is on,
+   see "Schedules" under "Cards": "Outside its schedule, runs again <day time>", such as "Mon
+   09:00", wall clock in the user's zone, the next start of a window that is on within 8 days, or
+   "No schedule is on" with none on, acted on in the card "When it runs" on the settings page.
+4. `NeedsRebuild`, the worker needs a rebuild, see "Starting a worker": "Its worker needs building
    again".
-4. `ProjectStopped`, see "Watching branches": "The project is stopped: resume it", on the project's
+5. `ProjectStopped`, see "Watching branches": "The project is stopped: resume it", on the project's
    page.
-5. `Unwatched`, its default branch not read for 5 minutes: "Its default branch has not been read
+6. `Unwatched`, its default branch not read for 5 minutes: "Its default branch has not been read
    for 5 minutes".
-6. `CannotRun(until)`, the project's wait after failures outside its cards, see "Stops", unless the
+7. `CannotRun(until)`, the project's wait after failures outside its cards, see "Stops", unless the
    last was Claude's usage limit with a reset: "Dev flow cannot run its cards: <why>", on the
    project's page.
-7. `NeedsSetup`, the worker's setup version has no check that passed: "Its recipe is being checked"
+8. `NeedsSetup`, the worker's setup version has no check that passed: "Its recipe is being checked"
    while one runs, "It needs setting up" after one failed, and for a worker built from no recipe
    with no setup job to take. A check due is what runs here instead, since it runs no agent and so
    needs neither a Claude login nor room under the usage limit, see "Setting up a project".
-8. `NoClaudeLogin`, no Claude login, or one past `renew_by`; one due soon still works: "No Claude
+9. `NoClaudeLogin`, no Claude login, or one past `renew_by`; one due soon still works: "No Claude
    login" or "The Claude login has expired", in the settings.
-9. `UsageLimit(until)`, the project's wait when the last failure outside its cards was Claude's
+10. `UsageLimit(until)`, the project's wait when the last failure outside its cards was Claude's
    usage limit and its reset was believed, `until_reset` on `project_waits`: "At Claude's usage
-   limit until <time>", in UTC until Dev flow's time zone is read.
-10. `NoWorker`, no worker of the project seen in the last 2 minutes, `RunStore.Silence`, the same 2
+   limit until <time>", in UTC; it does not read the user's zone yet.
+11. `NoWorker`, no worker of the project seen in the last 2 minutes, `RunStore.Silence`, the same 2
    minutes a run is lost after: "No worker is running for <project>", on the project's page. The
    worker asking was just seen, so it never holds a job back, only the page.
 
@@ -3496,8 +3603,8 @@ project's next card has the higher priority label goes first, then the one writt
 another card with none due, `reason`, the sentence of its `WaitReason`, null for one that runs as
 soon as a worker asks, and `link`, where that reason is acted on: `card` with `link_card` the card
 it waits for, when that is an issue of the project's own repository that is a card,
-`waiting_for_you`, `project_page` or `settings`, from the reason's `ActedOn`; null where it has no
-place to act.
+`waiting_for_you`, `project_page`, `settings`, or `schedules`, the card "When it runs" on its
+project's settings page, from the reason's `ActedOn`; null where it has no place to act.
 
 No worker asks when the page reads, so a project's decision is `RunDecision.ReadForPage`: the same
 query and gates as for a worker, read for the worker likeliest to take its next job, one seen lately
@@ -3614,6 +3721,17 @@ the owner, under the `Api` policy and the origin check, through the door:
 The workers list's `held`, and with it the Projects tab's summary, answer `all_paused` and then
 `paused` ahead of `stopped`, see "Workers", and `GET /devflow/api/projects` gives each project its
 own `paused_at`.
+
+**Schedules.** A project that runs by schedule hands out nothing outside every window of it that is
+on, see "Schedules" under "Cards": `RunDecision` answers `OutsideSchedule` after the two pauses and
+before every older reason, so it holds every kind of job a pause holds, and the dispatcher reads it
+again with `ScheduleStore.OutsideUnderLock` in the transaction that takes the work, after the pauses
+have taken the project's row `FOR SHARE`, so schedules saved, or a window that ended, while GitHub
+was asked still hold the work back. A run under way finishes and its result is recorded as always;
+what follows it waits for a window. Reading GitHub, opening pull requests, marking, the merge check
+and a feature's end go on, as under a pause. The workers list's `held` and the Projects tab's
+summary do not say it; the project's page says it in its card "When it runs", and Running now's
+queue in each card's reason.
 
 **A lost run.** Each read of a project, before it asks the code host anything, ends every run of it
 under way whose worker has sent nothing for 2 minutes: whose `last_heard_at`, the last post to its

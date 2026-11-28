@@ -26,6 +26,7 @@ import {
 import styles from "./project.module.css";
 import css from "./project.module.css?raw";
 import type { Project } from "./projects";
+import type { ProjectSchedules, SchedulesRequest } from "./schedules";
 import type { ProjectSettings, SettingsRequest } from "./settings";
 import {
 	CHECK_RUNNING,
@@ -112,6 +113,15 @@ const EMPTY: WorkerList = {
 const SETUP_COMMAND =
 	"{ docker rm -f devflow-fodr-setup 2>/dev/null; docker run -d --name devflow-fodr-setup --memory 2g --env-file ~/.devflow/fodr.env -e DEVFLOW_URL=http://host.docker.internal:9080 -e DEVFLOW_BASE_IMAGE=devflow-worker:dev devflow-worker:dev; }";
 
+/** A project that runs always, as a new one does. */
+const ALWAYS: ProjectSchedules = {
+	runs_by: "always",
+	time_zone: "Europe/Stockholm",
+	schedules: [],
+	next_start: null,
+	running_until: null,
+};
+
 /** A project registered, every step done, with no check to show. */
 const REGISTERED: ProjectSetup = {
 	state: "registered",
@@ -138,8 +148,12 @@ function renderPage(
 		values?: ProjectValueList;
 		list?: Partial<WorkerList>;
 		setup?: ProjectSetup;
+		schedules?: ProjectSchedules;
 	} = {},
 ) {
+	// When it runs, as Dev flow holds it: a save replaces the mode and the
+	// list, as the route does.
+	let schedules: ProjectSchedules = props.schedules ?? ALWAYS;
 	let list: WorkerList = { ...EMPTY, ...props.list };
 	let setup: ProjectSetup = props.setup ?? REGISTERED;
 	// The values as Dev flow holds them: a given value is answered as its
@@ -235,10 +249,23 @@ function renderPage(
 			};
 			return Promise.resolve();
 		}),
+		loadSchedules: vi.fn(() => Promise.resolve(schedules)),
+		saveSchedules: vi.fn((_id: string, request: SchedulesRequest) => {
+			schedules = {
+				...schedules,
+				runs_by: request.runs_by,
+				schedules: request.schedules.map((each) => ({
+					...each,
+					id: each.id ?? "0190a8f0-0000-7000-8000-000000000199",
+				})),
+			};
+			return Promise.resolve(schedules);
+		}),
+		saveTimeZone: vi.fn((zone: string) => Promise.resolve(zone)),
 		copy: vi.fn(() => Promise.resolve()),
 		back: vi.fn(),
 	};
-	const { list: _, setup: __, values: ___, ...rest } = props;
+	const { list: _, setup: __, values: ___, schedules: ____, ...rest } = props;
 	render(<ProjectPage id={ID} now={() => NOW} {...api} {...rest} />);
 	return api;
 }
@@ -2074,6 +2101,112 @@ describe("a project's page, cards first", () => {
 		expect(
 			cards.compareDocumentPosition(await panel()) &
 				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+	});
+});
+
+describe("when it runs", () => {
+	const NIGHT = {
+		id: "0190a8f0-0000-7000-8000-000000000020",
+		name: "Night",
+		days: ["mon", "tue", "wed", "thu", "fri"],
+		from: "22:00",
+		to: "06:00",
+		active: true,
+	};
+	const WEEKEND = {
+		id: "0190a8f0-0000-7000-8000-000000000021",
+		name: "Weekend",
+		days: ["sat", "sun"],
+		from: "10:00",
+		to: "14:00",
+		active: false,
+	};
+	const BY_SCHEDULE: ProjectSchedules = {
+		runs_by: "schedule",
+		time_zone: "Europe/Stockholm",
+		schedules: [NIGHT, WEEKEND],
+		next_start: "2027-01-15T22:00:00+01:00",
+		running_until: null,
+	};
+	const whenItRuns = () =>
+		screen.findByRole("article", { name: "When it runs" });
+
+	test("when it runs shows the next start and each window's switch", async () => {
+		const { saveSchedules } = renderPage({
+			schedules: BY_SCHEDULE,
+		});
+		const card = within(await whenItRuns());
+
+		// Outside every window: when it runs next, as wall clock in the
+		// user's zone, and each window with its switch, its days and times.
+		expect(await card.findByText("Runs next Fri 22:00")).toBeTruthy();
+		const night = card.getByRole("switch", { name: "Night" });
+		const weekend = card.getByRole("switch", { name: "Weekend" });
+		expect((night as HTMLInputElement).checked).toBe(true);
+		expect((weekend as HTMLInputElement).checked).toBe(false);
+		expect(card.getByText("Mon–Fri · 22:00–06:00")).toBeTruthy();
+
+		// "Edit schedules" opens the settings page's card.
+		expect(
+			card.getByRole("link", { name: "Edit schedules" }).getAttribute("href"),
+		).toBe(`/devflow/projects/${ID}/settings#settings-schedules`);
+
+		// A switch saves at once, the whole list with that window on, and the
+		// card shows what Dev flow answered; it moves as it is clicked.
+		fireEvent.click(weekend);
+		expect((weekend as HTMLInputElement).checked).toBe(true);
+		await waitFor(() =>
+			expect(saveSchedules).toHaveBeenCalledWith(ID, {
+				runs_by: "schedule",
+				schedules: [NIGHT, { ...WEEKEND, active: true }],
+			}),
+		);
+		expect(
+			(card.getByRole("switch", { name: "Weekend" }) as HTMLInputElement)
+				.checked,
+		).toBe(true);
+	});
+
+	test("it says running until, or that nothing runs, or always", async () => {
+		renderPage({
+			schedules: {
+				...BY_SCHEDULE,
+				next_start: "2027-01-18T22:00:00+01:00",
+				running_until: "2027-01-16T06:00:00+01:00",
+			},
+		});
+		expect(
+			await within(await whenItRuns()).findByText("Running now, until 06:00"),
+		).toBeTruthy();
+		cleanup();
+
+		renderPage({
+			schedules: {
+				...BY_SCHEDULE,
+				schedules: [{ ...NIGHT, active: false }, WEEKEND],
+				next_start: null,
+			},
+		});
+		expect(
+			await within(await whenItRuns()).findByText(
+				"No schedule is on, so nothing runs",
+			),
+		).toBeTruthy();
+		cleanup();
+
+		renderPage();
+		const always = within(await whenItRuns());
+		expect(await always.findByText("Always")).toBeTruthy();
+		expect(always.queryByRole("switch")).toBeNull();
+	});
+
+	test("the card sits in the side column above Settings", async () => {
+		renderPage({ schedules: BY_SCHEDULE });
+		const card = await whenItRuns();
+		const settings = await screen.findByRole("article", { name: "Settings" });
+		expect(
+			card.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING,
 		).toBeTruthy();
 	});
 });

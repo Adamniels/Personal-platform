@@ -74,7 +74,8 @@ public sealed record UsageFeature(
 /// most first.</param>
 /// <param name="Cards">Its cards on their own with a run in the period, by tokens, most first.</param>
 /// <param name="Days">Its tokens per day, the last <see cref="UsageStore.DayCount"/> days ending today
-/// in <see cref="DevFlowTime.Zone"/>, oldest first, whatever the period.</param>
+/// in the user's zone, <see cref="DevFlowTime.ZoneOf(UserDb, Guid, CancellationToken)"/>, oldest
+/// first, whatever the period.</param>
 public sealed record UsageProject(
     Guid Id,
     string Name,
@@ -88,7 +89,7 @@ public sealed record UsageProject(
     IReadOnlyList<UsageDay> Days);
 
 /// <summary>A day of a project's last 30.</summary>
-/// <param name="Date">The day, in <see cref="DevFlowTime.Zone"/>.</param>
+/// <param name="Date">The day, in the user's zone.</param>
 /// <param name="Tokens">The tokens, by the one definition, of every run of the project started on it,
 /// 0 with none.</param>
 public sealed record UsageDay(DateOnly Date, long Tokens);
@@ -128,10 +129,12 @@ public static class UsageStore
     {
         ArgumentNullException.ThrowIfNull(database);
         var since = Periods[period] is { } span ? now - span : (DateTimeOffset?)null;
-        var today = DevFlowTime.DayOf(now);
-        var days = Enumerable.Range(0, DayCount).Select(back => today.AddDays(back - (DayCount - 1))).ToArray();
-        var (groups, cards, features, projects, perDay) = await database.InUserTransaction(userId, async transaction =>
+        var (groups, cards, features, projects, (days, perDay)) = await database.InUserTransaction(userId, async transaction =>
         {
+            // The days are the user's, in their zone as this transaction reads it.
+            var zone = await DevFlowTime.ZoneOf(transaction, cancellationToken);
+            var today = DevFlowTime.DayOf(now, zone);
+            var days = Enumerable.Range(0, DayCount).Select(back => today.AddDays(back - (DayCount - 1))).ToArray();
             // Every card, feature and project's own runs, each a group: what it used in the period,
             // null figures when none started in it, and its whole span.
             var groups = (await transaction.Connection!.QueryAsync<GroupRow>(new CommandDefinition(
@@ -173,10 +176,10 @@ public static class UsageStore
                 JOIN runs r ON r.started_at >= d.starts AND r.started_at < d.ends
                 GROUP BY r.project_id, d.place
                 """,
-                new { starts = days.Select(DevFlowTime.StartOf).ToArray(), ends = days.Select(DevFlowTime.EndOf).ToArray() },
+                new { starts = days.Select(day => DevFlowTime.StartOf(day, zone)).ToArray(), ends = days.Select(day => DevFlowTime.EndOf(day, zone)).ToArray() },
                 transaction,
                 cancellationToken: cancellationToken))).ToDictionary(day => (day.ProjectId, day.Place), day => day.Tokens);
-            return (groups, cards, features, projects, perDay);
+            return (groups, cards, features, projects, (Days: days, Tokens: perDay));
         }, cancellationToken);
 
         var shown = new List<UsageProject>();

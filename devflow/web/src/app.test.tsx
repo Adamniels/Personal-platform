@@ -64,6 +64,9 @@ function openAt(path: string, pauses: PausesApi = RUNS) {
 				loadValues: () => new Promise(() => {}),
 				giveValue: () => Promise.resolve(),
 				removeValue: () => Promise.resolve(),
+				loadSchedules: () => new Promise(() => {}),
+				saveSchedules: () => new Promise(() => {}),
+				saveTimeZone: () => new Promise(() => {}),
 			}}
 			settings={{
 				loadProjects: () => Promise.resolve([PROJECT]),
@@ -72,6 +75,9 @@ function openAt(path: string, pauses: PausesApi = RUNS) {
 				loadValues: () => new Promise(() => {}),
 				giveValue: () => Promise.resolve(),
 				removeValue: () => Promise.resolve(),
+				loadSchedules: () => new Promise(() => {}),
+				saveSchedules: () => new Promise(() => {}),
+				saveTimeZone: () => new Promise(() => {}),
 				disconnect: () => Promise.resolve(),
 			}}
 			projects={{

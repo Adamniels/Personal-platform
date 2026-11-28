@@ -27,6 +27,7 @@ import { GitHubLink } from "./projects-link";
 import type { RunAgainApi } from "./run-again";
 import type { LoadRunLog } from "./run-log";
 import { RUNNING, Running, type RunningApi, useRunning } from "./running";
+import type { ProjectSchedules } from "./schedules";
 import {
 	cardAt,
 	featureAt,
@@ -192,6 +193,24 @@ const projectApi: ProjectApi = {
 			`/projects/${encodeURIComponent(id)}/values/${encodeURIComponent(name)}`,
 		);
 	},
+	loadSchedules: (id) =>
+		client.get(
+			`/projects/${encodeURIComponent(id)}/schedules` as "/projects/{id}/schedules",
+		),
+	saveSchedules: (id, request) =>
+		client.send<ProjectSchedules>(
+			"PUT",
+			`/projects/${encodeURIComponent(id)}/schedules`,
+			request,
+		),
+	saveTimeZone: async (zone) =>
+		(
+			await client.send<components["schemas"]["TimeZoneAnswer"]>(
+				"PUT",
+				"/time-zone",
+				{ time_zone: zone },
+			)
+		).time_zone,
 };
 
 /** A project's settings page, through Dev flow's API. */
@@ -202,6 +221,9 @@ const settingsApi: SettingsPageApi = {
 	loadValues: projectApi.loadValues,
 	giveValue: projectApi.giveValue,
 	removeValue: projectApi.removeValue,
+	loadSchedules: projectApi.loadSchedules,
+	saveSchedules: projectApi.saveSchedules,
+	saveTimeZone: projectApi.saveTimeZone,
 	disconnect: async (id) => {
 		await client.send("DELETE", `/projects/${encodeURIComponent(id)}`);
 	},

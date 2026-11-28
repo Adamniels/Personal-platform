@@ -24,6 +24,9 @@ public enum ActedOn
 
     /// <summary>"Waiting for you".</summary>
     WaitingForYou,
+
+    /// <summary>The project's schedules, the card "When it runs" on its settings page.</summary>
+    Schedules,
 }
 
 /// <summary>Why a project's next job, or a card, does not run yet: a closed set, each with its
@@ -52,6 +55,18 @@ public abstract record WaitReason
         public override string Sentence => "Paused: continue it";
 
         public override ActedOn Where => ActedOn.ProjectPage;
+    }
+
+    /// <summary>The project runs by schedule and is outside every window that is on; a window that
+    /// is on starts next at <paramref name="NextStart"/>, in the user's zone's own offset, so its
+    /// sentence says it as wall clock there, or null with none on.</summary>
+    public sealed record OutsideSchedule(DateTimeOffset? NextStart) : WaitReason
+    {
+        public override string Sentence => NextStart is { } next
+            ? string.Create(CultureInfo.InvariantCulture, $"Outside its schedule, runs again {next:ddd HH:mm}")
+            : "No schedule is on";
+
+        public override ActedOn Where => ActedOn.Schedules;
     }
 
     /// <summary>The worker asking is built from an older recipe or another base image.</summary>
@@ -195,6 +210,8 @@ public enum SetupGate
 /// <param name="Version">The worker's setup version.</param>
 /// <param name="Now">When it was read.</param>
 /// <param name="Pause">Whether the project is paused, on its own or with everything.</param>
+/// <param name="Outside">Why the project does not run by its schedules now, null when it may: it
+/// runs always, or is inside a window that is on.</param>
 public sealed record ProjectSituation(
     string Project,
     bool NeedsRebuild,
@@ -207,7 +224,8 @@ public sealed record ProjectSituation(
     string? NextKind,
     string Version,
     DateTimeOffset Now,
-    PauseHold Pause = PauseHold.None);
+    PauseHold Pause = PauseHold.None,
+    WaitReason.OutsideSchedule? Outside = null);
 
 /// <summary>A card's decision, and the kind of job due for it, null for one that waits for another
 /// card with none due.</summary>
@@ -222,8 +240,8 @@ public static class RunDecision
 {
     /// <summary>
     /// The project's decision for its situation, its gates in the order the dispatcher meets them:
-    /// everything is paused, then the project is, before any other, since they hold every kind of
-    /// job, the setup's and the check among them; the worker asking needs a rebuild; the project is stopped, or its default branch not read
+    /// everything is paused, then the project is, then it is outside its schedules, before any
+    /// other, since they hold every kind of job, the setup's and the check among them; the worker asking needs a rebuild; the project is stopped, or its default branch not read
     /// lately; it waits after failures outside its cards, other than a usage limit; the worker's
     /// setup version has no check that passed, when a check due is what runs, since it runs no agent
     /// and needs no Claude login, once a worker of the project was seen lately; no Claude login, or
@@ -240,6 +258,11 @@ public static class RunDecision
                 return new Decision.Wait(new WaitReason.AllPaused());
             case PauseHold.Paused:
                 return new Decision.Wait(new WaitReason.Paused());
+        }
+
+        if (situation.Outside is { } outside)
+        {
+            return new Decision.Wait(outside);
         }
 
         if (situation.NeedsRebuild)
@@ -309,8 +332,8 @@ public static class RunDecision
 
     /// <summary>
     /// The project's situation for <paramref name="workerId"/> at <paramref name="now"/>, in one
-    /// query as the project's user, from the fragments each gate is kept in:
-    /// <see cref="Pauses.PauseSql"/>, <see cref="Workers.WorkerStore.RebuildSql"/> with <paramref name="image"/>,
+    /// transaction as the project's user, from the fragments each gate is kept in:
+    /// <see cref="Pauses.PauseSql"/>, the schedules by <see cref="Schedules.ScheduleStore.StateIn"/>, <see cref="Workers.WorkerStore.RebuildSql"/> with <paramref name="image"/>,
     /// <see cref="WatchStore.HoldSql"/>, the project's wait, the worker's setup version by
     /// <see cref="Setup.SetupStore"/>'s checks, the setup's and the cards' next kind, the user's
     /// Claude login and whether any worker was seen within <see cref="RunStore.Silence"/>. Null when
@@ -336,34 +359,38 @@ public static class RunDecision
     private static async Task<ProjectSituation?> Read(UserDb database, Guid userId, Guid projectId, Guid? workerId, string image, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
-        var row = await database.InUserTransaction(userId, transaction => transaction.Connection!.QuerySingleOrDefaultAsync<SituationRow>(new CommandDefinition(
-            $"""
-            SELECT p.name AS Project,
-                   {Pauses.PauseSql} AS Pause,
-                   {Workers.WorkerStore.RebuildSql},
-                   {WatchStore.HoldSql} AS Hold,
-                   pw.failures AS Failures, pw.reason AS Reason, pw.since AS Since, pw.wait_until AS WaitUntil, pw.until_reset AS UntilReset,
-                   {VersionSql} AS Version,
-                   {Setup.SetupStore.PassedSql(VersionSql)} AS Passed,
-                   {Setup.SetupStore.DueSql(VersionSql)} AS Due,
-                   {Setup.SetupStore.CheckingSql(VersionSql)} AS Checking,
-                   {Setup.SetupRunStore.NextKindSql} AS SetupKind,
-                   {JobStore.NextKindSql} AS NextKind,
-                   (SELECT l.given_at FROM claude_logins l WHERE l.user_id = p.user_id) AS LoginGivenAt,
-                   EXISTS (SELECT 1 FROM workers s WHERE s.project_id = p.id AND s.last_seen_at >= @seenSince) AS WorkerSeen
-            FROM projects p
-            LEFT JOIN LATERAL (
-                SELECT w.* FROM workers w
-                CROSS JOIN LATERAL (SELECT {Workers.WorkerStore.RebuildSql}) rb
-                WHERE w.project_id = p.id AND (@workerId::uuid IS NULL OR w.id = @workerId)
-                ORDER BY w.last_seen_at >= @seenSince DESC, rb.rebuild IS NULL DESC, w.last_seen_at DESC, w.id
-                LIMIT 1) w ON true
-            LEFT JOIN project_waits pw ON pw.project_id = p.id
-            WHERE p.id = @projectId AND (@workerId::uuid IS NULL OR w.id IS NOT NULL)
-            """,
-            new { projectId, workerId, image, watchedSince = WatchStore.WatchedSince(now), seenSince = now - RunStore.Silence },
-            transaction,
-            cancellationToken: cancellationToken)), cancellationToken);
+        var (row, schedule) = await database.InUserTransaction(userId, async transaction =>
+        {
+            var row = await transaction.Connection!.QuerySingleOrDefaultAsync<SituationRow>(new CommandDefinition(
+                $"""
+                SELECT p.name AS Project,
+                       {Pauses.PauseSql} AS Pause,
+                       {Workers.WorkerStore.RebuildSql},
+                       {WatchStore.HoldSql} AS Hold,
+                       pw.failures AS Failures, pw.reason AS Reason, pw.since AS Since, pw.wait_until AS WaitUntil, pw.until_reset AS UntilReset,
+                       {VersionSql} AS Version,
+                       {Setup.SetupStore.PassedSql(VersionSql)} AS Passed,
+                       {Setup.SetupStore.DueSql(VersionSql)} AS Due,
+                       {Setup.SetupStore.CheckingSql(VersionSql)} AS Checking,
+                       {Setup.SetupRunStore.NextKindSql} AS SetupKind,
+                       {JobStore.NextKindSql} AS NextKind,
+                       (SELECT l.given_at FROM claude_logins l WHERE l.user_id = p.user_id) AS LoginGivenAt,
+                       EXISTS (SELECT 1 FROM workers s WHERE s.project_id = p.id AND s.last_seen_at >= @seenSince) AS WorkerSeen
+                FROM projects p
+                LEFT JOIN LATERAL (
+                    SELECT w.* FROM workers w
+                    CROSS JOIN LATERAL (SELECT {Workers.WorkerStore.RebuildSql}) rb
+                    WHERE w.project_id = p.id AND (@workerId::uuid IS NULL OR w.id = @workerId)
+                    ORDER BY w.last_seen_at >= @seenSince DESC, rb.rebuild IS NULL DESC, w.last_seen_at DESC, w.id
+                    LIMIT 1) w ON true
+                LEFT JOIN project_waits pw ON pw.project_id = p.id
+                WHERE p.id = @projectId AND (@workerId::uuid IS NULL OR w.id IS NOT NULL)
+                """,
+                new { projectId, workerId, image, watchedSince = WatchStore.WatchedSince(now), seenSince = now - RunStore.Silence },
+                transaction,
+                cancellationToken: cancellationToken));
+            return (row, row is null ? null : await Schedules.ScheduleStore.StateIn(transaction, projectId, now, cancellationToken));
+        }, cancellationToken);
         if (row is null)
         {
             return null;
@@ -378,7 +405,8 @@ public static class RunDecision
         var wait = row.Failures is { } failures
             ? new ProjectWait(failures, row.Reason!, Utc(row.Since!.Value), Utc(row.WaitUntil!.Value), row.UntilReset ?? false)
             : null;
-        return new ProjectSituation(row.Project, row.Rebuild is not null, WatchStore.Read(row.Hold), wait, setup, row.SetupKind, login, row.WorkerSeen, row.NextKind, row.Version, now, Pauses.Read(row.Pause));
+        return new ProjectSituation(row.Project, row.Rebuild is not null, WatchStore.Read(row.Hold), wait, setup, row.SetupKind, login, row.WorkerSeen, row.NextKind, row.Version, now, Pauses.Read(row.Pause),
+            schedule is null ? null : Schedules.Schedule.Reason(schedule));
     }
 
     private static DateTimeOffset Utc(DateTime at) => new(DateTime.SpecifyKind(at, DateTimeKind.Utc));

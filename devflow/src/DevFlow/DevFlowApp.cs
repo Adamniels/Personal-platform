@@ -18,6 +18,7 @@ using DevFlow.PullRequests;
 using DevFlow.Reading;
 using DevFlow.Recipes;
 using DevFlow.Reviews;
+using DevFlow.Schedules;
 using DevFlow.Settings;
 using DevFlow.Setup;
 using DevFlow.Status;
@@ -257,6 +258,7 @@ public static class DevFlowApp
         app.MapJobs();
         app.MapStops();
         app.MapPauses();
+        app.MapSchedules();
         app.MapRunning();
         app.MapUsage();
         app.MapRunLogStream();

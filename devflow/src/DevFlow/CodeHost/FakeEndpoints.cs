@@ -40,7 +40,7 @@ public sealed record FakeEndWait(Guid? ProjectId);
 public sealed record FakeUsageHistory(Guid? ProjectId, IReadOnlyList<FakeUsedDay>? Days);
 
 /// <summary>A day of use <c>POST /devflow/api/fake/usage-history</c> stages.</summary>
-/// <param name="DaysAgo">How many days before today, in <see cref="DevFlowTime.Zone"/>, 0 for
+/// <param name="DaysAgo">How many days before today, in the caller's zone, 0 for
 /// today.</param>
 /// <param name="Tokens">The tokens of the day's run.</param>
 public sealed record FakeUsedDay(int DaysAgo, long Tokens);
@@ -187,7 +187,7 @@ public static class FakeEndpoints
 
         // Gives a project days of use, so a test sees a month of tokens per day without a month of
         // runs: each day a copy of the project's last finished run, started at noon that day in
-        // Dev flow's zone, or just before the run copied when that is earlier, with the day's tokens
+        // the caller's zone, or just before the run copied when that is earlier, with the day's tokens
         // as its input and its time 10 minutes. See "Usage and history" in devflow/README.md.
         fake.MapPost("/usage-history", async Task<Results<NoContent, ProblemHttpResult>> (HttpContext context, [FromServices] UserDb database, [FromServices] TimeProvider time) =>
         {
@@ -205,8 +205,9 @@ public static class FakeEndpoints
             }
 
             var (projectId, days) = (body!.ProjectId, body.Days!);
-            var today = DevFlowTime.DayOf(time.GetUtcNow());
             var userId = context.UserId();
+            var zone = await DevFlowTime.ZoneOf(database, userId, context.RequestAborted);
+            var today = DevFlowTime.DayOf(time.GetUtcNow(), zone);
             var staged = await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
                 """
                 INSERT INTO runs
@@ -223,7 +224,7 @@ public static class FakeEndpoints
                 new
                 {
                     projectId,
-                    starts = days.Select(day => DevFlowTime.StartOf(today.AddDays(-day.DaysAgo)).AddHours(12)).ToArray(),
+                    starts = days.Select(day => DevFlowTime.StartOf(today.AddDays(-day.DaysAgo), zone).AddHours(12)).ToArray(),
                     tokens = days.Select(day => day.Tokens).ToArray(),
                 },
                 transaction,
