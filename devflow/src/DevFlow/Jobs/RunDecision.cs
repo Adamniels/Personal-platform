@@ -212,6 +212,10 @@ public enum SetupGate
 /// <param name="Pause">Whether the project is paused, on its own or with everything.</param>
 /// <param name="Outside">Why the project does not run by its schedules now, null when it may: it
 /// runs always, or is inside a window that is on.</param>
+/// <param name="RunNow">Whether an override of its schedules, "Run now anyway" on a feature or a
+/// card, holds, <see cref="RunNowStore"/>.</param>
+/// <param name="RunNowKind">The kind of the next job among those the overrides cover,
+/// <see cref="JobStore.RunNowKindSql"/>'s, null with none.</param>
 public sealed record ProjectSituation(
     string Project,
     bool NeedsRebuild,
@@ -225,7 +229,9 @@ public sealed record ProjectSituation(
     string Version,
     DateTimeOffset Now,
     PauseHold Pause = PauseHold.None,
-    WaitReason.OutsideSchedule? Outside = null);
+    WaitReason.OutsideSchedule? Outside = null,
+    bool RunNow = false,
+    string? RunNowKind = null);
 
 /// <summary>A card's decision, and the kind of job due for it, null for one that waits for another
 /// card with none due.</summary>
@@ -241,7 +247,10 @@ public static class RunDecision
     /// <summary>
     /// The project's decision for its situation, its gates in the order the dispatcher meets them:
     /// everything is paused, then the project is, then it is outside its schedules, before any
-    /// other, since they hold every kind of job, the setup's and the check among them; the worker asking needs a rebuild; the project is stopped, or its default branch not read
+    /// other, since they hold every kind of job, the setup's and the check among them. Outside its
+    /// schedules with an override, "Run now anyway", that holds, the rest of the rule decides among
+    /// the jobs the overrides cover alone, <see cref="ProjectSituation.RunNowKind"/>, and a setup's
+    /// job or a check, which no override covers, still waits for the schedules; after that, the worker asking needs a rebuild; the project is stopped, or its default branch not read
     /// lately; it waits after failures outside its cards, other than a usage limit; the worker's
     /// setup version has no check that passed, when a check due is what runs, since it runs no agent
     /// and needs no Claude login, once a worker of the project was seen lately; no Claude login, or
@@ -260,11 +269,28 @@ public static class RunDecision
                 return new Decision.Wait(new WaitReason.Paused());
         }
 
+        var nextKind = situation.NextKind;
         if (situation.Outside is { } outside)
         {
-            return new Decision.Wait(outside);
+            if (!situation.RunNow)
+            {
+                return new Decision.Wait(outside);
+            }
+
+            nextKind = situation.RunNowKind;
         }
 
+        var decision = Gates(situation, wait, nextKind);
+        return situation.Outside is { } held && decision is Decision.Run { Kind: Protocol.Job.RecipeCheck or Protocol.Job.Setup }
+            ? new Decision.Wait(held)
+            : decision;
+    }
+
+    /// <summary>The rule's gates after the pauses and the schedules, with <paramref name="wait"/>,
+    /// the project's wait still running, and <paramref name="nextKind"/>, the cards' next kind the
+    /// rule runs.</summary>
+    private static Decision Gates(ProjectSituation situation, ProjectWait? wait, string? nextKind)
+    {
         if (situation.NeedsRebuild)
         {
             return new Decision.Wait(new WaitReason.NeedsRebuild());
@@ -318,7 +344,7 @@ public static class RunDecision
             return new Decision.Run(Protocol.Job.Setup);
         }
 
-        return situation.NextKind is { } kind ? new Decision.Run(kind) : new Decision.Idle();
+        return nextKind is { } kind ? new Decision.Run(kind) : new Decision.Idle();
     }
 
     /// <summary>Why a Claude login in <paramref name="state"/> runs nothing: none given, or one past
@@ -361,6 +387,13 @@ public static class RunDecision
         ArgumentNullException.ThrowIfNull(database);
         var (row, schedule) = await database.InUserTransaction(userId, async transaction =>
         {
+            // The dispatcher ends every override with nothing left to run before it reads anything,
+            // so one that ended never covers a card added or sent back later; the page only reads.
+            if (workerId is not null)
+            {
+                await RunNowStore.EndIn(transaction, projectId, cancellationToken);
+            }
+
             var row = await transaction.Connection!.QuerySingleOrDefaultAsync<SituationRow>(new CommandDefinition(
                 $"""
                 SELECT p.name AS Project,
@@ -374,6 +407,8 @@ public static class RunDecision
                        {Setup.SetupStore.CheckingSql(VersionSql)} AS Checking,
                        {Setup.SetupRunStore.NextKindSql} AS SetupKind,
                        {JobStore.NextKindSql} AS NextKind,
+                       {RunNowStore.AnySql} AS RunNow,
+                       {JobStore.RunNowKindSql} AS RunNowKind,
                        (SELECT l.given_at FROM claude_logins l WHERE l.user_id = p.user_id) AS LoginGivenAt,
                        EXISTS (SELECT 1 FROM workers s WHERE s.project_id = p.id AND s.last_seen_at >= @seenSince) AS WorkerSeen
                 FROM projects p
@@ -406,7 +441,7 @@ public static class RunDecision
             ? new ProjectWait(failures, row.Reason!, Utc(row.Since!.Value), Utc(row.WaitUntil!.Value), row.UntilReset ?? false)
             : null;
         return new ProjectSituation(row.Project, row.Rebuild is not null, WatchStore.Read(row.Hold), wait, setup, row.SetupKind, login, row.WorkerSeen, row.NextKind, row.Version, now, Pauses.Read(row.Pause),
-            schedule is null ? null : Schedules.Schedule.Reason(schedule));
+            schedule is null ? null : Schedules.Schedule.Reason(schedule), row.RunNow, row.RunNowKind);
     }
 
     private static DateTimeOffset Utc(DateTime at) => new(DateTime.SpecifyKind(at, DateTimeKind.Utc));
@@ -443,14 +478,18 @@ public static class RunDecision
 
         public string? NextKind { get; init; }
 
+        public bool RunNow { get; init; }
+
+        public string? RunNowKind { get; init; }
+
         public DateTime? LoginGivenAt { get; init; }
 
         public bool WorkerSeen { get; init; }
     }
 
     /// <summary>
-    /// Each card of the project waiting to run, and its decision under <paramref name="project"/>,
-    /// the project's own, in the order they are handed out: by the kind of job, a review, a fix, a
+    /// Each card of the project waiting to run, and its decision under the project's own, read from
+    /// <paramref name="situation"/>, in the order they are handed out: by the kind of job, a review, a fix, a
     /// reading and a build, as <see cref="JobStore.NextKind"/> orders them, each by
     /// <see cref="DevFlow.Cards.CardStore.QueueOrder"/>, then the cards that wait for another. A card is
     /// waiting when it is queued, reviewing or fixing with no run under way, and either one of
@@ -459,22 +498,26 @@ public static class RunDecision
     /// <see cref="Readings.ReadingStore.Due"/> and <see cref="JobStore.Buildable"/>, or, queued, it
     /// waits for an open issue it is blocked by or the card before it in its feature,
     /// <see cref="DevFlow.Cards.CardStore.HeldBackBy"/>. One the rule has no reason for, such as one whose
-    /// review is kept, is not listed. Read in one transaction as the project's user, at
-    /// <paramref name="now"/>.
+    /// review is kept, is not listed. Each says whether an override of the schedules covers it,
+    /// <see cref="RunNowStore.CoversCard"/>. Read in one transaction as the project's user, at the
+    /// situation's time.
     /// </summary>
-    public static async Task<IReadOnlyList<CardDecision>> Cards(UserDb database, Guid userId, Guid projectId, Decision project, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<IReadOnlyList<CardDecision>> Cards(UserDb database, Guid userId, Guid projectId, ProjectSituation situation, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
-        ArgumentNullException.ThrowIfNull(project);
+        ArgumentNullException.ThrowIfNull(situation);
+        var project = Of(situation);
+        var now = situation.Now;
         var parameters = new { projectId, watchedSince = WatchStore.WatchedSince(now), seenSince = now - RunStore.Silence };
         var (cards, busy) = await database.InUserTransaction(userId, async transaction =>
         {
             var rows = await transaction.Connection!.QueryAsync<WaitingCard>(new CommandDefinition(
                 $"""
                 SELECT c.number AS Number, c.kind AS Kind, c.waits_for AS WaitsFor, c.held_back_by AS HeldBackBy,
-                       coalesce(c.held_for_answers, false) AS HeldForAnswers, {JobStore.SettingsAccepted} AS SettingsAccepted
+                       coalesce(c.held_for_answers, false) AS HeldForAnswers, {JobStore.SettingsAccepted} AS SettingsAccepted,
+                       c.run_now AS RunNow
                 FROM (
-                    SELECT cards.number, cards.priority, cards.issue_created_at,
+                    SELECT cards.number, cards.priority, cards.issue_created_at, {RunNowStore.CoversCard} AS run_now,
                            CASE WHEN {JobStore.Reviewable} THEN '{Protocol.Job.Review}'
                                 WHEN {JobStore.Fixable} THEN '{Protocol.Job.Fix}'
                                 WHEN {Readings.ReadingStore.Due} THEN '{Protocol.Job.Read}'
@@ -513,23 +556,30 @@ public static class RunDecision
                 cancellationToken: cancellationToken));
             return (rows.ToList(), named);
         }, cancellationToken);
-        return [.. cards.Select(card => new CardDecision(card.Number, ForCard(project, card, busy), card.Kind))];
+        return [.. cards.Select(card => new CardDecision(card.Number, ForCard(project, card, busy, situation.Outside), card.Kind))];
     }
 
     /// <summary>
-    /// A waiting card's decision: the project's when it waits; otherwise the card's own wait, for
+    /// A waiting card's decision: the project's when it waits; <paramref name="outside"/>, the
+    /// project's schedules, for a card no override covers while the project is outside them, since
+    /// the project then runs only what the overrides cover; otherwise the card's own wait, for
     /// an open issue it is blocked by, then for the card before it in its feature, for the owner's
     /// answers when that one needs them; then, for a job due, the setup the project runs first, the
     /// settings step for a reading or a build, and <paramref name="busy"/>, the worker it is next for
     /// when every worker is busy; and otherwise it runs.
     /// </summary>
-    public static Decision ForCard(Decision project, WaitingCard card, string? busy)
+    public static Decision ForCard(Decision project, WaitingCard card, string? busy, WaitReason.OutsideSchedule? outside = null)
     {
         ArgumentNullException.ThrowIfNull(project);
         ArgumentNullException.ThrowIfNull(card);
         if (project is Decision.Wait)
         {
             return project;
+        }
+
+        if (outside is not null && !card.RunNow)
+        {
+            return new Decision.Wait(outside);
         }
 
         if (card.WaitsFor is { } issue)
@@ -578,4 +628,7 @@ public sealed class WaitingCard
     /// <summary>Whether the project's settings step is done, before which no reading or build
     /// runs.</summary>
     public bool SettingsAccepted { get; init; }
+
+    /// <summary>Whether an override of the schedules, its own or its feature's, covers it.</summary>
+    public bool RunNow { get; init; }
 }

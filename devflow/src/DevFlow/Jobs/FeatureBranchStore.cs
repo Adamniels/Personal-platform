@@ -50,7 +50,7 @@ public static class FeatureBranchStore
     /// once its branch is there. Null when that card is on its own, or its feature's branch is
     /// made. Read without a lock.
     /// </summary>
-    public static async Task<DueBranch?> Due(UserDb database, Guid userId, Guid projectId, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<DueBranch?> Due(UserDb database, Guid userId, Guid projectId, DateTimeOffset now, bool runNowOnly, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
         return await database.InUserTransaction(userId, async transaction =>
@@ -58,11 +58,11 @@ public static class FeatureBranchStore
             var feature = await transaction.Connection!.ExecuteScalarAsync<Guid?>(new CommandDefinition(
                 $"""
                 SELECT feature_id FROM cards
-                WHERE {JobStore.Buildable}
+                WHERE {JobStore.Buildable} AND {RunNowStore.OnlyCards}
                 ORDER BY {CardStore.QueueOrder}
                 LIMIT 1
                 """,
-                new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now) },
+                new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now), runNowOnly },
                 transaction,
                 cancellationToken: cancellationToken));
             return feature is not { } id

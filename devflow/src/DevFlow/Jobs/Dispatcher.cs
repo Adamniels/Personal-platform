@@ -132,7 +132,7 @@ public sealed partial class Dispatcher(
         {
             Decision.Run { Kind: Job.RecipeCheck } => await HandOutCheck(caller, workerId, situation.Version, cancellationToken),
             Decision.Run { Kind: Job.Setup } => await HandOutSetup(caller, workerId, situation.SetupKind!, cancellationToken),
-            Decision.Run { Kind: var kind } => await HandOut(caller, workerId, kind, cancellationToken),
+            Decision.Run { Kind: var kind } => await HandOut(caller, workerId, kind, situation.Outside is not null, cancellationToken),
             _ => new NextJob.None(),
         };
     }
@@ -142,10 +142,12 @@ public sealed partial class Dispatcher(
     /// everything that job needs from the code host is read first, as the app, with a key for that
     /// kind and a feature's branch made for its first card, and only then is a card, or a feature,
     /// of that kind taken, in one short transaction as the project's user that reads the watch's
-    /// hold, the pauses and the schedules again under the project's lock. No work when any of it is
-    /// not there now.
+    /// hold, the pauses and the schedules again under the project's lock. Outside its schedules,
+    /// as <paramref name="outside"/> found it before the lock and the schedules found it under
+    /// it, only what an override, "Run now anyway", covers is read for and taken. No work when any
+    /// of it is not there now.
     /// </summary>
-    private async Task<NextJob> HandOut(WorkerCaller caller, Guid workerId, string kind, CancellationToken cancellationToken)
+    private async Task<NextJob> HandOut(WorkerCaller caller, Guid workerId, string kind, bool outside, CancellationToken cancellationToken)
     {
         var (userId, projectId) = (caller.UserId, caller.ProjectId);
         if (await workers.RepositoryOf(caller, cancellationToken) is not { } repository)
@@ -166,7 +168,7 @@ public sealed partial class Dispatcher(
 
         // A feature's first card is built on the feature's branch, so the app makes it first, with
         // the job's push key, outside the lock as every read for a job is.
-        if (kind == Job.Build && !await FeatureBranch(projectId, userId, repository, facts.DefaultBranch, key, cancellationToken))
+        if (kind == Job.Build && !await FeatureBranch(projectId, userId, repository, facts.DefaultBranch, key, outside, cancellationToken))
         {
             return new NextJob.None();
         }
@@ -177,7 +179,7 @@ public sealed partial class Dispatcher(
         IReadOnlyList<string> files = [];
         if (kind == Job.Conflict)
         {
-            due = await JobStore.ConflictDue(database, userId, projectId, time.GetUtcNow(), cancellationToken);
+            due = await JobStore.ConflictDue(database, userId, projectId, time.GetUtcNow(), outside, cancellationToken);
             if (due is null || await InConflict(projectId, userId, repository, due, cancellationToken) is not { } changed)
             {
                 return new NextJob.None();
@@ -193,24 +195,27 @@ public sealed partial class Dispatcher(
             // the job carries them as they are now and the run keeps them whatever changes after.
             if (await watch.HoldUnderLock(transaction, projectId, cancellationToken) != ProjectHold.None
                 || await Pauses.HeldUnderLock(transaction, projectId, cancellationToken) != PauseHold.None
-                || await Schedules.ScheduleStore.OutsideUnderLock(transaction, projectId, now, cancellationToken)
                 || await RunSettings.Read(transaction, projectId, cancellationToken) is not { } run)
             {
                 return null;
             }
+
+            // Outside its schedules, read after the pauses took the project's row, so schedules
+            // saved or an override taken back meanwhile are seen, only covered work is taken.
+            var runNowOnly = await Schedules.ScheduleStore.OutsideUnderLock(transaction, projectId, now, cancellationToken);
 
             // The project's values are opened in the same transaction, only for a kind that runs the
             // project's code, so they leave Dev flow only inside this job's answer.
             IReadOnlyList<JobValue> carried = Values.ProjectValues.Carries(kind) ? await values.Open(transaction, userId, projectId, cancellationToken) : [];
             var handed = kind switch
             {
-                Job.Review => ReviewJob(await JobStore.ClaimReview(transaction, projectId, userId, workerId, run, now, cancellationToken), repository, facts, run, token, key),
-                Job.FeatureReview => FeatureReviewJob(await JobStore.ClaimFeatureReview(transaction, projectId, userId, workerId, run, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, run, token, key),
-                Job.Fix => FixJob(await JobStore.ClaimFix(transaction, projectId, userId, workerId, run, facts.Check, now, cancellationToken), repository, facts, run, token, key),
-                Job.FeatureFix => FeatureFixJob(await JobStore.ClaimFeatureFix(transaction, projectId, userId, workerId, run, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, run, token, key),
-                Job.Conflict => ConflictJob(await JobStore.ClaimConflict(transaction, projectId, userId, workerId, run, due!, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, run, token, key, files),
-                Job.Read => ReadJob(await Readings.ReadingStore.Claim(transaction, projectId, userId, workerId, run, facts.DefaultBranch, now, cancellationToken), repository, facts, run, token, key),
-                _ => BuildJob(await JobStore.Claim(transaction, projectId, userId, workerId, run, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, run, token, key),
+                Job.Review => ReviewJob(await JobStore.ClaimReview(transaction, projectId, userId, workerId, run, now, runNowOnly, cancellationToken), repository, facts, run, token, key),
+                Job.FeatureReview => FeatureReviewJob(await JobStore.ClaimFeatureReview(transaction, projectId, userId, workerId, run, facts.DefaultBranch, facts.Check, now, runNowOnly, cancellationToken), repository, facts, run, token, key),
+                Job.Fix => FixJob(await JobStore.ClaimFix(transaction, projectId, userId, workerId, run, facts.Check, now, runNowOnly, cancellationToken), repository, facts, run, token, key),
+                Job.FeatureFix => FeatureFixJob(await JobStore.ClaimFeatureFix(transaction, projectId, userId, workerId, run, facts.DefaultBranch, facts.Check, now, runNowOnly, cancellationToken), repository, facts, run, token, key),
+                Job.Conflict => ConflictJob(await JobStore.ClaimConflict(transaction, projectId, userId, workerId, run, due!, facts.DefaultBranch, facts.Check, now, runNowOnly, cancellationToken), repository, facts, run, token, key, files),
+                Job.Read => ReadJob(await Readings.ReadingStore.Claim(transaction, projectId, userId, workerId, run, facts.DefaultBranch, now, runNowOnly, cancellationToken), repository, facts, run, token, key),
+                _ => BuildJob(await JobStore.Claim(transaction, projectId, userId, workerId, run, facts.DefaultBranch, facts.Check, now, runNowOnly, cancellationToken), repository, facts, run, token, key),
             };
             if (handed is null)
             {
@@ -223,7 +228,8 @@ public sealed partial class Dispatcher(
         if (job is null)
         {
             // Another worker took the last card of the kind since it was looked for, or the project
-            // was stopped, paused, left its schedules or went unwatched while GitHub was asked; the key made for it is dropped
+            // was stopped, paused, left its schedules with nothing of the kind covered by an override,
+            // or went unwatched while GitHub was asked; the key made for it is dropped
             // unused, and runs out within the hour. The worker asks again.
             return new NextJob.None();
         }
@@ -767,11 +773,13 @@ public sealed partial class Dispatcher(
     /// the feature with the commit. True when there is nothing to make, another worker is making
     /// it, it is made, or a branch of its name is there already, when the feature waits for the
     /// owner and the next card is another's; false when the code host did not make it now, and the
-    /// worker asks again. See "A feature's branch" in devflow/docs/devflow-architecture.md.
+    /// worker asks again. With <paramref name="runNowOnly"/>, the project outside its schedules,
+    /// the next card is the next one an override covers. See "A feature's branch" in
+    /// devflow/docs/devflow-architecture.md.
     /// </summary>
-    private async Task<bool> FeatureBranch(Guid projectId, Guid userId, Repository repository, string defaultBranch, AppWriteToken key, CancellationToken cancellationToken)
+    private async Task<bool> FeatureBranch(Guid projectId, Guid userId, Repository repository, string defaultBranch, AppWriteToken key, bool runNowOnly, CancellationToken cancellationToken)
     {
-        if (await FeatureBranchStore.Due(database, userId, projectId, time.GetUtcNow(), cancellationToken) is not { } feature)
+        if (await FeatureBranchStore.Due(database, userId, projectId, time.GetUtcNow(), runNowOnly, cancellationToken) is not { } feature)
         {
             return true;
         }

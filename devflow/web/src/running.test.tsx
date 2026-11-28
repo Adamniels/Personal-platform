@@ -73,6 +73,8 @@ function nextCard(overrides: Partial<NextCard> = {}): NextCard {
 		reason: "Waits for #51, which it depends on",
 		link: "card",
 		link_card: 51,
+		feature: null,
+		run_now: false,
 		...overrides,
 	};
 }
@@ -85,6 +87,16 @@ function nextRow(name: string): HTMLElement {
 		.find((each) => within(each).queryByRole("link", { name }));
 	if (!row) throw new Error(`no row for ${name}`);
 	return row;
+}
+
+/** The first "Run now anyway" in a row of "Next up": the reason is in its
+ * column on a wide screen and under the title on a phone, both rendered. */
+function runNowIn(name: string): HTMLElement {
+	const [button] = within(nextRow(name)).getAllByRole("button", {
+		name: "Run now anyway",
+	});
+	if (!button) throw new Error(`no Run now anyway in ${name}`);
+	return button;
 }
 
 /** Every link in `row` named `name` goes to `href`: the reason is in its
@@ -100,6 +112,7 @@ function linksTo(row: HTMLElement, name: string, href: string) {
 function openRunning(
 	first: RunningList,
 	stopRun: RunningApi["stopRun"] = () => Promise.resolve(),
+	runNow: RunningApi["runNow"] = () => Promise.resolve(),
 ) {
 	window.history.pushState(null, "", "/devflow/running");
 	const events = fakeEvents();
@@ -107,6 +120,7 @@ function openRunning(
 	const api: RunningApi = {
 		loadRunning: () => Promise.resolve(first),
 		stopRun,
+		runNow,
 		openEvents: events.open,
 	};
 	render(
@@ -307,6 +321,58 @@ describe("Running now", () => {
 				`/devflow/projects/${PROJECT}/settings#settings-schedules`,
 			);
 		}
+	});
+
+	test("a card outside its schedule offers run now anyway, for its feature or itself", async () => {
+		const runNow = vi.fn<RunningApi["runNow"]>(() => Promise.resolve());
+		openRunning(
+			list(
+				[run()],
+				[
+					nextCard({
+						number: 60,
+						title: "Night work",
+						reason: "No schedule is on",
+						link: "schedules",
+						link_card: null,
+						run_now: true,
+					}),
+					nextCard({
+						number: 71,
+						title: "A feature's card",
+						reason: "No schedule is on",
+						link: "schedules",
+						link_card: null,
+						feature: 70,
+						run_now: true,
+					}),
+					nextCard(),
+				],
+			),
+			undefined,
+			runNow,
+		);
+		await screen.findByRole("article", { name: "#51 Share a plan by link" });
+
+		// A card on its own runs itself now; a card of a feature, its feature.
+		fireEvent.click(runNowIn("#60 Night work"));
+		await waitFor(() =>
+			expect(runNow).toHaveBeenCalledWith(PROJECT, "cards", 60),
+		);
+		expect(
+			await screen.findByText("Running #60 outside the schedule"),
+		).toBeTruthy();
+		fireEvent.click(runNowIn("#71 A feature's card"));
+		await waitFor(() =>
+			expect(runNow).toHaveBeenCalledWith(PROJECT, "features", 70),
+		);
+
+		// A row with another reason offers nothing.
+		expect(
+			within(nextRow("#52 Revoke a shared link")).queryByRole("button", {
+				name: "Run now anyway",
+			}),
+		).toBeNull();
 	});
 
 	test("next up lists cards with their reason and its link", async () => {

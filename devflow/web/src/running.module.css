@@ -213,6 +213,13 @@ a.reasonLink {
 	overflow-wrap: anywhere;
 }
 
+/* "Run now anyway" in a reason outside the schedule: on a line of its own
+ * between the sentence and "Edit schedules", so a narrow cell wraps it whole. */
+.runNow {
+	display: flex;
+	margin-block: var(--space-1);
+}
+
 .starts {
 	color: var(--text-3);
 }

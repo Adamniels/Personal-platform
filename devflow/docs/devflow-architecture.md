@@ -1039,6 +1039,32 @@ owner's wall clock without the record holding a zone. The workers list's `held` 
 summary, which are SQL, do not carry it; the project's page says it in its own card, where the
 windows are.
 
+**"Run now anyway" narrows the schedule, it does not lift it.** An override for a feature or a card
+on its own, a row of `run_now`, lets the rule pass the schedule for what it covers and for nothing
+else of the project: outside its schedule with one that holds, the rule goes on through its later
+gates with the next kind among covered jobs alone, `JobStore.RunNowKindSql`, which is the next kind's
+one SQL with each card's and feature's condition followed by `RunNowStore.CoversCard` or
+`CoversFeature`, so the order of kinds stays stated once. A setup's job or a check, which no
+override covers, still waits for the schedule, and each card the rule lists answers
+`OutsideSchedule` unless an override covers it. The dispatcher reads the schedule again under the
+project's row lock as before, and outside it takes only covered work, every claim carrying the same
+filter, so the page, the rule and the claim never disagree. It sits after the pauses and touches
+nothing before them: a pause is the owner's word now and the override his word for one thing ahead
+of the clock, so a paused project with an override still hands out nothing.
+
+An override is a row rather than a mark on the feature or the card, since it ends by itself: it
+lasts until what it covers has nothing left to run, every card of a feature and the feature itself
+waiting for the owner, done, stopped, refused, needing answers, held or ignored, which
+`RunNowStore.Left` states once and the coverage reads too, so an override whose thing has finished
+covers nothing even before it is deleted. A feature building with every card done still has its end
+and its review ahead, so it still has something to run, until the read that moves it on. The
+dispatcher deletes every override that has nothing left in the transaction that reads the project's
+situation, the first time it finds one, so a card added or sent back afterwards keeps to the
+schedule: the owner's "until it has nothing left" means the work he could see when he pressed it,
+not whatever the feature becomes. Pages only read, so a page between the end and a worker's next
+ask shows the override as off, since nothing is left. A card of a feature has no override of its
+own: it runs only in its feature's order, so its feature is the thing run now.
+
 **Nothing is read from GitHub under the lock.** What a job needs from the code host, the default
 branch, `.devflow/project.json`'s check, the clone address, the committer and a push key, is read
 first, and only then is the card taken, in a transaction that holds its row for a few statements.

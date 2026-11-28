@@ -86,6 +86,7 @@ function story(overrides: Partial<FeatureStory> = {}): FeatureStory {
 		tokens: 0,
 		cache_reads: 0,
 		reviews: [],
+		run_now: { outside_schedule: false, something_to_run: true, on: false },
 		...overrides,
 	};
 }
@@ -114,6 +115,8 @@ function open(api: Partial<FeatureApi> = {}) {
 		sendBackCard: vi.fn(() => Promise.resolve()),
 		sendBackDecision: vi.fn(() => Promise.resolve()),
 		runFeatureAgain: vi.fn(() => Promise.resolve()),
+		runNow: vi.fn(() => Promise.resolve()),
+		backToSchedule: vi.fn(() => Promise.resolve()),
 		copy: vi.fn(() => Promise.resolve()),
 		loadRunLog: vi.fn(() => new Promise<RunLogPage>(() => {})),
 		...api,
@@ -704,6 +707,127 @@ describe("a feature's page", () => {
 	});
 });
 
+describe("running a feature outside its schedule", () => {
+	test("run now anyway shows outside the schedule and says it is on", async () => {
+		const outside = story({
+			run_now: { outside_schedule: true, something_to_run: true, on: false },
+		});
+		const feature = open({
+			loadFeature: vi
+				.fn<FeatureApi["loadFeature"]>()
+				.mockResolvedValueOnce(outside)
+				.mockResolvedValueOnce({
+					...outside,
+					run_now: { outside_schedule: true, something_to_run: true, on: true },
+				})
+				.mockResolvedValue(outside),
+		});
+
+		expect(
+			await screen.findByText(
+				"Runs this outside the schedule until it has nothing left to run.",
+			),
+		).toBeTruthy();
+		const run = screen.getByRole("button", { name: "Run now anyway" });
+		expect(run.className).toMatch(/secondary/);
+		fireEvent.click(run);
+
+		await waitFor(() =>
+			expect(feature.runNow).toHaveBeenCalledWith(PROJECT, "features", 38),
+		);
+		expect(
+			await screen.findByText(
+				"Running outside the schedule, until it has nothing left to run",
+			),
+		).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Run now anyway" })).toBeNull();
+
+		// Back to the schedule takes it back, and the button returns.
+		const back = screen.getByRole("button", { name: "Back to the schedule" });
+		expect(back.className).toMatch(/ghost/);
+		fireEvent.click(back);
+		await waitFor(() =>
+			expect(feature.backToSchedule).toHaveBeenCalledWith(
+				PROJECT,
+				"features",
+				38,
+			),
+		);
+		expect(
+			await screen.findByRole("button", { name: "Run now anyway" }),
+		).toBeTruthy();
+	});
+
+	test("inside the schedule, or with nothing left to run, offers nothing", async () => {
+		open({
+			loadFeature: vi
+				.fn<FeatureApi["loadFeature"]>()
+				.mockResolvedValueOnce(story())
+				.mockResolvedValue(
+					story({
+						run_now: {
+							outside_schedule: true,
+							something_to_run: false,
+							on: false,
+						},
+					}),
+				),
+		});
+		expect(await screen.findByText("Feeding plan, version 2")).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Run now anyway" })).toBeNull();
+		cleanup();
+
+		open({
+			loadFeature: () =>
+				Promise.resolve(
+					story({
+						run_now: {
+							outside_schedule: true,
+							something_to_run: false,
+							on: false,
+						},
+					}),
+				),
+		});
+		expect(await screen.findByText("Feeding plan, version 2")).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Run now anyway" })).toBeNull();
+		expect(
+			screen.queryByText(
+				"Running outside the schedule, until it has nothing left to run",
+			),
+		).toBeNull();
+	});
+
+	test("a refusal is shown in words", async () => {
+		open({
+			loadFeature: () =>
+				Promise.resolve(
+					story({
+						run_now: {
+							outside_schedule: true,
+							something_to_run: true,
+							on: false,
+						},
+					}),
+				),
+			runNow: () =>
+				Promise.reject(
+					new ApiError({
+						status: 409,
+						title: "This has nothing left to run",
+						detail: "Every card of it, and it, wait for you or are done.",
+					}),
+				),
+		});
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Run now anyway" }),
+		);
+		expect((await screen.findByRole("alert")).textContent).toContain(
+			"This has nothing left to run",
+		);
+	});
+});
+
 describe("a feature I stopped", () => {
 	test("says so, and Run again releases it and reads it again", async () => {
 		const stopped = story({
@@ -1133,6 +1257,8 @@ describe("merging the feature", () => {
 					sendBackCard: () => new Promise(() => {}),
 					sendBackDecision: () => new Promise(() => {}),
 					runFeatureAgain: () => new Promise(() => {}),
+					runNow: () => Promise.resolve(),
+					backToSchedule: () => Promise.resolve(),
 					loadRunLog: () => new Promise(() => {}),
 				}}
 			/>,

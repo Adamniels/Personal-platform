@@ -15,13 +15,14 @@ import {
 	Timeline,
 	TimelineEntry,
 } from "@platform/ui";
-import { useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { navigate, plainClick } from "./address";
 import type { components } from "./api/schema";
 import styles from "./card.module.css";
 import { StepsBar, stateWord } from "./cards";
 import { Inline } from "./format";
 import { FinishedLog, KEPT_90_DAYS, type LoadRunLog } from "./run-log";
+import { RunNowAnyway, type RunNowApi } from "./run-now";
 import { cardScreenshot, Screenshots } from "./screenshots";
 import { featurePath } from "./sections";
 import { sentence } from "./sentence";
@@ -38,7 +39,7 @@ export const NOT_READ = "The card could not be read. Try again.";
 
 /** How the page reads a card, Dev flow's API in the page and a test's own
  * in a test. Null when the caller has no such card. */
-export type CardApi = {
+export type CardApi = RunNowApi & {
 	loadCard: (project: string, number: number) => Promise<CardStory | null>;
 	/** Reads a page of a finished run's log. */
 	loadRunLog: LoadRunLog;
@@ -150,9 +151,24 @@ export function CardPage({
 	backPath,
 	loadCard,
 	loadRunLog,
+	runNow,
+	backToSchedule,
 }: CardPageProps) {
 	const [story, setStory] = useState<CardStory | null>();
 	const [failed, setFailed] = useState(false);
+
+	// Read again after "Run now anyway" or "Back to the schedule".
+	const load = useCallback(
+		() =>
+			loadCard(project, number).then(
+				(answer) => {
+					setStory(answer);
+					setFailed(false);
+				},
+				() => setFailed(true),
+			),
+		[project, number, loadCard],
+	);
 
 	useEffect(() => {
 		let current = true;
@@ -215,6 +231,14 @@ export function CardPage({
 					<p className={styles.caption}>{caption}</p>
 				</div>
 				<h2 className={`${styles.name} ${styles.title}`}>{story.title}</h2>
+				<RunNowAnyway
+					projectId={project}
+					kind="cards"
+					number={number}
+					state={story.run_now}
+					api={{ runNow, backToSchedule }}
+					reload={load}
+				/>
 				<p className={styles.links}>
 					<Link url={story.web_url} label={`Issue #${story.number}`} />
 					{story.pull_request === null ? null : (

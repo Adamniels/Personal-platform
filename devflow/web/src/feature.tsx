@@ -48,6 +48,7 @@ import { askNavAgain } from "./nav-attention";
 import { Command } from "./project";
 import { type RunAgainApi, RunFeatureAgain, STOPPED_BY_YOU } from "./run-again";
 import type { LoadRunLog } from "./run-log";
+import { RunNowAnyway, type RunNowApi } from "./run-now";
 import { cardScreenshot, Screenshots } from "./screenshots";
 import { cardPath } from "./sections";
 import {
@@ -69,7 +70,8 @@ export const NOT_ANSWERED =
 /** How the page reads a feature, answers a decision and merges the feature,
  * Dev flow's API in the page and a test's own in a test. */
 export type FeatureApi = FeatureMergeApi &
-	Pick<RunAgainApi, "runFeatureAgain"> & {
+	Pick<RunAgainApi, "runFeatureAgain"> &
+	RunNowApi & {
 		/** The feature, or null when the caller has no such feature. */
 		loadFeature: (
 			project: string,
@@ -150,6 +152,8 @@ export function FeaturePage({
 	loadFeatureMerge,
 	mergeFeature,
 	runFeatureAgain,
+	runNow,
+	backToSchedule,
 	sendBack,
 	sendBackCard,
 	sendBackDecision,
@@ -278,6 +282,14 @@ export function FeaturePage({
 				) : story.reason === null ? null : (
 					<p className={own.lede}>{story.reason}</p>
 				)}
+				<RunNowAnyway
+					projectId={project}
+					kind="features"
+					number={number}
+					state={story.run_now}
+					api={{ runNow, backToSchedule }}
+					reload={load}
+				/>
 				<p className={styles.links}>
 					<Link url={story.web_url} label={`Issue #${story.number}`} />
 					{story.pull_request === null ? null : (

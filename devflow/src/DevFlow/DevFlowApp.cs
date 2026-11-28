@@ -259,6 +259,7 @@ public static class DevFlowApp
         app.MapStops();
         app.MapPauses();
         app.MapSchedules();
+        app.MapRunNow();
         app.MapRunning();
         app.MapUsage();
         app.MapRunLogStream();

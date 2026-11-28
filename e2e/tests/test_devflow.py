@@ -7649,3 +7649,78 @@ def test_i_give_a_project_a_schedule(
     # Switched off there, nothing runs.
     when.get_by_role("switch", name="Night", exact=True).uncheck()
     expect(when.get_by_text("No schedule is on, so nothing runs")).to_be_visible()
+
+
+def test_i_run_a_feature_now_anyway(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    """Outside the project's schedule, I press "Run now anyway" on a feature's
+    page, and Running now's queue no longer says its cards are outside the
+    schedule. See "Schedules" and "A feature's page" in devflow/README.md."""
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    add_issue(world, 60, "Night work", labels=["devflow"], sub_issues=[61, 62])
+    add_issue(world, 61, "Plan the night")
+    add_issue(world, 62, "Run the night")
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+    _fake_read(page, base_url, project, [_ready(61), _ready(62)])
+
+    # By schedule with no window on: outside it whatever the time.
+    scheduled = page.request.put(
+        f"/devflow/api/projects/{project}/schedules",
+        data={"runs_by": "schedule", "schedules": []},
+        headers={"Origin": base_url},
+    )
+    assert scheduled.status == 200, scheduled.text()
+
+    # Running now's queue says the feature's first card is outside it.
+    page.goto(f"{base_url}/devflow/running")
+    next_up = page.get_by_role("article", name=re.compile("^Next up"))
+    expect(next_up).to_contain_text("No schedule is on")
+
+    # The feature's page offers to run it anyway.
+    page.goto(f"{base_url}/devflow/projects/{project}/features/60")
+    expect(
+        page.get_by_text(
+            "Runs this outside the schedule until it has nothing left to run."
+        )
+    ).to_be_visible()
+    run_now = page.get_by_role("button", name="Run now anyway")
+    expect(run_now).to_be_visible()
+    _looks_right(page)
+    capture(page, "devflow-feature-run-now")
+
+    run_now.click()
+    expect(
+        page.get_by_text(
+            "Running outside the schedule, until it has nothing left to run"
+        )
+    ).to_be_visible()
+    expect(page.get_by_role("button", name="Back to the schedule")).to_be_visible()
+    expect(page.get_by_role("button", name="Run now anyway")).to_have_count(0)
+    _looks_right(page)
+    capture(page, "devflow-feature-run-now-on")
+
+    # Running now's queue no longer says the feature's cards are outside it.
+    page.goto(f"{base_url}/devflow/running")
+    next_up = page.get_by_role("article", name=re.compile("^Next up"))
+    expect(
+        next_up.get_by_role("link", name=re.compile("Plan the night")).first
+    ).to_be_visible()
+    expect(next_up).not_to_contain_text("No schedule is on")

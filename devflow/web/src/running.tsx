@@ -34,6 +34,7 @@ import { navigate, plainClick } from "./address";
 import type { GetAnswer } from "./api/client";
 import { AGAIN, CLOSED, dataOf, type EventStream } from "./events";
 import { type LogLine, LogLines, logStyles } from "./run-log";
+import { RUN_NOW, type RunNowApi, runningOutside } from "./run-now";
 import styles from "./running.module.css";
 import { schedulesPath } from "./schedules";
 import { cardPath, featurePath, projectPath, SECTIONS } from "./sections";
@@ -49,6 +50,8 @@ export type NextCard = RunningList["next"][number];
 export type RunningApi = {
 	loadRunning: () => Promise<RunningList>;
 	stopRun: (projectId: string, runId: string) => Promise<void>;
+	/** "Run now anyway" on a card of the queue: its feature, or itself. */
+	runNow: RunNowApi["runNow"];
 	openEvents: (url: string) => EventStream;
 };
 
@@ -100,6 +103,7 @@ export function Running({
 	failed,
 	now,
 	stopRun,
+	runNow,
 	openEvents,
 	paused,
 	pauseAll,
@@ -149,7 +153,12 @@ export function Running({
 					))}
 				</ul>
 			)}
-			<NextUp cards={list.next} more={list.next_more} />
+			<NextUp
+				cards={list.next}
+				more={list.next_more}
+				runNow={runNow}
+				ran={() => queries.invalidateQueries({ queryKey: RUNNING })}
+			/>
 		</div>
 	);
 }
@@ -196,8 +205,20 @@ function PauseSwitch({
  * of its own under the panels. On a wide screen a table, its card, project,
  * state and why it is not running; on a phone a list, each row its card with
  * its project and state on a line under it and then its reason. */
-export function NextUp({ cards, more }: { cards: NextCard[]; more: number }) {
+export function NextUp({
+	cards,
+	more,
+	runNow,
+	ran,
+}: {
+	cards: NextCard[];
+	more: number;
+	runNow: RunNowApi["runNow"];
+	/** Reads the list again once a card runs now. */
+	ran: () => Promise<unknown>;
+}) {
 	const label = useId();
+	const columns = nextColumns({ runNow, ran });
 	return (
 		<article className={styles.next} aria-labelledby={label}>
 			<h2 id={label} className={styles.nextLabel}>
@@ -215,7 +236,7 @@ export function NextUp({ cards, more }: { cards: NextCard[]; more: number }) {
 				<>
 					<Table
 						label="Next up"
-						columns={NEXT_COLUMNS}
+						columns={columns}
 						rows={cards}
 						rowKey={(card) => `${card.project_id}/${card.number}`}
 						className={styles.nextTable}
@@ -229,10 +250,14 @@ export function NextUp({ cards, more }: { cards: NextCard[]; more: number }) {
 	);
 }
 
+/** What a row of "Next up" can do: run its card, or its card's feature, now
+ * anyway, and read the list again after. */
+type NextActs = { runNow: RunNowApi["runNow"]; ran: () => Promise<unknown> };
+
 /** The columns of "Next up": the card, which alone shows on a phone and then
  * holds the rest under its title; its project, its state and why it is not
  * running, priority 3, on a wide screen. */
-const NEXT_COLUMNS: TableColumn<NextCard>[] = [
+const nextColumns = (acts: NextActs): TableColumn<NextCard>[] => [
 	{
 		key: "card",
 		header: "Card",
@@ -248,7 +273,7 @@ const NEXT_COLUMNS: TableColumn<NextCard>[] = [
 					<span className={styles.cardMeta}>
 						{`${card.project_name} · ${nextState(card)}`}
 					</span>
-					<Reason card={card} />
+					<Reason card={card} acts={acts} />
 				</div>
 			</div>
 		),
@@ -269,7 +294,7 @@ const NEXT_COLUMNS: TableColumn<NextCard>[] = [
 		key: "why",
 		header: "Why it is not running",
 		priority: 3,
-		cell: (card) => <Reason card={card} />,
+		cell: (card) => <Reason card={card} acts={acts} />,
 	},
 ];
 
@@ -315,10 +340,11 @@ function sectionPath(key: string): string {
 }
 
 /** Why a card is not running yet, the rule's own sentence, linked to where it
- * is acted on; outside its schedule, the sentence said and "Edit schedules"
- * the link, since the sentence is when, not what to do; for a card that runs
- * as soon as a worker asks, so it says. */
-function Reason({ card }: { card: NextCard }) {
+ * is acted on; outside its schedule, the sentence said, "Run now anyway" for
+ * its feature or itself, and "Edit schedules" the link, since the sentence is
+ * when, not what to do; for a card that runs as soon as a worker asks, so it
+ * says. */
+function Reason({ card, acts }: { card: NextCard; acts: NextActs }) {
 	if (card.reason === null)
 		return <span className={styles.starts}>Next to start</span>;
 	const href = reasonPath(card);
@@ -326,6 +352,7 @@ function Reason({ card }: { card: NextCard }) {
 		return (
 			<span className={styles.reason}>
 				{card.reason}{" "}
+				{card.run_now ? <RunNowButton card={card} acts={acts} /> : null}{" "}
 				<PageLink className={styles.reasonLink} href={href}>
 					Edit schedules
 				</PageLink>
@@ -337,6 +364,41 @@ function Reason({ card }: { card: NextCard }) {
 		<PageLink className={styles.reasonLink} href={href}>
 			{card.reason}
 		</PageLink>
+	);
+}
+
+/** "Run now anyway" on a row outside its schedule: its feature for a card of
+ * one, itself for a card on its own; then the list is read again. */
+function RunNowButton({ card, acts }: { card: NextCard; acts: NextActs }) {
+	const toast = useToast();
+	const [pressed, setPressed] = useState(false);
+	const [kind, number] =
+		card.feature === null
+			? (["cards", card.number] as const)
+			: (["features", card.feature] as const);
+
+	async function press() {
+		setPressed(true);
+		try {
+			await acts.runNow(card.project_id, kind, number);
+			toast.success(runningOutside(number));
+		} catch (error) {
+			toast.error(`Could not run #${number} now: ${describe(error)}`);
+		} finally {
+			setPressed(false);
+		}
+		await acts.ran();
+	}
+
+	return (
+		<Button
+			kind="secondary"
+			className={styles.runNow}
+			disabled={pressed}
+			onClick={press}
+		>
+			{RUN_NOW}
+		</Button>
 	);
 }
 

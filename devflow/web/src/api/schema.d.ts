@@ -251,7 +251,7 @@ export interface paths {
         };
         /**
          * A card's whole story so far
-         * @description The card as last read, its number, title, web_url, state and reason, and its pull_request, number and url, null before one was opened; each of its runs, newest first, with its kind, the worker it was handed to, when it started and finished, how long it took, its result and, for a failure, its reason and whether it lay in the card, the auth method, its tokens, input_tokens + cache_creation_input_tokens + output_tokens, and its cache reads beside them, each null when Claude gave none, the check's exit code and the last lines of its output, null when it did not run, the commit it left, has_log, whether it has lines of its log, read through readRunLog, and log_pruned, whether it had a log that was deleted once kept its 90 days, both false for a run from before logs were kept; the latest report in its form, the latest build's, null when no build has handed one back; and each review, newest first, with the commit the worker reviewed, its verdict, summary, findings, each blocking or not with its file, line, what and why, the reviewer's view on each decision for the owner, when it was recorded, whether its copy is posted, and whether it is current, for the card's head commit; and the screenshots of its head commit, the commit, the pictures' names paired desktop and phone by page, read through getCardScreenshot, and the worker's note, null when its newest build that succeeded tried none. And the feature it is a card of, its number and title, null for a card on its own. Read from what Dev flow stored, never from GitHub; every text from GitHub or an agent is to be shown as text. 404 for a project or a card the caller does not have. Without a valid token, 401 with an empty body.
+         * @description The card as last read, its number, title, web_url, state and reason, and its pull_request, number and url, null before one was opened; each of its runs, newest first, with its kind, the worker it was handed to, when it started and finished, how long it took, its result and, for a failure, its reason and whether it lay in the card, the auth method, its tokens, input_tokens + cache_creation_input_tokens + output_tokens, and its cache reads beside them, each null when Claude gave none, the check's exit code and the last lines of its output, null when it did not run, the commit it left, has_log, whether it has lines of its log, read through readRunLog, and log_pruned, whether it had a log that was deleted once kept its 90 days, both false for a run from before logs were kept; the latest report in its form, the latest build's, null when no build has handed one back; and each review, newest first, with the commit the worker reviewed, its verdict, summary, findings, each blocking or not with its file, line, what and why, the reviewer's view on each decision for the owner, when it was recorded, whether its copy is posted, and whether it is current, for the card's head commit; and the screenshots of its head commit, the commit, the pictures' names paired desktop and phone by page, read through getCardScreenshot, and the worker's note, null when its newest build that succeeded tried none. And the feature it is a card of, its number and title, null for a card on its own; and run_now, what the page says of running it outside its project's schedules: outside_schedule, whether its project is outside them now, something_to_run, whether it has something left to run, false for a card of a feature, whose feature is run now instead, and on, whether runCardNow's override of it holds. Read from what Dev flow stored, never from GitHub; every text from GitHub or an agent is to be shown as text. 404 for a project or a card the caller does not have. Without a valid token, 401 with an empty body.
          */
         get: operations["getCard"];
         put?: never;
@@ -322,6 +322,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/projects/{id}/cards/{number}/run-now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run a card on its own now, outside its project's schedules, as the caller
+         * @description Every job of the card, its build, review, fixes and readings, is handed out whether or not its project is inside its schedules, and nothing else of the project is. It skips the project's schedules and nothing else: a pause, the project's or everything's, still holds it. It lasts until it has nothing left to run, every card of a feature and the feature itself waiting for the caller, done, stopped, refused, needing answers, held or ignored, when Dev flow ends it, so a card added or sent back later keeps to the schedules. Setting it again changes nothing. 204. In order: 404 for a project or a card the caller does not have; 409 when it is a card of a feature, which runs with its feature, so its feature is run now instead, and when it has nothing left to run. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["runCardNow"];
+        /**
+         * Take back running a card now, as the caller
+         * @description The card keeps to its project's schedules again; once this answers, no job is handed out by the override it took back, and a run under way finishes. Taking back one not set changes nothing. 204; 404 for a project or a card the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        delete: operations["runCardBySchedule"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/projects/{id}/cards/{number}/screenshots/{name}": {
         parameters: {
             query?: never;
@@ -371,7 +395,7 @@ export interface paths {
         };
         /**
          * A feature's whole story so far
-         * @description The feature as last read, its number, title, web_url, state and reason, null when there is nothing to say; its branch, the name and the commit it was at after the newest change its watch judged, or the one it was made at before any, null before the branch is made; its pull_request to the default branch, number and url, null before one is opened; and its cards in their sub-issue order, each with its number, title, web_url, state, reason, fix_rounds, the tokens of all its runs, input_tokens + cache_creation_input_tokens + output_tokens, and their cache reads beside them, the screenshots of its head commit as getCard has them, read through getCardScreenshot, and the decisions its latest report marked for the owner, each with the run_id of that report's run, its position among the report's decisions, what was chosen, the alternative, why, the reviewer_view from the newest review of the commit that run left, null without one, and the answer, fine or sent_back, null before one, can_send_back, whether the card has landed in the feature's branch of a feature neither merged nor closed, so it can be sent back, and sent_back, its last send back, how many times, the pull request it had landed in and the owner's comments, null when it was never sent back; its own runs, each with has_log and log_pruned as getCard has them, with tokens and cache_reads, their sums by the same definition, and the reviews of the whole feature, newest first; fix_rounds, the rounds its reviews have started; and rounds, each fix of the whole feature newest first, as getCard has a card's rounds. Read from what Dev flow stored, never from GitHub; every text from GitHub or an agent is to be shown as text. 404 for a project or a feature the caller does not have. Without a valid token, 401 with an empty body.
+         * @description The feature as last read, its number, title, web_url, state and reason, null when there is nothing to say; its branch, the name and the commit it was at after the newest change its watch judged, or the one it was made at before any, null before the branch is made; its pull_request to the default branch, number and url, null before one is opened; and its cards in their sub-issue order, each with its number, title, web_url, state, reason, fix_rounds, the tokens of all its runs, input_tokens + cache_creation_input_tokens + output_tokens, and their cache reads beside them, the screenshots of its head commit as getCard has them, read through getCardScreenshot, and the decisions its latest report marked for the owner, each with the run_id of that report's run, its position among the report's decisions, what was chosen, the alternative, why, the reviewer_view from the newest review of the commit that run left, null without one, and the answer, fine or sent_back, null before one, can_send_back, whether the card has landed in the feature's branch of a feature neither merged nor closed, so it can be sent back, and sent_back, its last send back, how many times, the pull request it had landed in and the owner's comments, null when it was never sent back; its own runs, each with has_log and log_pruned as getCard has them, with tokens and cache_reads, their sums by the same definition, and the reviews of the whole feature, newest first; fix_rounds, the rounds its reviews have started; and rounds, each fix of the whole feature newest first, as getCard has a card's rounds; and run_now, what the page says of running it outside its project's schedules: outside_schedule, whether its project is outside them now, something_to_run, whether it has something left to run, and on, whether runFeatureNow's override of it holds. Read from what Dev flow stored, never from GitHub; every text from GitHub or an agent is to be shown as text. 404 for a project or a feature the caller does not have. Without a valid token, 401 with an empty body.
          */
         get: operations["getFeature"];
         put?: never;
@@ -461,6 +485,30 @@ export interface paths {
          */
         post: operations["runFeatureAgain"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/projects/{id}/features/{number}/run-now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run a feature now, outside its project's schedules, as the caller
+         * @description Every job of the feature, its cards' builds, reviews, fixes and readings, its conflicts, its review and its fix, is handed out whether or not its project is inside its schedules, and nothing else of the project is. It skips the project's schedules and nothing else: a pause, the project's or everything's, still holds it. It lasts until it has nothing left to run, every card of a feature and the feature itself waiting for the caller, done, stopped, refused, needing answers, held or ignored, when Dev flow ends it, so a card added or sent back later keeps to the schedules. Setting it again changes nothing. 204. In order: 404 for a project or a feature the caller does not have; 409 when it has nothing left to run. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["runFeatureNow"];
+        /**
+         * Take back running a feature now, as the caller
+         * @description The feature keeps to its project's schedules again; once this answers, no job is handed out by the override it took back, and a run under way finishes. Taking back one not set changes nothing. 204; 404 for a project or a feature the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        delete: operations["runFeatureBySchedule"];
         options?: never;
         head?: never;
         patch?: never;
@@ -887,7 +935,7 @@ export interface paths {
         };
         /**
          * The caller's runs under way
-         * @description Every run under way of the caller's projects, oldest first, as Running now shows each: its project, its worker by the name it said hello with, its kind, state, running or checking once its check runs, stopping when the caller marked it to stop and its worker has not ended it yet, its card's or its feature's number and title, null for a setup's run or a check, a fix's round, the model its job was handed out with, null for a check, when it started, its tokens so far, input_tokens + cache_creation_input_tokens + output_tokens, and its cache reads so far beside them; busy_workers, how many workers hold them; and next, the cards that come next, Next up: every card of the caller's projects queued, waiting to be read, or waiting for its review or its fix round, with no run under way, in each project's queue order and across projects by priority label and then age, at most 50, each with its project, number, title, state, the job due for it, the sentence of the reason the one rule gives it, null for one that runs as soon as a worker asks, and where that reason is acted on, link, card with link_card, waiting_for_you, project_page, settings, or schedules, the card "When it runs" on its project's settings page, null where it has no place; and next_more, how many come after those 50. Without a valid token, 401 with an empty body.
+         * @description Every run under way of the caller's projects, oldest first, as Running now shows each: its project, its worker by the name it said hello with, its kind, state, running or checking once its check runs, stopping when the caller marked it to stop and its worker has not ended it yet, its card's or its feature's number and title, null for a setup's run or a check, a fix's round, the model its job was handed out with, null for a check, when it started, its tokens so far, input_tokens + cache_creation_input_tokens + output_tokens, and its cache reads so far beside them; busy_workers, how many workers hold them; and next, the cards that come next, Next up: every card of the caller's projects queued, waiting to be read, or waiting for its review or its fix round, with no run under way, in each project's queue order and across projects by priority label and then age, at most 50, each with its project, number, title, state, the job due for it, the sentence of the reason the one rule gives it, null for one that runs as soon as a worker asks, and where that reason is acted on, link, card with link_card, waiting_for_you, project_page, settings, or schedules, the card "When it runs" on its project's settings page, null where it has no place, feature, the number of the feature it is a card of, null for a card on its own, and run_now, whether the one rule holds it only for its project's schedules, so runFeatureNow on its feature, or runCardNow on a card on its own, would run it; and next_more, how many come after those 50. Without a valid token, 401 with an empty body.
          */
         get: operations["listRunning"];
         put?: never;
@@ -1405,6 +1453,7 @@ export interface components {
             repository: string;
             reviews: components["schemas"]["CardReview"][];
             rounds: components["schemas"]["CardRound"][];
+            run_now?: null | components["schemas"]["RunNowState"];
             runs: components["schemas"]["CardRun"][];
             screenshots: null | components["schemas"]["CardScreenshots"];
             state: string;
@@ -1634,6 +1683,7 @@ export interface components {
             repository: string;
             reviews: components["schemas"]["CardReview"][];
             rounds: components["schemas"]["CardRound"][];
+            run_now?: null | components["schemas"]["RunNowState"];
             runs: components["schemas"]["CardRun"][];
             state: string;
             stopped_by_owner: boolean;
@@ -1853,6 +1903,8 @@ export interface components {
             head_commit: null | string;
         };
         NextCard: {
+            /** Format: int32 */
+            feature: null | number;
             job: null | string;
             link: null | string;
             /** Format: int32 */
@@ -1863,6 +1915,7 @@ export interface components {
             project_id: string;
             project_name: string;
             reason: null | string;
+            run_now: boolean;
             state: string;
             title: string;
         };
@@ -2154,6 +2207,11 @@ export interface components {
         RunLogPage: {
             lines: components["schemas"]["RunLogLine"][];
             more: boolean;
+        };
+        RunNowState: {
+            on: boolean;
+            outside_schedule: boolean;
+            something_to_run: boolean;
         };
         RunningList: {
             /** Format: int32 */
@@ -3368,6 +3426,89 @@ export interface operations {
             };
         };
     };
+    runCardNow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    runCardBySchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     getCardScreenshot: {
         parameters: {
             query?: never;
@@ -3806,6 +3947,89 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    runFeatureNow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    runFeatureBySchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

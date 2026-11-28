@@ -167,6 +167,8 @@ public sealed record CardRound(
 /// <param name="EarlierReadings">The readings before its newest, newest first, each with the
 /// questions it asked and the answers given; kept as history once a card is read again, and never
 /// carried into its brief.</param>
+/// <param name="RunNow">What its page says of "Run now anyway", see "Schedules" under "Jobs" in
+/// devflow/README.md; null only for a card that is gone.</param>
 public sealed record CardStoryView(
     int Number,
     string Repository,
@@ -184,7 +186,8 @@ public sealed record CardStoryView(
     CardFeature? Feature,
     int MostRounds,
     Readings.CardReadingView? Reading,
-    IReadOnlyList<Readings.CardReadingView> EarlierReadings);
+    IReadOnlyList<Readings.CardReadingView> EarlierReadings,
+    Jobs.RunNowState? RunNow = null);
 
 /// <summary>The feature a card is a card of, by its parent's number and title as last read.</summary>
 public sealed record CardFeature(int Number, string Title);
@@ -215,9 +218,10 @@ public static class CardStory
     /// <see cref="Jobs.RunStore.MostLines"/> the run keeps.</summary>
     public const int StderrLines = 50;
 
-    /// <summary>The user's card with the number in their project, or null when they have no such
-    /// project or card.</summary>
-    public static async Task<CardStoryView?> Of(UserDb database, Guid userId, Guid projectId, int number, CancellationToken cancellationToken)
+    /// <summary>The user's card with the number in their project, with what its page says of "Run
+    /// now anyway" at <paramref name="now"/>, or null when they have no such project or
+    /// card.</summary>
+    public static async Task<CardStoryView?> Of(UserDb database, Guid userId, Guid projectId, int number, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
         return await database.InUserTransaction<CardStoryView?>(userId, async transaction =>
@@ -291,7 +295,8 @@ public static class CardStory
                 card.FeatureNumber is { } feature && card.FeatureTitle is { } featureTitle ? new CardFeature(feature, featureTitle) : null,
                 (await Projects.RunSettings.Read(transaction, projectId, cancellationToken))?.FixRoundsCard ?? Projects.RunSettings.Defaults.FixRoundsCard,
                 readings.Count == 0 ? null : readings[0],
-                [.. readings.Skip(1)]);
+                [.. readings.Skip(1)],
+                await Jobs.RunNowStore.StateIn(transaction, projectId, Jobs.RunNowOf.Card, number, now, cancellationToken));
         }, cancellationToken);
     }
 

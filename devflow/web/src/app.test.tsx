@@ -109,6 +109,7 @@ function openAt(path: string, pauses: PausesApi = RUNS) {
 			running={{
 				loadRunning: () => new Promise(() => {}),
 				stopRun: () => Promise.resolve(),
+				runNow: () => Promise.resolve(),
 				openEvents: () => ({
 					addEventListener: () => {},
 					close: () => {},

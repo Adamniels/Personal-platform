@@ -88,7 +88,7 @@ public sealed partial class FeatureBranchTests
         await using var jobs = await Feature();
         var door = jobs.Routes.Door;
         var now = jobs.Routes.Time.GetUtcNow();
-        var due = await FeatureBranchStore.Due(door, Jobs.User, jobs.Project, now, Ct);
+        var due = await FeatureBranchStore.Due(door, Jobs.User, jobs.Project, now, false, Ct);
         Assert.NotNull(due);
         Assert.Equal(Branch, FeatureBranchStore.Name(due.Number, due.Title));
 
@@ -103,7 +103,7 @@ public sealed partial class FeatureBranchTests
 
         // Recorded, it is made: nothing is due, and nothing claims it again.
         await FeatureBranchStore.Made(door, Jobs.User, due.Id, Branch, new string('c', 40), now, Ct);
-        Assert.Null(await FeatureBranchStore.Due(door, Jobs.User, jobs.Project, now, Ct));
+        Assert.Null(await FeatureBranchStore.Due(door, Jobs.User, jobs.Project, now, false, Ct));
         Assert.False(await FeatureBranchStore.Claim(door, Jobs.User, due.Id, Branch, now.AddHours(1), Ct));
         var feature = await FeatureJobs.Feature(jobs, 10);
         Assert.Equal(("building", Branch, new string('c', 40)), (feature.State, feature.Branch, feature.BranchBaseCommit));
