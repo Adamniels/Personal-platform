@@ -60,6 +60,7 @@ const DEFAULTS: ProjectSettings = {
 	questions: true,
 	daily_token_budget: null,
 	runs_on: "subscription",
+	api_daily_usd: null,
 	preset: "custom",
 };
 
@@ -92,6 +93,7 @@ const answered = (settings: SettingsRequest): ProjectSettings => ({
 	questions: settings.questions ?? false,
 	daily_token_budget: settings.daily_token_budget,
 	runs_on: settings.runs_on ?? "",
+	api_daily_usd: settings.api_daily_usd ?? null,
 	preset: presetOf({
 		questions: settings.questions ?? false,
 		waits_for_owner: settings.waits_for_owner ?? "",
@@ -251,7 +253,8 @@ describe("the settings page's form", () => {
 		expect(
 			[...runsOn.options].map((option) => [option.text, option.disabled]),
 		).toEqual([
-			["Your subscription", false],
+			["Your subscription, waiting at its limit", false],
+			["Your subscription, then the API key at its limit", true],
 			["The API key only", true],
 		]);
 		expect(
@@ -279,9 +282,71 @@ describe("the settings page's form", () => {
 		expect(saveSettings).toHaveBeenCalledWith(ID, {
 			...REQUEST,
 			runs_on: "api_key",
+			api_daily_usd: 20,
 			trusted_logins: ["octo-owner"],
 		});
 		expect(runsOn.value).toBe("api_key");
+	});
+
+	test("continuing on the key asks for its daily cap", async () => {
+		const { saveSettings } = renderPage({ apiKey: true });
+		const settings = await page();
+		const card = within(settings.getByRole("article", { name: "Usage" }));
+		const runsOn = card.getByLabelText("Runs on") as HTMLSelectElement;
+		await waitFor(() =>
+			expect([...runsOn.options].every((option) => !option.disabled)).toBe(
+				true,
+			),
+		);
+
+		// On the subscription alone there is no cap.
+		expect(card.queryByLabelText("API key spend a day, USD")).toBeNull();
+
+		// Continuing on the key, the cap shows, mono, with its help, proposing
+		// 20; choosing it is the one change.
+		fireEvent.change(runsOn, {
+			target: { value: "subscription_then_api_key" },
+		});
+		const cap = card.getByLabelText(
+			"API key spend a day, USD",
+		) as HTMLInputElement;
+		expect(cap.value).toBe("20");
+		expect(cap.className).toContain("mono");
+		expect(
+			card.getByText(
+				"1 to 1000. Counted from Claude Code's estimate of each run. When reached, nothing new starts on the key until midnight.",
+			),
+		).toBeTruthy();
+		expect(settings.getByText("1 unsaved change")).toBeTruthy();
+
+		// Emptied, it is named and nothing is sent.
+		fireEvent.change(cap, { target: { value: "" } });
+		fireEvent.click(settings.getByRole("button", { name: "Save" }));
+		expect(await card.findByText(/must be a whole number/)).toBeTruthy();
+		expect(saveSettings).not.toHaveBeenCalled();
+
+		// A number is sent with the choice, and saved as given.
+		fireEvent.change(cap, { target: { value: "35" } });
+		fireEvent.click(settings.getByRole("button", { name: "Save" }));
+		expect(await settings.findByText(SAVED)).toBeTruthy();
+		expect(saveSettings).toHaveBeenCalledWith(ID, {
+			...REQUEST,
+			runs_on: "subscription_then_api_key",
+			api_daily_usd: 35,
+			trusted_logins: ["octo-owner"],
+		});
+
+		// Back on the subscription alone the field goes, and the cap is sent
+		// as null.
+		fireEvent.change(runsOn, { target: { value: "subscription" } });
+		expect(card.queryByLabelText("API key spend a day, USD")).toBeNull();
+		fireEvent.click(settings.getByRole("button", { name: "Save" }));
+		await waitFor(() =>
+			expect(saveSettings).toHaveBeenLastCalledWith(ID, {
+				...REQUEST,
+				trusted_logins: ["octo-owner"],
+			}),
+		);
 	});
 
 	test("the daily budget is off, switched on with a number, and saved", async () => {

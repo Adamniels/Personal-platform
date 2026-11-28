@@ -46,7 +46,7 @@ public sealed class WorkerApiTests
                   "recipe_version": null,
                   "held": "unwatched",
                   "cannot_run": null,
-                  "budget": null,
+                  "budget": null, "on_the_key": null,
                   "workers": [
                     {
                       "id": "{{worker}}",
@@ -88,7 +88,7 @@ public sealed class WorkerApiTests
         var project = await routes.Project(Workers.User);
 
         Assert.True(JsonNode.DeepEquals(
-            JsonNode.Parse("""{"key_made_at": null, "recipe_version": null, "held": "unwatched", "cannot_run": null, "budget": null, "workers": []}"""),
+            JsonNode.Parse("""{"key_made_at": null, "recipe_version": null, "held": "unwatched", "cannot_run": null, "budget": null, "on_the_key": null, "workers": []}"""),
             WithoutCommand(await Workers.List(routes, project))));
     }
 

@@ -31,7 +31,7 @@ import {
 import { describe } from "./actions";
 import { navigate, plainClick } from "./address";
 import type { GetAnswer } from "./api/client";
-import { budgetPath, RAISE_THE_BUDGET } from "./budget";
+import { budgetPath, CHANGE_HOW_IT_RUNS, RAISE_THE_BUDGET } from "./budget";
 import { PageLink } from "./detail";
 import { AGAIN, CLOSED, dataOf, type EventStream } from "./events";
 import { type LogLine, LogLines, logStyles } from "./run-log";
@@ -315,8 +315,8 @@ export function nextState(card: NextCard): string {
 /** Where a card's reason is acted on, or null where it has no place: the
  * card it waits for, "Waiting for you", its project's page, the Projects
  * tab, whose Connections hold the Claude login, its project's schedules,
- * the card "When it runs" on its settings page, or its daily budget, the
- * card "Usage" there. */
+ * the card "When it runs" on its settings page, or its daily budget or what
+ * it runs on, the card "Usage" there. */
 export function reasonPath(card: NextCard): string | null {
 	switch (card.link) {
 		case "card":
@@ -332,6 +332,7 @@ export function reasonPath(card: NextCard): string | null {
 		case "schedules":
 			return schedulesPath(card.project_id);
 		case "budget":
+		case "runs_on":
 			return budgetPath(card.project_id);
 		default:
 			return null;
@@ -348,7 +349,9 @@ function sectionPath(key: string): string {
  * is acted on; outside its schedule, the sentence said, "Run now anyway" for
  * its feature or itself, and "Edit schedules" the link, since the sentence is
  * when, not what to do; its daily budget reached, the sentence said and
- * "Raise the budget" the link, for the same reason; for a card that runs as
+ * "Raise the budget" the link, for the same reason; at the usage limit or the
+ * daily cap on the API key, the sentence said and "Change how it runs" the
+ * link; for a card that runs as
  * soon as a worker asks, so it says. */
 function Reason({ card, acts }: { card: NextCard; acts: NextActs }) {
 	if (card.reason === null)
@@ -361,6 +364,15 @@ function Reason({ card, acts }: { card: NextCard; acts: NextActs }) {
 				{card.run_now ? <RunNowButton card={card} acts={acts} /> : null}{" "}
 				<PageLink className={styles.reasonLink} href={href}>
 					Edit schedules
+				</PageLink>
+			</span>
+		);
+	if (card.link === "runs_on" && href !== null)
+		return (
+			<span className={styles.reason}>
+				{card.reason}{" "}
+				<PageLink className={styles.reasonLink} href={href}>
+					{CHANGE_HOW_IT_RUNS}
 				</PageLink>
 			</span>
 		);

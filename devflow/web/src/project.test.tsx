@@ -199,6 +199,7 @@ function renderPage(
 				questions: true,
 				daily_token_budget: null,
 				runs_on: "subscription",
+				api_daily_usd: null,
 				preset: "custom" as const,
 			}),
 		),
@@ -1150,6 +1151,7 @@ describe("a project's page", () => {
 			questions: true,
 			daily_token_budget: null,
 			runs_on: "subscription",
+			api_daily_usd: null,
 			preset: "only_i_merge" as const,
 		};
 		// The settings as saved where the page reads them, changed by a save on
@@ -1427,6 +1429,32 @@ describe("a project that hands out no work", () => {
 		const paused = within(await panel());
 		await paused.findByText(heldNotice("paused"));
 		expect(paused.queryByText(budget.sentence)).toBeNull();
+	});
+
+	test("says it runs on the API key, until when and what the key cost today", async () => {
+		renderPage({
+			list: {
+				on_the_key: {
+					until: "2026-11-18T09:20:00+01:00",
+					spent: 3.25,
+					cap: 20,
+					sentence: "Running on the API key until Wed 09:20",
+					spend: "3.25 of 20 USD today",
+				},
+			},
+		});
+		const workers = within(await panel());
+		expect(
+			await workers.findByText("Running on the API key until Wed 09:20"),
+		).toBeTruthy();
+		expect(workers.getByText("3.25 of 20 USD today")).toBeTruthy();
+		cleanup();
+
+		// On the subscription it says nothing of the key.
+		renderPage();
+		const plain = within(await panel());
+		await plain.findByText("It has no key yet.");
+		expect(plain.queryByText(/Running on the API key/)).toBeNull();
 	});
 
 	test("says when its default branch could not be read", async () => {
@@ -2036,6 +2064,7 @@ describe("a project's page, cards first", () => {
 			questions: true,
 			daily_token_budget: null,
 			runs_on: "subscription",
+			api_daily_usd: null,
 			preset: "only_i_merge",
 		};
 		const saveSettings = vi.fn((_id: string, request: SettingsRequest) =>
@@ -2071,7 +2100,7 @@ describe("a project's page, cards first", () => {
 			"Questions before starting": "On",
 			"Pull requests wait for you": "Always",
 			"Daily budget": "Off",
-			"Runs on": "Your subscription",
+			"Runs on": "Your subscription, waiting at its limit",
 			"Pick-up label": "devflow",
 			"Hold label": "devflow-hold",
 			"Attention label": "devflow-attention",

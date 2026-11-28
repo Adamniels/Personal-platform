@@ -3,9 +3,10 @@
 // whether a card's questions wait for the owner's answers, and whether a card's pull request waits
 // for him, with what "sometimes" waits for; how cards are picked, the four labels and the trusted
 // accounts whose cards, edits and comments count; the models and limits its runs get; its usage,
-// what its runs run on and the daily budget in millions of tokens; when it runs, always or by its schedules; and its
-// values. A preset fills in the settings it covers in the form, and the side column names the
-// preset the form matches, or Custom. All twenty-one settings are saved together with one Save,
+// what its runs run on, the daily cap on the API key and the daily budget in millions of tokens; when it runs, always or by its schedules; and its
+// values. On the API key, alone or continuing on it at the subscription's usage limit, the usage
+// card asks for the daily cap on the key in US dollars. A preset fills in the settings it covers in the form, and the side column names the
+// preset the form matches, or Custom. All twenty-two settings are saved together with one Save,
 // never the preset, and a value Dev flow refuses is named under its field; when it runs, its
 // schedules and the time zone, and its values are saved at once through their own routes. See
 // "Settings" and "Schedules" in devflow/README.md.
@@ -44,8 +45,36 @@ export type SettingsRequest = components["schemas"]["SettingsRequest"];
 
 export const NOT_READ = "The settings could not be read. Try again.";
 export const NOT_SAVED = "The settings were not saved. Try again.";
-/** Why "The API key only" cannot be chosen yet. */
+/** Why the two ways of running on the API key cannot be chosen yet. */
 export const RUNS_ON_NO_KEY = "Give an API key on the Projects tab first";
+
+/** What a project runs on, as "Runs on" offers each and the project's
+ * settings summary says it. */
+export const RUNS_ON: { value: string; label: string; onTheKey: boolean }[] = [
+	{
+		value: "subscription",
+		label: "Your subscription, waiting at its limit",
+		onTheKey: false,
+	},
+	{
+		value: "subscription_then_api_key",
+		label: "Your subscription, then the API key at its limit",
+		onTheKey: true,
+	},
+	{ value: "api_key", label: "The API key only", onTheKey: true },
+];
+
+/** Whether a project on runsOn may run on the API key, and so has a daily
+ * cap on it. */
+export const onTheKey = (runsOn: string) =>
+	RUNS_ON.some((each) => each.value === runsOn && each.onTheKey);
+
+/** The cap's field, its help, and what it proposes when a project first
+ * runs on the key. */
+export const CAP_LABEL = "API key spend a day, USD";
+export const CAP_HELP =
+	"1 to 1000. Counted from Claude Code's estimate of each run. When reached, nothing new starts on the key until midnight.";
+export const CAP_PROPOSED = 20;
 export const SAVED = "Saved.";
 
 /** How the panel reads and saves a project's settings, Dev flow's API in
@@ -362,13 +391,16 @@ export type SettingsPageProps = SettingsPageApi & {
 	disconnected: () => void;
 };
 
-/** The form as it is edited: the settings, with the paths, the limits and
- * the daily budget as their fields show them, as text. */
+/** The form as it is edited: the settings, with the paths, the limits, the
+ * daily budget and the cap on the API key as their fields show them, as
+ * text; the cap proposed while the project is on the subscription, so
+ * choosing the key shows it. */
 type Form = {
 	values: ProjectSettings;
 	lines: string;
 	limits: LimitTexts;
 	budget: BudgetForm;
+	cap: string;
 };
 
 const formOf = (settings: ProjectSettings): Form => ({
@@ -376,6 +408,7 @@ const formOf = (settings: ProjectSettings): Form => ({
 	lines: asLines(settings.wait_paths),
 	limits: asTexts(settings),
 	budget: asBudget(settings.daily_token_budget),
+	cap: String(settings.api_daily_usd ?? CAP_PROPOSED),
 });
 
 /** The settings compared one by one, each counted once. */
@@ -402,7 +435,7 @@ const PLAIN: (
 	"runs_on",
 ];
 
-/** How many of the twenty-one settings the form changes from the settings as
+/** How many of the twenty-two settings the form changes from the settings as
  * last read or saved. */
 export const unsaved = (form: Form, base: ProjectSettings): number => {
 	let count = PLAIN.filter(
@@ -418,6 +451,14 @@ export const unsaved = (form: Form, base: ProjectSettings): number => {
 	if (
 		form.budget.on !== was.on ||
 		(form.budget.on && form.budget.millions.trim() !== was.millions)
+	)
+		count += 1;
+	// The cap changes on its own only while the project stays on the key;
+	// choosing the key or leaving it is the one change of "Runs on".
+	if (
+		onTheKey(form.values.runs_on) &&
+		onTheKey(base.runs_on) &&
+		form.cap.trim() !== String(base.api_daily_usd ?? "")
 	)
 		count += 1;
 	return count;
@@ -617,7 +658,7 @@ export function SettingsPage({
 		// A limit that is not a whole number is named under its field, and
 		// nothing is sent.
 		const numbers: Partial<Record<LimitField, number>> = {};
-		const wrong: (LimitField | "daily_token_budget")[] = [];
+		const wrong: (LimitField | "daily_token_budget" | "api_daily_usd")[] = [];
 		for (const { field } of LIMITS) {
 			const number = asNumber(form.limits[field]);
 			if (number === undefined) wrong.push(field);
@@ -626,6 +667,9 @@ export function SettingsPage({
 		// The budget is sent in tokens, null while it is off.
 		const millions = form.budget.on ? asNumber(form.budget.millions) : null;
 		if (millions === undefined) wrong.push("daily_token_budget");
+		// The cap is sent only on the key, and null on the subscription alone.
+		const cap = onTheKey(form.values.runs_on) ? asNumber(form.cap) : null;
+		if (cap === undefined) wrong.push("api_daily_usd");
 		if (wrong.length > 0) {
 			setInvalid(
 				Object.fromEntries(wrong.map((field) => [field, NOT_A_NUMBER])),
@@ -644,6 +688,7 @@ export function SettingsPage({
 					millions === null || millions === undefined
 						? null
 						: millions * MILLION,
+				api_daily_usd: cap ?? null,
 			});
 			setBase(answer);
 			setForm(formOf(answer));
@@ -990,11 +1035,36 @@ export function SettingsPage({
 										error={invalid.runs_on}
 										onChange={(event) => set("runs_on", event.target.value)}
 									>
-										<option value="subscription">Your subscription</option>
-										<option value="api_key" disabled={!keyGiven}>
-											The API key only
-										</option>
+										{RUNS_ON.map((each) => (
+											<option
+												key={each.value}
+												value={each.value}
+												disabled={each.onTheKey && !keyGiven}
+											>
+												{each.label}
+											</option>
+										))}
 									</Select>
+									{onTheKey(values.runs_on) ? (
+										<div className={styles.limits}>
+											<TextField
+												label={CAP_LABEL}
+												help={CAP_HELP}
+												className={styles.mono}
+												type="number"
+												inputMode="numeric"
+												min={1}
+												max={1000}
+												step={1}
+												value={form.cap}
+												error={invalid.api_daily_usd}
+												onChange={(event) => {
+													const text = event.target.value;
+													edit((before) => ({ ...before, cap: text }));
+												}}
+											/>
+										</div>
+									) : null}
 									<Switch
 										label="Daily budget"
 										checked={form.budget.on}

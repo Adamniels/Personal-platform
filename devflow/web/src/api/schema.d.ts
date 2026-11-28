@@ -943,7 +943,7 @@ export interface paths {
         };
         /**
          * The project's workers
-         * @description Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; start_command, the command that builds and starts the project's worker; and held, why the project hands out no work whichever worker asks, the first that applies: all_paused, when the caller paused everything, paused, when the caller paused the project, stopped, when something landed on its default branch that Dev flow did not put there, unwatched, when its default branch has not been read for five minutes, no_claude_login when its user has given no Claude login, claude_login_expired when it is past its renewal, both only for a project whose jobs carry the subscription, on it alone, or continuing on the API key while the caller's subscription is not at its usage limit, or null; cannot_run, once six runs in a row have failed outside their cards, "Dev flow cannot run <project>'s cards: <the last reason>", until a run succeeds, or null; and budget, once the project's runs that finished today in the caller's time zone used its daily budget, with used, budget, lifts_at, the next midnight there in its own offset, and sentence, "Daily budget reached, runs again at <day time>", the one rule's own, which holds it after a pause and before every other hold in held, or null. The key itself is never in it. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; start_command, the command that builds and starts the project's worker; and held, why the project hands out no work whichever worker asks, the first that applies: all_paused, when the caller paused everything, paused, when the caller paused the project, stopped, when something landed on its default branch that Dev flow did not put there, unwatched, when its default branch has not been read for five minutes, no_claude_login when its user has given no Claude login, claude_login_expired when it is past its renewal, both only for a project whose jobs carry the subscription, on it alone, or continuing on the API key while the caller's subscription is not at its usage limit, or null; cannot_run, once six runs in a row have failed outside their cards, "Dev flow cannot run <project>'s cards: <the last reason>", until a run succeeds, or null; and budget, once the project's runs that finished today in the caller's time zone used its daily budget, with used, budget, lifts_at, the next midnight there in its own offset, and sentence, "Daily budget reached, runs again at <day time>", the one rule's own, which holds it after a pause and before every other hold in held, or null; and on_the_key, while the project's jobs carry the API key, on it alone or continuing on it while the caller's subscription is at its usage limit, with until, the subscription's reset in the caller's time zone's own offset, null on the key alone, spent, what its runs on the key that finished today cost in US dollars by Claude Code's estimate, cap, its daily cap, sentence, "Running on the API key until <day time>" or "Running on the API key", and spend, "<spent> of <cap> USD today", or null. The key itself is never in it. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         get: operations["listWorkers"];
         put?: never;
@@ -1047,7 +1047,7 @@ export interface paths {
         };
         /**
          * What the caller's projects, features and cards used
-         * @description Counts the runs started in period, 7d or 30d, rolling, so many times 24 hours back from now, or all, 30d without one. period, as counted, and projects, each of the caller's projects with a run in it, most tokens first: its id and name; runs, agent_ms, the sum of the runs' times, each as its worker measured it, or from its start to its end, or to now while it runs; tokens, input_tokens + cache_creation_input_tokens + output_tokens; and cache_reads beside them, never in them; setting_up, the same for its checks and its setup's runs, null with none; features, each with a run in the period of its own or of one of its cards, most tokens first, with its number, title, the same figures over its own runs and its cards', elapsed_ms, from the first start of any of them to the last end, or now while one runs, fix_rounds, the rounds of the whole feature its reviews started, sent_back, how many times its cards were sent back, own, the same figures for its own runs alone, its readings, reviews, fixes and conflicts, null with none, and cards, its cards with a run in the period; cards, its cards on their own with a run in the period; and days, its tokens per day, the last 30 days ending today in Dev flow's time zone, Europe/Stockholm, oldest first, whatever the period, each its date and the tokens of the project's runs started on it, 0 with none. A card, most tokens first, has its number, title, null for one Dev flow no longer holds, the same figures, elapsed_ms over all its runs, fix_rounds, the rounds its reviews started, and sent_back, how many times it was sent back; elapsed, fix rounds and sends back are the card's or the feature's whole, not the period's. Read from what Dev flow stored, never from GitHub. 422 naming period for any other. Without a valid token, 401 with an empty body.
+         * @description Counts the runs started in period, 7d or 30d, rolling, so many times 24 hours back from now, or all, 30d without one. period, as counted, and projects, each of the caller's projects with a run in it, most tokens first: its id and name; runs, agent_ms, the sum of the runs' times, each as its worker measured it, or from its start to its end, or to now while it runs; tokens, input_tokens + cache_creation_input_tokens + output_tokens; and cache_reads beside them, never in them; setting_up, the same for its checks and its setup's runs, null with none; features, each with a run in the period of its own or of one of its cards, most tokens first, with its number, title, the same figures over its own runs and its cards', elapsed_ms, from the first start of any of them to the last end, or now while one runs, fix_rounds, the rounds of the whole feature its reviews started, sent_back, how many times its cards were sent back, own, the same figures for its own runs alone, its readings, reviews, fixes and conflicts, null with none, and cards, its cards with a run in the period; cards, its cards on their own with a run in the period; and days, its tokens per day, the last 30 days ending today in Dev flow's time zone, Europe/Stockholm, oldest first, whatever the period, each its date, the tokens of the project's runs started on it, 0 with none, and api_key_usd, what the project's runs on the API key that finished on it cost in US dollars by Claude Code's estimate, as its daily cap counts them, null when none did. A card, most tokens first, has its number, title, null for one Dev flow no longer holds, the same figures, elapsed_ms over all its runs, fix_rounds, the rounds its reviews started, and sent_back, how many times it was sent back; elapsed, fix rounds and sends back are the card's or the feature's whole, not the period's. Read from what Dev flow stored, never from GitHub. 422 naming period for any other. Without a valid token, 401 with an empty body.
          */
         get: operations["getUsage"];
         put?: never;
@@ -1900,6 +1900,16 @@ export interface components {
             value: string;
         };
         JsonElement: unknown;
+        KeyState: {
+            /** Format: int32 */
+            cap: number;
+            sentence: string;
+            spend: string;
+            /** Format: double */
+            spent: number;
+            /** Format: date-time */
+            until: null | string;
+        };
         LinkStarted: {
             /** Format: uri */
             authorize_url: string;
@@ -2569,6 +2579,8 @@ export interface components {
             tokens: number;
         };
         UsageDay: {
+            /** Format: double */
+            api_key_usd?: null | number;
             /** Format: date */
             date: string;
             /** Format: int64 */
@@ -2699,6 +2711,7 @@ export interface components {
             held: null | string;
             /** Format: date-time */
             key_made_at: null | string;
+            on_the_key?: null | components["schemas"]["KeyState"];
             recipe_version: null | string;
             start_command: string;
             workers: components["schemas"]["Worker"][];

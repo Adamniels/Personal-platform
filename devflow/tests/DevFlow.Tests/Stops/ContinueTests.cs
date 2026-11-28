@@ -89,6 +89,38 @@ public sealed class ContinueTests
         Assert.Equal(JobCredential.ApiKey, Credential(await jobs.Job()).Kind);
     }
 
+    [Fact]
+    public async Task TheProjectsPageSaysIt()
+    {
+        await using var jobs = await Jobs.Jobs.Start();
+        await jobs.RunOnTheKey(runsOn: "subscription_then_api_key");
+
+        // On the subscription, the workers list says nothing of the key.
+        Assert.Null((await WorkerList(jobs))["on_the_key"]);
+
+        // Limited, it runs on the key until the reset, with what the key cost today of its cap.
+        var reset = jobs.Routes.Time.GetUtcNow() + TimeSpan.FromMinutes(20);
+        await Limit.Set(jobs, reset);
+        await Usage.ApiCapTests.Spent(jobs, jobs.Routes.Time.GetUtcNow(), JobCredential.ApiKey, 3.5m);
+        var key = (await WorkerList(jobs))["on_the_key"]!.AsObject();
+        Assert.Equal(reset, (DateTimeOffset)key["until"]!);
+        Assert.Equal($"Running on the API key until {Limit.InZone(reset):ddd HH:mm}", (string)key["sentence"]!);
+        Assert.Equal("3.50 of 20 USD today", (string)key["spend"]!);
+
+        // On the key alone it says so, with no time.
+        await jobs.RunOnTheKey(runsOn: "api_key");
+        key = (await WorkerList(jobs))["on_the_key"]!.AsObject();
+        Assert.Null(key["until"]);
+        Assert.Equal("Running on the API key", (string)key["sentence"]!);
+    }
+
+    private static async Task<System.Text.Json.Nodes.JsonObject> WorkerList(Jobs.Jobs jobs)
+    {
+        var answer = await jobs.Routes.App.Get(Workers.Workers.ListPath(jobs.Project), Contract.Token);
+        Assert.Equal(StatusCodes.Status200OK, answer.Response.StatusCode);
+        return System.Text.Json.Nodes.JsonNode.Parse(await Harness.Body(answer))!.AsObject();
+    }
+
     private static (string Kind, string Secret) Credential(System.Text.Json.Nodes.JsonObject job) =>
         ((string)job["credential"]!["kind"]!, (string)job["credential"]!["secret"]!);
 }
