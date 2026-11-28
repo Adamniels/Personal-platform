@@ -14,6 +14,8 @@ import {
 import { type ActionsApi, ItemActions, type LinkState } from "./actions";
 import { navigate, plainClick, useSearch } from "./address";
 import type { GetAnswer } from "./api/client";
+import type { components } from "./api/schema";
+import { BudgetReached, budgetTitle, usedOf } from "./budget";
 import { DecisionIssue } from "./decision-issue";
 import {
 	count,
@@ -42,6 +44,13 @@ import { WaitingFeature } from "./waiting-feature";
 export type WaitingList = GetAnswer<"/waiting">;
 export type WaitingItem = WaitingList["items"][number];
 export type OwnItem = WaitingList["own_items"][number];
+/** A project stopped because something landed that Dev flow did not put
+ * there, one kind of own item. */
+export type StoppedProjectItem =
+	components["schemas"]["OwnItemProjectStoppedItem"];
+/** A project whose runs reached its daily budget, the other. */
+export type BudgetReachedItem =
+	components["schemas"]["OwnItemBudgetReachedItem"];
 export type CardItem = WaitingList["cards"][number];
 export type StoppedCardItem = WaitingList["stopped_cards"][number];
 export type StoppedFeatureItem = WaitingList["stopped_features"][number];
@@ -116,7 +125,8 @@ const plural = (count: number, word: string) =>
  * owner's answers before they start; Dev flow's waiting cards and the
  * waiting items not sent back; Dev flow's features ready for the owner's
  * review, or waiting for him; what stopped, Dev flow's stopped projects
- * first, then the projects that cannot run their cards, its stopped cards,
+ * first, then the projects that cannot run their cards, those that reached
+ * their daily budget, its stopped cards,
  * the features the owner stopped and the runner's stopped items not sent
  * back; Dev flow's projects whose setup
  * run waits or stopped, and those whose newest check of their setup failed;
@@ -231,7 +241,10 @@ function groups(list: WaitingList, name: (item: WaitingItem) => string) {
 			label: "Stopped",
 			entries: [
 				...list.own_items
-					.filter((each) => each.kind === "project_stopped")
+					.filter(
+						(each): each is StoppedProjectItem =>
+							each.kind === "project_stopped",
+					)
 					.map(
 						(stop): Entry => ({
 							key: `stopped/${stop.project_id}`,
@@ -257,6 +270,20 @@ function groups(list: WaitingList, name: (item: WaitingItem) => string) {
 						detail: () => <FailingProject project={project} />,
 					}),
 				),
+				...list.own_items
+					.filter(
+						(each): each is BudgetReachedItem => each.kind === "budget_reached",
+					)
+					.map(
+						(item): Entry => ({
+							key: `budget/${item.project_id}`,
+							title: budgetTitle(item),
+							meta: [usedOf(item)],
+							// Nothing failed: it waits for midnight, or for him to raise it.
+							tone: "needs-you",
+							detail: () => <BudgetReached item={item} />,
+						}),
+					),
 				...list.stopped_cards.map(
 					(card): Entry => ({
 						key: `card/${card.project_id}/${card.number}`,

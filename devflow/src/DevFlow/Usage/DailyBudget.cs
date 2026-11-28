@@ -13,7 +13,8 @@ namespace DevFlow.Usage;
 /// <param name="ProjectName">Its repository's name, as connected.</param>
 /// <param name="Owner">Its repository's owner, as connected.</param>
 /// <param name="Reached">What it used, of what, and when the hold lifts.</param>
-public sealed record BudgetReachedProject(Guid ProjectId, string ProjectName, string Owner, WaitReason.BudgetReached Reached);
+/// <param name="TimeZone">The IANA id of the user's zone its day is read in.</param>
+public sealed record BudgetReachedProject(Guid ProjectId, string ProjectName, string Owner, WaitReason.BudgetReached Reached, string TimeZone);
 
 /// <summary>
 /// A project's daily budget in tokens, off by default: once the tokens of its runs that finished
@@ -100,7 +101,7 @@ public static class DailyBudget
             new { projectId, start, end },
             transaction,
             cancellationToken: cancellationToken));
-        return [.. rows.Select(row => new BudgetReachedProject(row.ProjectId, row.ProjectName, row.Owner, Reason(row.Budget, row.Used, end, zone)!))];
+        return [.. rows.Select(row => new BudgetReachedProject(row.ProjectId, row.ProjectName, row.Owner, Reason(row.Budget, row.Used, end, zone)!, zone.Id))];
     }
 
     private sealed record Row(Guid ProjectId, string ProjectName, string Owner, long Budget, long Used);

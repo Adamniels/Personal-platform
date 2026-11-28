@@ -403,7 +403,7 @@ function RunNowButton({ card, acts }: { card: NextCard; acts: NextActs }) {
 }
 
 /** A link to a page of Dev flow's own, followed without a reload. */
-function PageLink({
+export function PageLink({
 	href,
 	className,
 	children,

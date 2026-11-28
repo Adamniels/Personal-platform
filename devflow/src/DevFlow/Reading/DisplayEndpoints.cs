@@ -57,7 +57,7 @@ public sealed record DisplayData(int Waiting, int Stopped, int Projects, bool St
         ArgumentNullException.ThrowIfNull(login);
         return new(
             list.Items.Count(item => item.Kind == WaitingKind.Waiting && !item.SentBack) + list.Cards.Count + list.RefusedCards.Count + list.QuestionCards.Count + list.Decisions.Count + list.Features.Count,
-            list.Items.Count(item => item.Kind == WaitingKind.Stopped && !item.SentBack) + list.OwnItems.Count(item => item.Kind == OwnItemKind.ProjectStopped),
+            list.Items.Count(item => item.Kind == WaitingKind.Stopped && !item.SentBack) + list.OwnItems.Count(item => item is ProjectStoppedItem),
             list.Projects.Count,
             list.Projects.Any(project => project.Stale || project.Failing),
             list.NeedsRelink,
