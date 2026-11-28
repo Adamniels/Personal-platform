@@ -361,6 +361,13 @@ public static class RunDecision
         ArgumentNullException.ThrowIfNull(database);
         var (row, schedule) = await database.InUserTransaction(userId, async transaction =>
         {
+            // The dispatcher ends every override with nothing left to run before it reads anything,
+            // so one that ended never covers a card added or sent back later; the page only reads.
+            if (workerId is not null)
+            {
+                await RunNowStore.EndIn(transaction, projectId, cancellationToken);
+            }
+
             var row = await transaction.Connection!.QuerySingleOrDefaultAsync<SituationRow>(new CommandDefinition(
                 $"""
                 SELECT p.name AS Project,

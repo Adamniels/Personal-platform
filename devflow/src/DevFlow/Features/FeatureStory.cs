@@ -116,6 +116,9 @@ public sealed record FeatureCard(
 /// says the feature merges into; null before the default branch is watched.</param>
 /// <param name="StoppedByOwner">Whether the owner stopped one of its own runs, which holds it until
 /// he runs it again, see "Stops" in devflow/README.md.</param>
+/// <param name="RunNow">What its page says of "Run now anyway", see "Schedules" under "Jobs" in
+/// devflow/README.md; set by its page's route, <see cref="FeatureStory.ForPage"/>, and null where the
+/// story is read for something else.</param>
 public sealed record FeatureStoryView(
     int Number,
     string Repository,
@@ -135,7 +138,8 @@ public sealed record FeatureStoryView(
     FeatureMergeOffer? Merge,
     int MostRounds,
     string? DefaultBranch,
-    bool StoppedByOwner);
+    bool StoppedByOwner,
+    Jobs.RunNowState? RunNow = null);
 
 /// <summary>
 /// A feature's story, read from what Dev flow stored and never from the code host, through the
@@ -150,6 +154,18 @@ public static class FeatureStory
     {
         ArgumentNullException.ThrowIfNull(database);
         return await database.InUserTransaction(userId, transaction => Read(transaction, projectId, number, cancellationToken), cancellationToken);
+    }
+
+    /// <summary>The user's feature with the number in their project as its page shows it, with what
+    /// it says of "Run now anyway" at <paramref name="now"/>, read in one transaction; or null when
+    /// they have no such project or feature.</summary>
+    public static async Task<FeatureStoryView?> ForPage(UserDb database, Guid userId, Guid projectId, int number, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        return await database.InUserTransaction(userId, async transaction =>
+            await Read(transaction, projectId, number, cancellationToken) is { } story
+                ? story with { RunNow = await Jobs.RunNowStore.StateIn(transaction, projectId, Jobs.RunNowOf.Feature, number, now, cancellationToken) }
+                : null, cancellationToken);
     }
 
     /// <summary>The feature with the number in the project, read inside
