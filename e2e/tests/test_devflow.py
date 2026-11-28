@@ -8074,6 +8074,83 @@ def _add_a_machine(page: Page) -> Locator:
     return dialog
 
 
+def _new_machine(page: Page, playwright, base_url: str, name: str, os: str, arch: str):
+    """A machine enrolled with a new code from "Add a machine" on the Machines
+    tab, as the machine program enrols one. Answers its id."""
+    page.goto("/devflow/machines")
+    code = CODE.findall(
+        _add_a_machine(page)
+        .get_by_role("region", name="On any machine")
+        .locator("code")
+        .inner_text()
+    )[-1]
+    page.get_by_role("dialog", name="Add a machine").get_by_role(
+        "button", name="Close"
+    ).click()
+    return _enroll(playwright, base_url, code, name, os, arch)
+
+
+def test_i_place_workers_on_a_machine(
+    page: Page,
+    invite_code: str,
+    base_url: str,
+    viewport: str,
+    devflow_world,
+    playwright,
+):
+    register_and_log_in(page, invite_code, base_url)
+    _new_machine(page, playwright, base_url, "mac-mini", "macos", "arm64")
+    box = _new_machine(page, playwright, base_url, "build-box", "linux", "x64")
+    aged = page.request.post(
+        "/devflow/api/fake/machine-age",
+        data={"machine_id": box, "minutes": 10},
+        headers={"Origin": base_url},
+    )
+    assert aged.status == 204, aged.text()
+
+    _open_project(page, base_url, devflow_world, one_repository(name="Fodr"))
+    where = page.get_by_role("article", name="Workers").get_by_role(
+        "region", name="Where its workers run"
+    )
+    # Placed nowhere yet, it says so, and lists both machines, online or not.
+    expect(where.get_by_text("Choose where its workers run.")).to_be_visible()
+    rows = where.get_by_role("list", name="Machines").get_by_role("listitem")
+    expect(rows).to_have_count(2)
+    mini = rows.filter(has_text="mac-mini")
+    expect(mini.get_by_text("Online", exact=True)).to_be_visible()
+    expect(
+        rows.filter(has_text="build-box").get_by_text("Offline", exact=True)
+    ).to_be_visible()
+    expect(where.get_by_label("Memory per worker, GB")).to_have_value("2")
+
+    # Two workers on the Mac mini: the card shows them wanted there, after a
+    # reload too.
+    where.get_by_label("Workers on mac-mini").fill("2")
+    where.get_by_role("button", name="Save").click()
+    expect(mini.get_by_text("2 workers wanted")).to_be_visible()
+    expect(where.get_by_text("Choose where its workers run.")).to_have_count(0)
+    page.reload()
+    expect(mini.get_by_text("2 workers wanted")).to_be_visible()
+    expect(where.get_by_label("Workers on mac-mini")).to_have_value("2")
+
+    # One more on the offline box, and 4 GB each, for the picture.
+    where.get_by_label("Workers on build-box").fill("1")
+    where.get_by_label("Memory per worker, GB").fill("4")
+    where.get_by_role("button", name="Save").click()
+    expect(
+        rows.filter(has_text="build-box").get_by_text("1 worker wanted")
+    ).to_be_visible()
+    page.reload()
+    expect(where.get_by_label("Memory per worker, GB")).to_have_value("4")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_nothing_active_is_amber,
+    ):
+        check(page)
+    capture(page, "devflow-workers-placed")
+
+
 def test_i_add_a_machine(
     page: Page, invite_code: str, base_url: str, viewport: str, playwright
 ):

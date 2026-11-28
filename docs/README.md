@@ -122,7 +122,8 @@ features" in `High-level/docs/platform-architecture.md`.
   route and its tables, what waits for the owner, the loop that
   reads it and refreshing a project, merging and sending back from the page and what each refusal
   means, a project's worker key, the worker scheme and the worker API with their routes and
-  tables, machines, with the code a machine enrols with, its key, the machine scheme, its routes,
+  tables, where a project's workers run, with its placements, its slots and the setup slot, memory per
+  worker, their routes and tables, machines, with the code a machine enrols with, its key, the machine scheme, its routes,
   its tables and the Machines tab, the pull request Dev flow opens for a built card, with its body, the screenshots the worker
   takes of a built card's pages, with `start`, `url` and `DEVFLOW=1`, and the developer's own look at
   its pages before it reports, a card's page, a feature's page with sending a landed card back
@@ -157,7 +158,8 @@ features" in `High-level/docs/platform-architecture.md`.
   watching the default branch, what is fine there, what stops a project and how it is resumed,
   and a feature's branch, watched from its creation, with why a job's own push is judged when its
   run ends and why a stop on one branch is never replaced by another's, workers
-  and how a worker's key leads to its project's user, machines, with why one is enrolled with a
+  and how a worker's key leads to its project's user, why the page says what should exist rather
+  than sending commands, why a slot not wanted is kept until its machine reports it gone, machines, with why one is enrolled with a
   one-time code, why its key and its scheme copy the worker's, outbound only and the platform's own
   machine, the worker
   program, the agent interface and the rule a run succeeds by, setting up a project, with why it is a

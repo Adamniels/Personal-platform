@@ -2459,6 +2459,69 @@ query tries, and disconnecting removes them; the migration adds the unique const
 `migrations/0009_recipe_version.sql` adds `projects.recipe_version`, the version of the project's
 recipe as Dev flow last read it, a full commit id of 40 or 64 lowercase hex digits, or null.
 
+### Where a project's workers run
+
+The page says what should exist, and the machine program, a later slice of "Dev flow: the machine
+program", makes its machine match it; nothing here starts a worker yet. Why it is desired state and
+not commands is "Workers" in `docs/devflow-architecture.md`. The code is `src/DevFlow/Placements/`.
+
+**As the owner does it.** In a project's Workers card, under "Where its workers run", each of his
+machines from the Machines tab is listed, online or not, with a number of the project's workers to
+run there, 0 to 8, and under it how many it is wanted to run as saved; with no machine, the card
+links to the Machines tab, and placed nowhere it says "Choose where its workers run." "Memory per
+worker, GB" is beside them. "Save" replaces the whole list, a machine at 0 left out, and saves the
+memory when it changed. The commands and "Make a key" below stay until "A key per worker" removes
+them.
+
+**A placement** is a project, one of its user's machines and a count, 0 to 8, in
+`worker_placements`. A project may be placed on several machines.
+
+**A slot** is the place of one worker, in `worker_slots`, `worker` or `setup`. With a recipe, a
+placement of N wants worker slots 1 to N on its machine. Without one, the project wants one setup
+slot and no worker slot, see "Setting up a project". A slot no longer wanted is kept, `wanted`
+false, until its machine reports it gone, so a card under way on it is never cut off, and the same
+row is wanted again when its number is. `WorkerSlots.Sync` brings a project's slots up to date in
+the same transaction as every change that moves what it wants: a placement, the recipe found or
+lost in `WorkerStore.RecipeRead`, and a machine removed in `MachineStore.Remove`. Each takes the
+project's row first, `WorkerSlots.Lock` or the update of `recipe_version`, so two changes follow
+one another, and removing a machine takes all its user's projects first, so it never waits on a
+placement the other way round. The machine reads its slots in "A key per worker".
+
+**Memory per worker** is a project setting, `project_settings.worker_memory_gb`, 2 GB for every
+project, 1 to 16 whole GB, the setup worker's too. It is edited in the Workers card rather than on
+the settings page, since it is about where the project runs: the settings route answers it but
+never takes it, and the settings page's request leaves it out, so saving the page never changes it
+and saving the memory never does the setup's settings step.
+
+The routes, every one the user's, origin checked, in `PlacementEndpoints` and `ProjectEndpoints`:
+
+- `GET /devflow/api/projects/{id}/placements` answers
+  `[{"machine_id", "name", "online", "workers"}]`, by when each was placed and then the Machines
+  tab's order: the machine's name as it last said, and `online`, seen in the last 60 seconds, as
+  the Machines tab has it. `404` for a project the caller does not have.
+- `PUT /devflow/api/projects/{id}/placements` takes the whole list, `[{"machine_id", "workers"}]`,
+  replaces the project's placements with it and answers them as `GET` does. Each `machine_id` is
+  one of the caller's machines, given once, and each `workers` a whole number from 0 to 8; else
+  `422` naming `[<index>].machine_id` or `[<index>].workers`, another user's machine refused as one
+  that does not exist; a body of `null` is `422` naming `placements`. A machine kept keeps when it
+  was placed, unless it rises from 0. `404` as above.
+- `PUT /devflow/api/projects/{id}/worker-memory` takes `{"worker_memory_gb"}`, a whole number from
+  1 to 16, else `422` naming it, and answers it as saved. `404` as above.
+- `GET /devflow/api/projects/{id}/settings` answers `worker_memory_gb` with the others, and its
+  `PUT` leaves it as it is whatever the body holds, answering it as stored.
+
+The tables, from `migrations/0065_worker_placements.sql` and `0066_worker_memory.sql`, both guarded
+like every scoped table, and both referencing `projects (id, user_id)` and `machines (id, user_id)`
+with `ON DELETE CASCADE`, so a placement or a slot joins only a project and a machine of the same
+user, and removing the machine or disconnecting the project removes them:
+
+- `worker_placements`: `project_id` and `machine_id`, together its primary key, `user_id`,
+  `workers`, 0 to 8, and `placed_at`, since when it has had at least one worker, which decides the
+  first placed machine.
+- `worker_slots`: `id`, `project_id`, `machine_id`, `user_id`, `kind`, `worker` or `setup`, `number`,
+  1 to 8 and always 1 for `setup`, and `wanted`, unique on `(project_id, machine_id, kind, number)`.
+- `project_settings.worker_memory_gb`, 1 to 16, 2 by default.
+
 ## Machines
 
 A machine is a computer of the owner's that runs the machine program, which a later slice of
@@ -2681,6 +2744,14 @@ from the base image itself, with no recipe and no build, under the key file "Mak
 ```zsh
 { docker rm -f devflow-fodr-setup 2>/dev/null; docker run -d --name devflow-fodr-setup --memory 2g --env-file ~/.devflow/fodr.env -e DEVFLOW_URL=<DEVFLOW_WORKER_URL> -e DEVFLOW_BASE_IMAGE=<DEVFLOW_WORKER_IMAGE> <DEVFLOW_WORKER_IMAGE>; }
 ```
+
+**The setup slot.** While the project has no valid `.devflow/` on its default branch, no
+`recipe_version`, it wants one slot of kind `setup`, number 1, on its first placed machine by
+`placed_at`, a placement of 0 not counting, and no worker slot; once it has one, the setup slot is
+kept but not wanted, and its placed workers are. Removing that machine moves it to the next placed
+one. A project placed nowhere wants nothing, its setup answer's `placed` is false, and its setup
+step and its Workers card say to choose where its workers run. See "Where a project's workers run"
+under "Workers". The command below stays until the machine program starts the setup slot.
 
 It names its base image so it is not held back for another, and is not restarted with the
 machine. Its image sets no recipe version, so it reports `unset`, `WorkerApi.NoVersion`. A worker

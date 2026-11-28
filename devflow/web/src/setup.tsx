@@ -101,6 +101,10 @@ export const AGAIN_ASKED =
 export const NOT_ASKED = "Another check was not asked for. Try again.";
 export const NO_DEVFLOW =
 	"An agent writes this project's .devflow/ on a branch and opens a pull request with it. Start its worker on the machine that runs your workers with this command, after saving the project's key below:";
+/** What the setup step says while the project is placed on no machine, so no
+ * setup worker is wanted anywhere. */
+export const CHOOSE_WHERE_SETUP =
+	"Choose where its workers run, under Workers: its setup worker runs on the first machine you place it on.";
 export const NOT_MERGED =
 	"It was not merged. Look at it on GitHub, or try again.";
 export const RUN_SETUP_AGAIN = "Comment to run again";
@@ -645,6 +649,9 @@ function SetupRunSection({
 			)}
 			{run === null || run.state !== "done" ? (
 				<>
+					{setup.placed ? null : (
+						<p className={styles.line}>{CHOOSE_WHERE_SETUP}</p>
+					)}
 					<p className={styles.line}>
 						{run?.sent_back ? SENT_BACK_RUN : NO_DEVFLOW}
 					</p>

@@ -4,14 +4,30 @@
 // the cards column, its features and cards on their own, or while the project is setting up its
 // Setup panel in their place; and beside it the side column, the Workers card, the card "When it
 // runs", with its windows' switches and when it runs next, and the settings summary, whose "Edit
-// settings" opens the project's settings page. The Workers card shows
-// the workers that have said hello with the project's key, each saying when it needs building
-// again, why no work is handed out when none is, and, behind "Start a worker", the two commands
-// that start one. The key is shown once, as the answer that made it, with the command that saves
+// settings" opens the project's settings page. The Workers card shows, under "Where its workers
+// run", each of the user's machines with how many of the project's workers it should run and the
+// memory each gets, which the machine program makes so; then the workers that have said hello with
+// the project's key, each saying when it needs building again, why no work is handed out when none
+// is, and, behind "Start a worker", the two commands that start one. The key is shown once, as the answer that made it, with the command that saves
 // it, and never read back: after a reload the page knows only when it was made. See "The pages",
 // "Workers" and "Starting a worker" in devflow/README.md.
-import { Badge, Button, Card, Dialog, EmptyState, Status } from "@platform/ui";
-import { useCallback, useEffect, useId, useState } from "react";
+import {
+	Badge,
+	Button,
+	Card,
+	Dialog,
+	EmptyState,
+	Status,
+	TextField,
+} from "@platform/ui";
+import {
+	type FormEvent,
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useId,
+	useState,
+} from "react";
 import { describe } from "./actions";
 import { navigate, plainClick } from "./address";
 import type { GetAnswer } from "./api/client";
@@ -25,10 +41,11 @@ import {
 	countCards,
 	summaryLine,
 } from "./cards";
+import type { Machine } from "./machines";
 import styles from "./project.module.css";
 import type { Project } from "./projects";
 import { type SchedulesApi, WhenItRunsCard } from "./schedules";
-import { settingsPath } from "./sections";
+import { SECTIONS, settingsPath } from "./sections";
 import {
 	PRESET_FILLS,
 	PRESET_NAMES,
@@ -53,6 +70,8 @@ import { duration } from "./waiting";
 export type WorkerList = GetAnswer<"/projects/{id}/workers">;
 export type Worker = WorkerList["workers"][number];
 export type WorkerKey = components["schemas"]["WorkerKey"];
+export type Placement = components["schemas"]["Placement"];
+export type PlacementRequest = components["schemas"]["PlacementRequest"];
 
 export const NO_WORKER = "No worker has said hello yet.";
 export const NOT_READ = "The workers could not be read. Try again.";
@@ -63,6 +82,21 @@ export const SHOWN_ONCE =
 	"Shown once. Copy it now: Dev flow keeps only a hash of it and cannot show it again.";
 export const NOT_COPIED_COMMAND =
 	"The command could not be copied. Select it and copy it by hand.";
+/** What the Workers card says while the project is placed on no machine,
+ * as the setup step does. */
+export const CHOOSE_WHERE = "Choose where its workers run.";
+export const MEMORY_RANGE =
+	"Memory per worker must be a whole number of GB from 1 to 16.";
+/** Why a machine's count is refused, before anything is saved. */
+export const workersRange = (machine: string) =>
+	`Workers on ${machine} must be a whole number from 0 to 8.`;
+export const PLACEMENTS_NOT_READ =
+	"Where its workers run could not be read. Try again.";
+/** How many of the project's workers a machine is to run, as saved. */
+export const wantedLine = (workers: number) =>
+	workers === 1 ? "1 worker wanted" : `${workers} workers wanted`;
+const MOST_WORKERS = 8;
+const MEMORY = { least: 1, most: 16 };
 export const PASTE =
 	"Paste these in a terminal on the machine that runs the workers. Running the second again replaces the worker.";
 /** What a worker that needs building again says, by why. */
@@ -113,6 +147,19 @@ export type ProjectApi = SettingsApi &
 		/** Makes the project's key, replacing its last, and answers it with
 		 * the command that saves it. */
 		makeKey: (id: string) => Promise<WorkerKey>;
+		/** The user's machines, as the Machines tab lists them. */
+		loadMachines: () => Promise<Machine[]>;
+		/** Where the project's workers run, each machine placed with its
+		 * count. */
+		loadPlacements: (id: string) => Promise<Placement[]>;
+		/** Replaces where the project's workers run with the whole list. */
+		savePlacements: (
+			id: string,
+			placements: PlacementRequest[],
+		) => Promise<Placement[]>;
+		/** Sets the memory each of its workers is given, in GB, answering it
+		 * as saved. */
+		saveWorkerMemory: (id: string, gb: number) => Promise<number>;
 		/** Pauses the project, or continues it. */
 		pauseProject: (id: string, paused: boolean) => Promise<void>;
 		/** Pauses the project and stops every run of it under way, answering
@@ -158,6 +205,10 @@ export function ProjectPage({
 	loadProjects,
 	loadWorkers,
 	makeKey,
+	loadMachines,
+	loadPlacements,
+	savePlacements,
+	saveWorkerMemory,
 	pauseProject,
 	stopNow,
 	loadSettings,
@@ -428,6 +479,21 @@ export function ProjectPage({
 						loadWorkers={loadWorkers}
 						makeKey={makeKey}
 						primary={!setupShown}
+						where={
+							<WhereItRuns
+								id={id}
+								memory={
+									settings === undefined || settings === null
+										? settings
+										: settings.worker_memory_gb
+								}
+								loadMachines={loadMachines}
+								loadPlacements={loadPlacements}
+								savePlacements={savePlacements}
+								saveWorkerMemory={saveWorkerMemory}
+								placed={reloadSetup}
+							/>
+						}
 					/>
 					<WhenItRunsCard
 						id={id}
@@ -621,6 +687,8 @@ type WorkersPanelProps = Pick<
 	/** Whether "Make a key" may be the page's primary: not while a setup
 	 * card holds it. */
 	primary: boolean;
+	/** "Where its workers run", above the workers that said hello. */
+	where: ReactNode;
 };
 
 /** The Workers card: Running while a worker was seen in the last ten
@@ -637,6 +705,7 @@ function WorkersPanel({
 	loadWorkers,
 	makeKey,
 	primary,
+	where,
 }: WorkersPanelProps) {
 	const [list, setList] = useState<WorkerList>();
 	const [readFailed, setReadFailed] = useState(false);
@@ -781,6 +850,7 @@ function WorkersPanel({
 							{error}
 						</p>
 					)}
+					{where}
 					{readFailed ? (
 						<p className={styles.error} role="alert">
 							{NOT_READ}
@@ -859,6 +929,230 @@ function WorkersPanel({
 				until it is given the new one.
 			</Dialog>
 		</>
+	);
+}
+
+type WhereItRunsProps = Pick<
+	ProjectApi,
+	"loadMachines" | "loadPlacements" | "savePlacements" | "saveWorkerMemory"
+> & {
+	id: string;
+	/** The memory per worker as the settings answered it: undefined before
+	 * they do, null when they could not be read, and then it is not shown. */
+	memory: number | null | undefined;
+	/** Called once a save went through, since it decides what the setup step
+	 * says. */
+	placed: () => Promise<unknown>;
+};
+
+/** "Where its workers run": each of the user's machines, online or not, with
+ * how many of the project's workers it should run, and how many it is wanted
+ * to run as saved; the memory each worker gets; and Save, which replaces the
+ * whole list, a machine at 0 left out, and the memory when it changed. With no
+ * machine, a link to the Machines tab; placed nowhere, it says to choose. */
+function WhereItRuns({
+	id,
+	memory,
+	loadMachines,
+	loadPlacements,
+	savePlacements,
+	saveWorkerMemory,
+	placed,
+}: WhereItRunsProps) {
+	// The machines and where it runs as saved: undefined before they answer,
+	// null when they could not be read.
+	const [machines, setMachines] = useState<Machine[] | null>();
+	const [placements, setPlacements] = useState<Placement[] | null>();
+	// The form: each machine's count and the memory, as typed.
+	const [counts, setCounts] = useState<Record<string, string>>({});
+	const [memoryText, setMemoryText] = useState<string>();
+	const [savedMemory, setSavedMemory] = useState<number>();
+	const [saving, setSaving] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	useEffect(() => {
+		let current = true;
+		Promise.all([loadMachines(), loadPlacements(id)]).then(
+			([mine, where]) => {
+				if (!current) return;
+				setMachines(mine);
+				setPlacements(where);
+				setCounts(countsOf(mine, where));
+			},
+			() => {
+				if (current) setMachines(null);
+			},
+		);
+		return () => {
+			current = false;
+		};
+	}, [id, loadMachines, loadPlacements]);
+
+	// The memory as the settings answered it, until a save here changes it.
+	const memoryNow = savedMemory ?? memory;
+	useEffect(() => {
+		if (typeof memoryNow === "number") setMemoryText(String(memoryNow));
+	}, [memoryNow]);
+
+	const save = async (event: FormEvent) => {
+		event.preventDefault();
+		if (!machines) return;
+		const request: PlacementRequest[] = [];
+		for (const machine of machines) {
+			const workers = wholeIn(counts[machine.id] ?? "0", 0, MOST_WORKERS);
+			if (workers === null) {
+				setError(workersRange(machine.name));
+				return;
+			}
+			if (workers > 0) request.push({ machine_id: machine.id, workers });
+		}
+		const gb =
+			typeof memoryNow === "number"
+				? wholeIn(memoryText ?? "", MEMORY.least, MEMORY.most)
+				: undefined;
+		if (gb === null) {
+			setError(MEMORY_RANGE);
+			return;
+		}
+		setSaving(true);
+		try {
+			const saved = await savePlacements(id, request);
+			setPlacements(saved);
+			setCounts(countsOf(machines, saved));
+			if (gb !== undefined && gb !== memoryNow) {
+				setSavedMemory(await saveWorkerMemory(id, gb));
+			}
+			setError(null);
+			await placed();
+		} catch (failure) {
+			setError(`Could not save where its workers run: ${describe(failure)}`);
+		}
+		setSaving(false);
+	};
+
+	const placedAny = placements?.some((each) => each.workers > 0) ?? false;
+	const wanted = (machine: string) =>
+		placements?.find((each) => each.machine_id === machine)?.workers ?? 0;
+	return (
+		<section className={styles.where} aria-label="Where its workers run">
+			<p className={styles.label}>Where its workers run</p>
+			{machines === null ? (
+				<p className={styles.error} role="alert">
+					{PLACEMENTS_NOT_READ}
+				</p>
+			) : machines === undefined ? null : (
+				<>
+					{placedAny ? null : <p className={styles.muted}>{CHOOSE_WHERE}</p>}
+					{machines.length === 0 ? (
+						<p className={styles.line}>
+							No machine yet. Add one on the <MachinesLink />.
+						</p>
+					) : (
+						<form className={styles.placing} onSubmit={save} noValidate>
+							<ul className={styles.machines} aria-label="Machines">
+								{machines.map((machine) => (
+									<li key={machine.id} className={styles.machine}>
+										<span className={styles.machineHead}>
+											<span className={styles.workerName}>{machine.name}</span>
+											{machine.online ? (
+												<Status tone="running">Online</Status>
+											) : (
+												<Status tone="idle">Offline</Status>
+											)}
+										</span>
+										{wanted(machine.id) > 0 ? (
+											<span className={styles.wanted}>
+												{wantedLine(wanted(machine.id))}
+											</span>
+										) : null}
+										<TextField
+											label="Workers"
+											aria-label={`Workers on ${machine.name}`}
+											className={styles.number}
+											type="number"
+											inputMode="numeric"
+											min={0}
+											max={MOST_WORKERS}
+											step={1}
+											value={counts[machine.id] ?? "0"}
+											onChange={(event) =>
+												setCounts((before) => ({
+													...before,
+													[machine.id]: event.target.value,
+												}))
+											}
+										/>
+									</li>
+								))}
+							</ul>
+							{memoryText === undefined ? null : (
+								<TextField
+									label="Memory per worker, GB"
+									className={styles.number}
+									type="number"
+									inputMode="numeric"
+									min={MEMORY.least}
+									max={MEMORY.most}
+									step={1}
+									value={memoryText}
+									onChange={(event) => setMemoryText(event.target.value)}
+								/>
+							)}
+							{error === null ? null : (
+								<p className={styles.error} role="alert">
+									{error}
+								</p>
+							)}
+							<div>
+								<Button kind="secondary" type="submit" disabled={saving}>
+									Save
+								</Button>
+							</div>
+						</form>
+					)}
+				</>
+			)}
+		</section>
+	);
+}
+
+/** Each machine's count as the form starts it: its placement's, or 0. */
+const countsOf = (machines: Machine[], placements: Placement[]) =>
+	Object.fromEntries(
+		machines.map((machine) => [
+			machine.id,
+			String(
+				placements.find((each) => each.machine_id === machine.id)?.workers ?? 0,
+			),
+		]),
+	);
+
+/** The text as a whole number from least to most, or null when it is not
+ * one. */
+const wholeIn = (text: string, least: number, most: number): number | null => {
+	if (!/^\d+$/.test(text.trim())) return null;
+	const value = Number(text.trim());
+	return value >= least && value <= most ? value : null;
+};
+
+/** The Machines tab, opened in place on a plain click. */
+function MachinesLink() {
+	const to =
+		SECTIONS.find((section) => section.key === "machines")?.path ??
+		"/devflow/machines";
+	return (
+		<a
+			className={styles.inline}
+			href={to}
+			onClick={(event) => {
+				if (plainClick(event)) {
+					event.preventDefault();
+					navigate(to);
+				}
+			}}
+		>
+			Machines tab
+		</a>
 	);
 }
 
