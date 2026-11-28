@@ -178,7 +178,8 @@ produced, and so does `PlatformAuth`, its C# twin in `libs/dotnet/PlatformAuth/`
 `tests/test_whoami.py` does, since the library cannot tell whether a route is behind it.
 
 **Browser tests drive the real stack.** The suite in `e2e/` is Playwright, run through Caddy on
-`https://platform.test` the way a person would use the platform, in continuous integration as well
-as on the Mac mini. The browser ignores TLS errors rather than trusting Caddy's local certificate
+`https://platform.test` the way a person would use the platform, in full in continuous integration,
+on four workers, and on the Mac mini as the tests a change can reach, which `scripts/agent/gate.sh`
+picks. The browser ignores TLS errors rather than trusting Caddy's local certificate
 authority, since TLS is covered by `curl --cacert`; how to run it and its fixtures are in
 `e2e/README.md`.

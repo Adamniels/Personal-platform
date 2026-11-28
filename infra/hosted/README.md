@@ -639,7 +639,11 @@ Docker layer cache, so each run builds every image from nothing, within its 45 m
 failure it uploads `HOSTED_CHECK_LOGS` as the artifact `hosted-logs`.
 
 GitHub's runner is `linux/amd64` and the Mac mini `linux/arm64`, so the same Dockerfiles build on
-both: CI checks the first, and the implementer's own run of `check.sh` on the Mac mini, the second.
+both. CI checks the first on every pull request that sets `hosted`. The second is checked by the
+release, which builds on the Mac mini and changes nothing when a build fails, see "Releasing". The
+implementer's local gate, `scripts/agent/gate.sh`, does not run `check.sh`: it built every image and
+ran the whole suite a third time in every such run, for a break that only one architecture has and
+that the release refuses anyway.
 
 ## Resources
 
