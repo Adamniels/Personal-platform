@@ -7611,10 +7611,13 @@ def test_i_pause_everything(
     expect(switch).to_be_checked()
     strip = page.locator("main > header").get_by_text(EVERYTHING_PAUSED)
     expect(strip).to_be_visible()
-    # Next up says why fodr's card does not run.
+    # Next up says why fodr's card does not run. Its row alone: whether
+    # Personal-platform's card is listed too depends on how far its read has
+    # got, and it would say the same.
     next_up = page.get_by_role("table", name="Next up")
+    fodr_row = next_up.get_by_role("row").filter(has_text="Dark mode")
     expect(
-        next_up.get_by_text("Everything is paused: continue it").filter(visible=True)
+        fodr_row.get_by_text("Everything is paused: continue it").filter(visible=True)
     ).to_be_visible()
 
     # Every project of mine is held, both of them.
