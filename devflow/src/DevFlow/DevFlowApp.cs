@@ -126,6 +126,8 @@ public static class DevFlowApp
         // devflow/README.md.
         builder.Services.AddSingleton(new MachineKeys(database));
         builder.Services.AddSingleton(provider => new MachineEnrollments(database, provider.GetRequiredService<TimeProvider>()));
+        builder.Services.AddMachineAuthentication();
+        builder.Services.AddSingleton(provider => new MachineStore(database, provider.GetRequiredService<TimeProvider>()));
         // The lines of each run's log as they are stored, which the live pages read. See "Jobs" in
         // devflow/README.md.
         builder.Services.AddSingleton(new RunLogFeed());
@@ -243,10 +245,10 @@ public static class DevFlowApp
         var app = builder.Build();
         app.UseExceptionHandler();
         // In front of routing, so every route, one added later included, is covered, but the
-        // worker's: a worker is not a browser, sends no Origin, and its routes never read a cookie,
-        // so there is no session for another site to ride.
+        // worker's and the machine's: neither is a browser, sends an Origin, or has a route that
+        // reads a cookie, so there is no session for another site to ride.
         app.UseWhen(
-            context => !WorkerAuthentication.IsWorkerPath(context.Request.Path),
+            context => !WorkerAuthentication.IsWorkerPath(context.Request.Path) && !MachineAuthentication.IsMachinePath(context.Request.Path),
             browser => browser.UsePlatformOriginCheck(settings.PublicOrigin));
         app.UseBuiltFiles(webRoot);
         app.UseRouting();
@@ -264,6 +266,7 @@ public static class DevFlowApp
         app.MapDisplay();
         app.MapAttention();
         app.MapWorkers();
+        app.MapMachines(settings.Release);
         app.MapWatch();
         app.MapJobs();
         app.MapStops();

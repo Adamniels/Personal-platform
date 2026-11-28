@@ -46,6 +46,15 @@ namespace DevFlow.Settings;
 /// <param name="WorkerUrl">The address a worker calls Dev flow at from its container, from
 /// <c>DEVFLOW_WORKER_URL</c>, <see cref="Recipes.WorkerStart.DefaultWorkerUrl"/> unless set; a
 /// scheme, a host that is not an IPv6 address and an optional port, nothing after it.</param>
+/// <param name="LocalUrl">The address the machine the platform runs on reaches Dev flow at, from
+/// <c>DEVFLOW_LOCAL_URL</c>, <see cref="DefaultLocalUrl"/> unless set: what the second command of
+/// "Add a machine" names, since that machine cannot reach its own public address. A scheme, a host
+/// and an optional port, nothing after it, as written, since the command shows it in single
+/// quotes.</param>
+/// <param name="Release">Dev flow's release, from <c>DEVFLOW_RELEASE</c>, <c>dev</c> unless set:
+/// what a machine's <c>hello</c> answers, which its program compares with its own version. 1 to 128
+/// letters, digits and <c>._-</c>, beginning with a letter or a digit, as a release's tag
+/// is.</param>
 public sealed record DevFlowSettings(
     string ListenHost,
     int ListenPort,
@@ -58,9 +67,15 @@ public sealed record DevFlowSettings(
     GitHubSettings? GitHub,
     TimeSpan? PollInterval,
     string WorkerImage,
-    Uri WorkerUrl)
+    Uri WorkerUrl,
+    string LocalUrl,
+    string Release)
 {
     public const string DefaultListenAddr = "127.0.0.1:8084";
+
+    /// <summary>Dev flow's own listener, which the machine it runs on reaches on the dev
+    /// stack.</summary>
+    public const string DefaultLocalUrl = "http://127.0.0.1:8084";
     public const string DefaultCoreUrl = "http://127.0.0.1:8080";
     public const string DefaultPublicOrigin = "https://platform.test";
 
@@ -112,14 +127,16 @@ public sealed record DevFlowSettings(
             // Empty is unset, as the hosted copy passes it when its .env leaves it out.
             Setting(read, PollSeconds, "60", ParsePollSeconds, emptyIsUnset: true),
             Setting(read, "DEVFLOW_WORKER_IMAGE", Recipes.WorkerStart.DefaultImage, ParseWorkerImage),
-            Setting(read, "DEVFLOW_WORKER_URL", Recipes.WorkerStart.DefaultWorkerUrl, ParseWorkerUrl));
+            Setting(read, "DEVFLOW_WORKER_URL", Recipes.WorkerStart.DefaultWorkerUrl, ParseWorkerUrl),
+            Setting(read, "DEVFLOW_LOCAL_URL", DefaultLocalUrl, ParseLocalUrl),
+            Setting(read, "DEVFLOW_RELEASE", "dev", ParseRelease));
     }
 
     /// <summary>What the record prints, without the database's password, the vault's keys or the
     /// GitHub App's secret and key, which it holds.</summary>
     public override string ToString() => string.Create(
         CultureInfo.InvariantCulture,
-        $"DevFlowSettings {{ ListenHost = {ListenHost}, ListenPort = {ListenPort}, CoreUrl = {CoreUrl}, PublicOrigin = {PublicOrigin}, ExposeOpenApi = {ExposeOpenApi}, AppDatabase = {AppDatabase.Username}@{AppDatabase.Host}:{AppDatabase.Port}/{AppDatabase.Database}, CodeHost = {CodeHost}, Vault = {Vault}, GitHub = {GitHub?.ToString() ?? "none"}, PollInterval = {PollInterval?.ToString() ?? "off"}, WorkerImage = {WorkerImage}, WorkerUrl = {WorkerUrl} }}");
+        $"DevFlowSettings {{ ListenHost = {ListenHost}, ListenPort = {ListenPort}, CoreUrl = {CoreUrl}, PublicOrigin = {PublicOrigin}, ExposeOpenApi = {ExposeOpenApi}, AppDatabase = {AppDatabase.Username}@{AppDatabase.Host}:{AppDatabase.Port}/{AppDatabase.Database}, CodeHost = {CodeHost}, Vault = {Vault}, GitHub = {GitHub?.ToString() ?? "none"}, PollInterval = {PollInterval?.ToString() ?? "off"}, WorkerImage = {WorkerImage}, WorkerUrl = {WorkerUrl}, LocalUrl = {LocalUrl}, Release = {Release} }}");
 
     /// <summary>The setting parsed, or <paramref name="fallback"/> parsed when it is unset; with
     /// no fallback, unset is refused. With <paramref name="emptyIsUnset"/>, empty is unset too.</summary>
@@ -241,6 +258,33 @@ public sealed record DevFlowSettings(
         }
 
         return new Uri(text, UriKind.Absolute);
+    }
+
+    /// <summary>A scheme, a host and an optional port, nothing after it, as
+    /// <see cref="ParseCoreUrl"/>, kept as written, since it is shown in a command.</summary>
+    internal static string ParseLocalUrl(string text)
+    {
+        if (Split(text) is null)
+        {
+            throw new FormatException(
+                $"'{text}' is not a URL like http://127.0.0.1:9080: scheme, host and optional port, nothing after it");
+        }
+
+        return text;
+    }
+
+    /// <summary>A release's tag, such as <c>4f2a9c1b7e30</c>, <c>local</c> or <c>dev</c>: 1 to 128
+    /// ASCII letters, digits and <c>._-</c>, beginning with a letter or a digit.</summary>
+    internal static string ParseRelease(string text)
+    {
+        if (text.Length is < 1 or > 128
+            || !char.IsAsciiLetterOrDigit(text[0])
+            || !text.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-'))
+        {
+            throw new FormatException($"'{text}' is not a release like 4f2a9c1b7e30: 1 to 128 letters, digits and ._-, beginning with a letter or a digit");
+        }
+
+        return text;
     }
 
     /// <summary><c>1</c> for on, <c>0</c> for off, and nothing else.</summary>

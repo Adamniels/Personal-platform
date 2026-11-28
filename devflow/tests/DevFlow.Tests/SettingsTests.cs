@@ -53,6 +53,16 @@ public sealed class SettingsTests
         Assert.Equal(new Uri("http://host.docker.internal:9080"), worker.WorkerUrl);
         Assert.Equal("registry.example:5000/a_b/worker@sha256:0123abcd", Load(("DEVFLOW_WORKER_IMAGE", "registry.example:5000/a_b/worker@sha256:0123abcd")).WorkerImage);
 
+        // The address the platform's own machine reaches Dev flow at, and Dev flow's release: its
+        // own listener and dev unless set.
+        Assert.Equal("http://127.0.0.1:8084", defaults.LocalUrl);
+        Assert.Equal("http://127.0.0.1:9080", Load(("DEVFLOW_LOCAL_URL", "http://127.0.0.1:9080")).LocalUrl);
+        Assert.Equal("https://mini.example", Load(("DEVFLOW_LOCAL_URL", "https://mini.example")).LocalUrl);
+        Assert.Equal("dev", defaults.Release);
+        Assert.Equal("4f2a9c1b7e30", Load(("DEVFLOW_RELEASE", "4f2a9c1b7e30")).Release);
+        Assert.Equal("local", Load(("DEVFLOW_RELEASE", "local")).Release);
+        Assert.Equal("2026.11.28-1", Load(("DEVFLOW_RELEASE", "2026.11.28-1")).Release);
+
         // The app's database is required, with no default to fall back on.
         var unset = Assert.Throws<StartupException>(() => DevFlowSettings.Load(_ => null));
         Assert.StartsWith("DEVFLOW_APP_DATABASE_URL: ", unset.Message, StringComparison.Ordinal);
@@ -129,6 +139,21 @@ public sealed class SettingsTests
         ("DEVFLOW_WORKER_URL", "http://[::1]:9080"),
         ("DEVFLOW_WORKER_URL", "http://host.docker.internal:9080;id"),
         ("DEVFLOW_WORKER_URL", "ftp://host.docker.internal"),
+        // Shown in single quotes in a shell command, so a scheme, a host and a port alone.
+        ("DEVFLOW_LOCAL_URL", ""),
+        ("DEVFLOW_LOCAL_URL", "127.0.0.1:9080"),
+        ("DEVFLOW_LOCAL_URL", "http://127.0.0.1:9080/"),
+        ("DEVFLOW_LOCAL_URL", "http://127.0.0.1:9080/devflow"),
+        ("DEVFLOW_LOCAL_URL", "http://127.0.0.1:9080'; id; '"),
+        ("DEVFLOW_LOCAL_URL", "ftp://127.0.0.1"),
+        // Compared with a program's own version, and named in an address later.
+        ("DEVFLOW_RELEASE", ""),
+        ("DEVFLOW_RELEASE", " dev"),
+        ("DEVFLOW_RELEASE", "-dev"),
+        ("DEVFLOW_RELEASE", "dev/1"),
+        ("DEVFLOW_RELEASE", "dev 1"),
+        ("DEVFLOW_RELEASE", "dev'1"),
+        ("DEVFLOW_RELEASE", new string('a', 129)),
         ("DEVFLOW_APP_DATABASE_URL", ""),
         ("DEVFLOW_APP_DATABASE_URL", "devflow_app:secret-a1b2@127.0.0.1:5432/devflow"),
     ];

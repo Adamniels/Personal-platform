@@ -182,6 +182,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/machine/enroll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A machine trades a code for its key
+         * @description The code "Add a machine" showed, and the machine's name, os, macos or linux, and arch, arm64 or x64. Marks the code used, records the machine as the code's user's, seen now, and answers its machine_id and its key, dfm_ and the base64url of 32 random bytes, with Cache-Control: no-store, the one time the key is sent: Dev flow keeps only its SHA-256. The one machine route without a key, no Origin needed, and no cookie read or set. 401 with an empty body for a code that is missing, not of the shape dfe_ and 22 base64url characters, not made, used already or made an hour ago or more, the same whatever the reason; 422 naming a field that breaks a rule, which spends no code.
+         */
+        post: operations["machineEnroll"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/machine/hello": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A machine says what it is and runs
+         * @description The machine's name, os, macos or linux, arch, arm64 or x64, program_version, the machine program's, and docker, running or why Docker is not. Records them and marks the machine seen now, and answers release, Dev flow's release, DEVFLOW_RELEASE, which the program updates itself to. 422 naming a field that is missing or breaks a rule: every one is required, and each text is 1 to 255 characters, not only spaces. Takes the machine's key as Authorization: Bearer dfm_…, and nothing else: without a key a machine has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.
+         */
+        post: operations["machineHello"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/paused": {
         parameters: {
             query?: never;
@@ -1608,6 +1648,17 @@ export interface components {
             /** Format: int32 */
             waiting: number;
         };
+        EnrollAnswer: {
+            key: string;
+            /** Format: uuid */
+            machine_id: string;
+        };
+        EnrollRequest: {
+            arch: null | string;
+            code: null | string;
+            name: null | string;
+            os: null | string;
+        };
         FailingProject: {
             /** Format: int32 */
             failures: number;
@@ -1957,6 +2008,16 @@ export interface components {
             input_tokens: null | number;
             /** Format: int64 */
             output_tokens: null | number;
+        };
+        MachineHelloAnswer: {
+            release: string;
+        };
+        MachineHelloRequest: {
+            arch: null | string;
+            docker: null | string;
+            name: null | string;
+            os: null | string;
+            program_version: null | string;
         };
         MergeRequest: {
             head_commit: null | string;
@@ -3174,6 +3235,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    machineEnroll: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnrollRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollAnswer"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    machineHello: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MachineHelloRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MachineHelloAnswer"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
                 };
             };
         };

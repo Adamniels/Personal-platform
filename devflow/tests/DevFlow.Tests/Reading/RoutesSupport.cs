@@ -50,7 +50,9 @@ internal sealed class Routes : IAsyncDisposable
     public ProjectReader Reader => App.Services.GetRequiredService<ProjectReader>();
 
     /// <param name="configure">More, run after the harness's own, such as a log provider.</param>
-    public static async Task<Routes> Start(Action<WebApplicationBuilder>? configure = null)
+    /// <param name="settings">The app's settings, the harness's defaults unless a test gives its
+    /// own.</param>
+    public static async Task<Routes> Start(Action<WebApplicationBuilder>? configure = null, DevFlowSettings? settings = null)
     {
         var database = await Databases.DevFlow.Migrated(Reading.Ct);
         var door = await UserDb.Open(DevFlowSettings.Service, database.App(), DevFlowSettings.AppDatabaseUrl, Reading.Ct);
@@ -58,7 +60,7 @@ internal sealed class Routes : IAsyncDisposable
         var fake = new FakeCodeHost(time);
         var host = new CountingCodeHost(fake);
         // The fake as itself too, for the fake mode's own routes, as the app registers it there.
-        var app = await Harness.Start(database: door, codeHost: host, signIn: fake, time: time, configure: builder =>
+        var app = await Harness.Start(settings: settings, database: door, codeHost: host, signIn: fake, time: time, configure: builder =>
         {
             builder.Services.AddSingleton(fake);
             configure?.Invoke(builder);

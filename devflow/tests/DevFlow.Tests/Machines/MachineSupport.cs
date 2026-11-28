@@ -1,9 +1,10 @@
-using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 
 using Dapper;
+
+using DevFlow.Machines;
 
 using DevFlow.Settings;
 using DevFlow.Tests.Link;
@@ -11,6 +12,7 @@ using DevFlow.Tests.Reading;
 using DevFlow.Tests.Workers;
 
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DevFlow.Tests.Machines;
 
@@ -52,29 +54,14 @@ internal static class Machines
     public static Task<HttpContext> NewEnrollment(Routes routes) =>
         routes.App.Send("POST", EnrollmentPath, Contract.Token, ("Origin", Linking.Origin));
 
-    /// <summary>A new code of the caller's, after checking one was made.</summary>
-    public static async Task<string> NewCode(Routes routes)
-    {
-        var response = await NewEnrollment(routes);
-        Assert.Equal(StatusCodes.Status200OK, response.Response.StatusCode);
-        return (string)(await Json(response))["code"]!;
-    }
+    /// <summary>A new code of the fixture's user's, made by the store as "Add a machine" makes one;
+    /// <c>MachineInstallTests</c> checks the route itself.</summary>
+    public static Task<string> NewCode(Routes routes) => CodeOf(routes, User);
 
-    /// <summary>
-    /// A code of <paramref name="user"/>'s made now, written through the door as that user, since
-    /// the tests hold no token of anyone but the fixture's user: its hash, as Dev flow stores
-    /// one.
-    /// </summary>
-    public static async Task<string> CodeOf(Routes routes, Guid user)
-    {
-        var code = "dfe_" + Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(16));
-        await routes.Door.InUserTransaction(user, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
-            "INSERT INTO machine_enrollments (code_hash, user_id, created_at) VALUES (@hash, @user, @now)",
-            new { hash = Hash(code), user, now = routes.Time.GetUtcNow() },
-            transaction,
-            cancellationToken: Ct)), Ct);
-        return code;
-    }
+    /// <summary>A new code of <paramref name="user"/>'s, made by the store as that user, since the
+    /// tests hold no token of anyone but the fixture's user.</summary>
+    public static async Task<string> CodeOf(Routes routes, Guid user) =>
+        (await routes.App.Services.GetRequiredService<MachineEnrollments>().Make(user, Ct)).Code;
 
     public static string Enrollment(string? code, string name = "mac-mini", string os = "macos", string arch = "arm64") =>
         new JsonObject { ["code"] = code, ["name"] = name, ["os"] = os, ["arch"] = arch }.ToJsonString();
