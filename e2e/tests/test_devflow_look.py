@@ -528,6 +528,7 @@ def test_the_projects_tab_follows_the_look(
     connections = page.get_by_role("region", name="Connections")
     github = connections.get_by_role("article", name="GitHub")
     login = connections.get_by_role("article", name="Claude login")
+    key = connections.get_by_role("article", name="Anthropic API key")
     border = resolve(page, "--border", "border-top-color")
     accent = resolve(page, "--accent-border", "border-top-color")
     surface = resolve(page, "--surface", "background-color")
@@ -536,7 +537,7 @@ def test_the_projects_tab_follows_the_look(
     # desktop; on phone its status and action take a line of their own.
     expect(github.get_by_text("Not linked", exact=True)).to_be_visible()
     assert style(github)["borderColors"] == [border] * 4
-    for item in (github, login):
+    for item in (github, login, key):
         look = style(item)
         assert look["background"] == surface, look
         assert look["boxShadow"] == "none", look
@@ -613,7 +614,7 @@ def test_the_projects_tab_follows_the_look(
     # On phone the cards stack, and each Connections item is full width.
     if viewport == "phone":
         width = connections.bounding_box()["width"]
-        for item in (github, login):
+        for item in (github, login, key):
             assert abs(item.bounding_box()["width"] - width) < 1
         assert fodr.bounding_box()["x"] == platform.bounding_box()["x"]
 

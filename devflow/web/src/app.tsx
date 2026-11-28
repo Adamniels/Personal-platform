@@ -13,6 +13,9 @@ import styles from "./app.module.css";
 import { CodeHostBanner } from "./banner";
 import { type CardApi, CardPage } from "./card";
 import {
+	ApiKey,
+	type ApiKeyApi,
+	type ApiKeyStatus,
 	ClaudeLogin,
 	type ClaudeLoginApi,
 	type ClaudeLoginStatus,
@@ -65,6 +68,7 @@ export type AppProps = {
 	/** How the Claude login is read, given and removed, the service's by
 	 * default; a test passes its own. */
 	claudeLogin?: ClaudeLoginApi;
+	apiKey?: ApiKeyApi;
 	/** How what waits is read and refreshed, the service's by default; a test
 	 * passes its own. */
 	waiting?: WaitingApi;
@@ -225,6 +229,7 @@ const settingsApi: SettingsPageApi = {
 	loadSchedules: projectApi.loadSchedules,
 	saveSchedules: projectApi.saveSchedules,
 	saveTimeZone: projectApi.saveTimeZone,
+	loadApiKey: () => client.get("/api-key"),
 	disconnect: async (id) => {
 		await client.send("DELETE", `/projects/${encodeURIComponent(id)}`);
 	},
@@ -367,6 +372,16 @@ const claudeLoginApi: ClaudeLoginApi = {
 	},
 };
 
+/** The API key, through Dev flow's API. The key is sent, never read
+ * back. */
+const apiKeyApi: ApiKeyApi = {
+	loadKey: () => client.get("/api-key"),
+	saveKey: (key) => client.send<ApiKeyStatus>("PUT", "/api-key", { key }),
+	removeKey: async () => {
+		await client.send("DELETE", "/api-key");
+	},
+};
+
 /** What waits, through Dev flow's API. */
 const waitingApi: WaitingApi = {
 	loadWaiting: () => client.get("/waiting"),
@@ -481,6 +496,7 @@ function Frame({
 	project = projectApi,
 	settings = settingsApi,
 	claudeLogin = claudeLoginApi,
+	apiKey = apiKeyApi,
 	waiting = waitingApi,
 	actions = actionsApi,
 	card = cardApi,
@@ -635,6 +651,7 @@ function Frame({
 										go={(url) => window.location.assign(url)}
 									/>
 									<ClaudeLogin {...claudeLogin} />
+									<ApiKey {...apiKey} />
 								</section>
 								<Projects
 									linked={status?.github.state === "linked"}

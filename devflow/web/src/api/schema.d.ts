@@ -715,12 +715,12 @@ export interface paths {
         };
         /**
          * A project's settings
-         * @description The labels that pick and hold its cards, mark what needs the caller and mark a card for their review; whether a card's pull request waits for them, never, sometimes or always, with the three conditions of sometimes and the paths it watches; its trusted accounts, the GitHub logins whose cards, edits and comments count, the caller's linked login first and marked as theirs; the model that reads, builds and reviews its cards and the limits of its runs, run_budget_usd among them, the most a run may cost in whole US dollars; and questions, whether a card its reading found questions in waits for the caller's answers rather than going on the reader's recommendations; daily_token_budget, the tokens its runs may use in a day in the caller's time zone before it starts nothing new until midnight, null for off; and preset, the preset the settings match, fully_automatic, guided or only_i_merge, or custom, computed and never stored. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description The labels that pick and hold its cards, mark what needs the caller and mark a card for their review; whether a card's pull request waits for them, never, sometimes or always, with the three conditions of sometimes and the paths it watches; its trusted accounts, the GitHub logins whose cards, edits and comments count, the caller's linked login first and marked as theirs; the model that reads, builds and reviews its cards and the limits of its runs, run_budget_usd among them, the most a run may cost in whole US dollars; and questions, whether a card its reading found questions in waits for the caller's answers rather than going on the reader's recommendations; daily_token_budget, the tokens its runs may use in a day in the caller's time zone before it starts nothing new until midnight, null for off; runs_on, what its runs log in with, subscription, the default, or api_key, the caller's API key; and preset, the preset the settings match, fully_automatic, guided or only_i_merge, or custom, computed and never stored. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         get: operations["getProjectSettings"];
         /**
          * Change a project's settings
-         * @description Takes all twenty, never a preset, and answers them as saved with the preset they match. A label is written, at most 50 characters, with no space at either end and no comma, and the four are different names whatever their case; waits_for_owner is never, sometimes or always, and sometimes has at least one of wait_when_marked, wait_when_paths and wait_when_decision; wait_paths is at most 100 glob patterns of at most 200 characters, none starting with ! or /, and a pattern given twice is kept once; trusted_logins is a list of GitHub logins that holds the caller's linked login, and a login given twice whatever its case is kept once; each model is opus, sonnet or haiku, and each limit within its range, run_budget_usd a whole number of US dollars from 1 to 100; questions is true or false; daily_token_budget is null for off or a whole number of millions of tokens from 1 000 000 to 10 000 000 000, and is never left out, which is refused with 400 rather than read as off. The first save also does the project's setup step settings, as accepting a setup run's proposal does. 422 naming each field that breaks a rule, 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description Takes all twenty-one, never a preset, and answers them as saved with the preset they match. A label is written, at most 50 characters, with no space at either end and no comma, and the four are different names whatever their case; waits_for_owner is never, sometimes or always, and sometimes has at least one of wait_when_marked, wait_when_paths and wait_when_decision; wait_paths is at most 100 glob patterns of at most 200 characters, none starting with ! or /, and a pattern given twice is kept once; trusted_logins is a list of GitHub logins that holds the caller's linked login, and a login given twice whatever its case is kept once; each model is opus, sonnet or haiku, and each limit within its range, run_budget_usd a whole number of US dollars from 1 to 100; questions is true or false; daily_token_budget is null for off or a whole number of millions of tokens from 1 000 000 to 10 000 000 000, and is never left out, which is refused with 400 rather than read as off; runs_on is subscription or api_key, and api_key only while the caller has given an API key, else 422 naming runs_on, "Give an API key on the Projects tab first". The first save also does the project's setup step settings, as accepting a setup run's proposal does. 422 naming each field that breaks a rule, 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         put: operations["saveProjectSettings"];
         post?: never;
@@ -943,7 +943,7 @@ export interface paths {
         };
         /**
          * The project's workers
-         * @description Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; start_command, the command that builds and starts the project's worker; and held, why the project hands out no work whichever worker asks, the first that applies: all_paused, when the caller paused everything, paused, when the caller paused the project, stopped, when something landed on its default branch that Dev flow did not put there, unwatched, when its default branch has not been read for five minutes, no_claude_login when its user has given no Claude login, claude_login_expired when it is past its renewal, or null; cannot_run, once six runs in a row have failed outside their cards, "Dev flow cannot run <project>'s cards: <the last reason>", until a run succeeds, or null; and budget, once the project's runs that finished today in the caller's time zone used its daily budget, with used, budget, lifts_at, the next midnight there in its own offset, and sentence, "Daily budget reached, runs again at <day time>", the one rule's own, which holds it after a pause and before every other hold in held, or null. The key itself is never in it. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; start_command, the command that builds and starts the project's worker; and held, why the project hands out no work whichever worker asks, the first that applies: all_paused, when the caller paused everything, paused, when the caller paused the project, stopped, when something landed on its default branch that Dev flow did not put there, unwatched, when its default branch has not been read for five minutes, no_claude_login when its user has given no Claude login, claude_login_expired when it is past its renewal, both only for a project on the subscription, or null; cannot_run, once six runs in a row have failed outside their cards, "Dev flow cannot run <project>'s cards: <the last reason>", until a run succeeds, or null; and budget, once the project's runs that finished today in the caller's time zone used its daily budget, with used, budget, lifts_at, the next midnight there in its own offset, and sentence, "Daily budget reached, runs again at <day time>", the one rule's own, which holds it after a pause and before every other hold in held, or null. The key itself is never in it. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         get: operations["listWorkers"];
         put?: never;
@@ -1189,7 +1189,7 @@ export interface paths {
         put?: never;
         /**
          * A worker asks for work
-         * @description Marks the worker seen and answers its next job, 200 with Cache-Control: no-store: the first of its project's queued cards that waits for nothing, by priority, high, none, low, then oldest first, moved to building, with a run recorded for this worker. The job holds the card, the repository, the branch, the brief, the report's schema, the check, the run's user's Claude token, a push key narrowed to the repository and its expiry, the committer and the limits; and values, the project's values by name, for the environment of the agent, the check and the start, on every job that runs the project's code, a build, a fix, a conflict, a feature's fix, a setup and a check, and empty on a reading and a review. 204 when there is no work for it: a project that is stopped, or whose default branch has not been watched for five minutes, no card to take, a user without a Claude login or with one past its renewal, a worker that needs a rebuild, running another version of the recipe than Dev flow last read or another base image than the one released, or the code host not answering what a job needs, such as the project's .devflow/project.json. 409 for a worker that has not said hello in the key's project, which says hello and asks again; 422 without worker_id. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.
+         * @description Marks the worker seen and answers its next job, 200 with Cache-Control: no-store: the first of its project's queued cards that waits for nothing, by priority, high, none, low, then oldest first, moved to building, with a run recorded for this worker. The job holds the card, the repository, the branch, the brief, the report's schema, the check, credential, what the agent logs in with, kind subscription with the run's user's Claude token or kind api_key with their API key, as the project runs on, a push key narrowed to the repository and its expiry, the committer and the limits; and values, the project's values by name, for the environment of the agent, the check and the start, on every job that runs the project's code, a build, a fix, a conflict, a feature's fix, a setup and a check, and empty on a reading and a review. 204 when there is no work for it: a project that is stopped, or whose default branch has not been watched for five minutes, no card to take, a project on the subscription whose user has no Claude login or one past its renewal, a project on the API key whose user has given none, a worker that needs a rebuild, running another version of the recipe than Dev flow last read or another base image than the one released, or the code host not answering what a job needs, such as the project's .devflow/project.json. 409 for a worker that has not said hello in the key's project, which says hello and asks again; 422 without worker_id. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.
          */
         post: operations["workerNextJob"];
         delete?: never;
@@ -1786,8 +1786,8 @@ export interface components {
             brief: string;
             card: null | components["schemas"]["JobCard"];
             check: string;
-            claude_token: string;
             committer: components["schemas"]["JobCommitter"];
+            credential: null | components["schemas"]["JobCredential"];
             /** Format: uuid */
             job_id: string;
             kind: string;
@@ -1827,6 +1827,10 @@ export interface components {
         JobConflict: {
             default_commit: string;
             feature_commit: string;
+        };
+        JobCredential: {
+            kind: string;
+            secret: string;
         };
         JobFeatureCard: {
             handover: string;
@@ -2080,6 +2084,7 @@ export interface components {
             run_minutes: number;
             /** Format: int32 */
             run_turns: number;
+            runs_on: string;
             trusted_logins: components["schemas"]["TrustedLogin"][];
             wait_paths: string[];
             wait_when_decision: boolean;
@@ -2362,6 +2367,7 @@ export interface components {
             run_minutes: null | number;
             /** Format: int32 */
             run_turns: null | number;
+            runs_on: null | string;
             trusted_logins: null | string[];
             wait_paths: null | string[];
             wait_when_decision: null | boolean;

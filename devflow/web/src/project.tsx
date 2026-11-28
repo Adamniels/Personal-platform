@@ -525,6 +525,12 @@ const WAITS: Record<string, string> = {
 	always: "Always",
 };
 
+/** What a project runs on, as its settings page's "Runs on" names it. */
+const RUNS_ON: Record<string, string> = {
+	subscription: "Your subscription",
+	api_key: "The API key only",
+};
+
 /** The settings in the side column: the preset, questions before starting,
  * whether pull requests wait, the daily budget and the four labels, as label
  * and value rows,
@@ -545,6 +551,7 @@ function SettingsSummary({
 					WAITS[settings.waits_for_owner] ?? settings.waits_for_owner,
 				],
 				["Daily budget", budgetLine(settings.daily_token_budget)],
+				["Runs on", RUNS_ON[settings.runs_on] ?? settings.runs_on],
 				["Pick-up label", settings.pickup_label],
 				["Hold label", settings.hold_label],
 				["Attention label", settings.attention_label],

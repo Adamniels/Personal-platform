@@ -10,8 +10,11 @@ import {
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ApiError } from "./api/client";
 import {
+	ApiKey,
+	type ApiKeyStatus,
 	ClaudeLogin,
 	type ClaudeLoginStatus,
+	NOT_A_KEY,
 	NOT_A_TOKEN,
 	NOT_REMOVED,
 	NOT_SAVED,
@@ -292,5 +295,141 @@ describe("the Claude login is one line, and giving a token opens its field", () 
 
 		expect(within(login).getByRole("alert").textContent).toBe(NOT_REMOVED);
 		expect(within(login).getByRole("button", { name: "Replace" })).toBeTruthy();
+	});
+});
+
+describe("the API key, a third line of Connections", () => {
+	const KEY = "sk-ant-api03-dml0ZXN0LW9ubHktbm90LWEtcmVhbC1rZXk_AAAAAA";
+	const KEY_PURPOSE =
+		"Runs on the API key bill your Anthropic account. Make one in the Claude Console.";
+
+	function renderKey(
+		status: ApiKeyStatus,
+		api: {
+			saveKey?: (key: string) => Promise<ApiKeyStatus>;
+			removeKey?: () => Promise<void>;
+		} = {},
+	) {
+		const calls = {
+			loadKey: vi.fn(() => Promise.resolve(status)),
+			saveKey: vi.fn(
+				api.saveKey ?? (() => Promise.resolve({ set: true, given_at: GIVEN })),
+			),
+			removeKey: vi.fn(api.removeKey ?? (() => Promise.resolve())),
+		};
+		const { container } = render(<ApiKey {...calls} />);
+		return { ...calls, container };
+	}
+
+	test("the API key is given, replaced and removed like the Claude login", async () => {
+		const { saveKey, removeKey, container } = renderKey({
+			set: false,
+			given_at: null,
+		});
+		const line = await screen.findByRole("article", {
+			name: "Anthropic API key",
+		});
+
+		// Not set: what it is for, and a ghost "Give a key".
+		expect(within(line).getByText("Not set")).toBeTruthy();
+		expect(
+			within(line).getByText("for runs billed to your Anthropic account"),
+		).toBeTruthy();
+		const give = within(line).getByRole("button", { name: "Give a key" });
+		expect(give.className).toMatch(/ghost/);
+		expect(within(line).queryByLabelText("API key")).toBeNull();
+
+		// Its field is a password field with what it is for, Save waits for a
+		// key, and there is nothing to remove.
+		fireEvent.click(give);
+		const field = within(line).getByLabelText("API key");
+		expect(field.getAttribute("type")).toBe("password");
+		expect(line.textContent).toContain(KEY_PURPOSE);
+		const save = within(line).getByRole("button", { name: "Save" });
+		expect((save as HTMLButtonElement).disabled).toBe(true);
+		expect(within(line).queryByRole("button", { name: "Remove" })).toBeNull();
+
+		fireEvent.change(field, { target: { value: KEY } });
+		await act(async () => {
+			fireEvent.click(save);
+		});
+
+		// Given: saved as typed, the field closed and emptied, the line says when.
+		expect(saveKey).toHaveBeenCalledWith(KEY);
+		expect(within(line).queryByLabelText("API key")).toBeNull();
+		expect(within(line).getByText("Given")).toBeTruthy();
+		expect(within(line).getByText(`given ${day(GIVEN)}`)).toBeTruthy();
+		expect(container.innerHTML).not.toContain(KEY.slice(10));
+
+		// Replace opens the field again, with Remove beside it behind a
+		// destructive confirmation.
+		fireEvent.click(within(line).getByRole("button", { name: "Replace" }));
+		fireEvent.click(within(line).getByRole("button", { name: "Remove" }));
+		expect(removeKey).not.toHaveBeenCalled();
+		const dialog = screen.getByRole("dialog", { name: "Remove the API key?" });
+		await act(async () => {
+			fireEvent.click(
+				within(dialog).getByRole("button", { name: "Remove the key" }),
+			);
+		});
+
+		expect(removeKey).toHaveBeenCalledTimes(1);
+		await waitFor(() => expect(within(line).getByText("Not set")).toBeTruthy());
+		expect(
+			within(line).getByRole("button", { name: "Give a key" }),
+		).toBeTruthy();
+	});
+
+	test("a key refused says so on the field, and removal refused shows why", async () => {
+		renderKey(
+			{ set: true, given_at: GIVEN },
+			{
+				saveKey: () =>
+					Promise.reject(
+						new ApiError({
+							status: 422,
+							title: "That is not an API key",
+							detail: null,
+						}),
+					),
+				removeKey: () =>
+					Promise.reject(
+						new ApiError({
+							status: 409,
+							title: "The API key is in use",
+							detail: "These projects run on it: fodr",
+						}),
+					),
+			},
+		);
+		const line = await screen.findByRole("article", {
+			name: "Anthropic API key",
+		});
+
+		fireEvent.click(within(line).getByRole("button", { name: "Replace" }));
+		const field = within(line).getByLabelText("API key");
+		fireEvent.change(field, { target: { value: "sk-ant-oat01-a-token" } });
+		await act(async () => {
+			fireEvent.click(within(line).getByRole("button", { name: "Save" }));
+		});
+		expect(line.textContent).toContain(NOT_A_KEY);
+		expect(NOT_A_KEY).toBe(
+			"That is not an API key. Make one in the Claude Console and paste all of it.",
+		);
+		expect(field.getAttribute("aria-invalid")).toBe("true");
+		expect((field as HTMLInputElement).value).toBe("");
+
+		fireEvent.click(within(line).getByRole("button", { name: "Remove" }));
+		await act(async () => {
+			fireEvent.click(
+				within(
+					screen.getByRole("dialog", { name: "Remove the API key?" }),
+				).getByRole("button", { name: "Remove the key" }),
+			);
+		});
+		expect(within(line).getByRole("alert").textContent).toBe(
+			"These projects run on it: fodr",
+		);
+		expect(within(line).getByText("Given")).toBeTruthy();
 	});
 });

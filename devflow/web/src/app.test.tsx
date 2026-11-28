@@ -78,6 +78,7 @@ function openAt(path: string, pauses: PausesApi = RUNS) {
 				loadSchedules: () => new Promise(() => {}),
 				saveSchedules: () => new Promise(() => {}),
 				saveTimeZone: () => new Promise(() => {}),
+				loadApiKey: () => new Promise(() => {}),
 				disconnect: () => Promise.resolve(),
 			}}
 			projects={{
