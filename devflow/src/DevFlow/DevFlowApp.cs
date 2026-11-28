@@ -11,6 +11,7 @@ using DevFlow.Features;
 using DevFlow.Health;
 using DevFlow.Jobs;
 using DevFlow.Link;
+using DevFlow.Machines;
 using DevFlow.Merging;
 using DevFlow.Pages;
 using DevFlow.Projects;
@@ -121,6 +122,10 @@ public static class DevFlowApp
         builder.Services.AddSingleton(provider => new WorkerKeys(database, provider.GetRequiredService<TimeProvider>()));
         builder.Services.AddWorkerAuthentication();
         builder.Services.AddSingleton(provider => new WorkerStore(database, provider.GetRequiredService<TimeProvider>()));
+        // Each machine's key, and the one-time codes a machine enrols with. See "Machines" in
+        // devflow/README.md.
+        builder.Services.AddSingleton(new MachineKeys(database));
+        builder.Services.AddSingleton(provider => new MachineEnrollments(database, provider.GetRequiredService<TimeProvider>()));
         // The lines of each run's log as they are stored, which the live pages read. See "Jobs" in
         // devflow/README.md.
         builder.Services.AddSingleton(new RunLogFeed());
