@@ -23,7 +23,9 @@ namespace DevFlow.Projects;
 /// as <c>--max-budget-usd</c>; on the subscription it is Claude Code's estimate.</param>
 /// <param name="FixRoundsCard">The fix rounds a card's reviews may start.</param>
 /// <param name="FixRoundsFeature">The fix rounds a whole feature's reviews may start.</param>
-public sealed record RunSettings(string ModelReading, string ModelBuilding, string ModelReviewing, int Minutes, int Turns, int BudgetUsd, int FixRoundsCard, int FixRoundsFeature)
+/// <param name="RunsOn">What the project's runs log in with, one of <see cref="Projects.RunsOn.Values"/>,
+/// so a job carries the credential the project runs on as it was when the job was handed out.</param>
+public sealed record RunSettings(string ModelReading, string ModelBuilding, string ModelReviewing, int Minutes, int Turns, int BudgetUsd, int FixRoundsCard, int FixRoundsFeature, string RunsOn)
 {
     /// <summary>The models a setting takes, Claude Code's aliases.</summary>
     public static readonly IReadOnlyList<string> Models = ["opus", "sonnet", "haiku"];
@@ -41,7 +43,7 @@ public sealed record RunSettings(string ModelReading, string ModelBuilding, stri
     public static readonly Range RoundsRange = new(0, 10);
 
     /// <summary>A new project's, as the table's defaults make them.</summary>
-    public static RunSettings Defaults { get; } = new("opus", "opus", "opus", 90, 200, 25, 3, 3);
+    public static RunSettings Defaults { get; } = new("opus", "opus", "opus", 90, 200, 25, 3, 3, Projects.RunsOn.Subscription);
 
     /// <summary>The model a job of <paramref name="kind"/> runs on.</summary>
     public string ModelFor(string kind) => kind switch
@@ -63,7 +65,8 @@ public sealed record RunSettings(string ModelReading, string ModelBuilding, stri
         return await transaction.Connection!.QuerySingleOrDefaultAsync<RunSettings>(new CommandDefinition(
             """
             SELECT model_reading AS ModelReading, model_building AS ModelBuilding, model_reviewing AS ModelReviewing,
-                   run_minutes AS Minutes, run_turns AS Turns, run_budget_usd AS BudgetUsd, fix_rounds_card AS FixRoundsCard, fix_rounds_feature AS FixRoundsFeature
+                   run_minutes AS Minutes, run_turns AS Turns, run_budget_usd AS BudgetUsd, fix_rounds_card AS FixRoundsCard, fix_rounds_feature AS FixRoundsFeature,
+                   runs_on AS RunsOn
             FROM project_settings WHERE project_id = @projectId
             """,
             new { projectId },

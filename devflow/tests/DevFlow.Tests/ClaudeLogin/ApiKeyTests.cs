@@ -228,6 +228,50 @@ public sealed class ApiKeyTests
     }
 
     [Fact]
+    public async Task RemovingItWhileUsedIsRefused()
+    {
+        await using var routes = await Routes.Start();
+        Assert.Equal(StatusCodes.Status200OK, (await Save(routes, Key)).Response.StatusCode);
+        var platform = await routes.Project(Routes.User);
+        var fodr = await routes.Project(Routes.User, repository: 7101, name: "fodr");
+        // Bob's project on his own key is no project of the caller's.
+        await Keys(routes).Set(Routes.Bob, BobsKey, Ct);
+        var bobs = await routes.Project(Routes.Bob, repository: 7102, name: "bobs");
+        await RunOn(routes, bobs, "api_key");
+
+        await RunOn(routes, platform, "api_key");
+        await RunOn(routes, fodr, "api_key");
+        var refused = await Remove(routes);
+
+        // Refused while any project of the caller's runs on it, naming them, and nothing is removed.
+        Assert.Equal(StatusCodes.Status409Conflict, refused.Response.StatusCode);
+        Assert.Equal("These projects run on it: fodr, Personal-platform", (string)JsonNode.Parse(await Harness.Body(refused))!["detail"]!);
+        Assert.Equal(Key, (await Keys(routes).ForRun(Routes.User, Ct))!.Value);
+
+        await RunOn(routes, fodr, "subscription");
+        refused = await Remove(routes);
+        Assert.Equal(StatusCodes.Status409Conflict, refused.Response.StatusCode);
+        Assert.Equal("These projects run on it: Personal-platform", (string)JsonNode.Parse(await Harness.Body(refused))!["detail"]!);
+        Assert.True((bool)(await Status(routes))["set"]!);
+
+        // Once none does, it is removed; Bob's stays.
+        await RunOn(routes, platform, "subscription");
+        Assert.Equal(StatusCodes.Status204NoContent, (await Remove(routes)).Response.StatusCode);
+        Assert.Null(await Keys(routes).ForRun(Routes.User, Ct));
+        Assert.Equal(BobsKey, (await Keys(routes).ForRun(Routes.Bob, Ct))!.Value);
+    }
+
+    /// <summary>Sets what <paramref name="project"/> runs on, as the superuser, past the route.</summary>
+    private static async Task RunOn(Routes routes, Guid project, string runsOn)
+    {
+        await using var admin = await routes.Database.OpenAdmin(Ct);
+        await admin.ExecuteAsync(new CommandDefinition(
+            "UPDATE project_settings SET runs_on = @runsOn WHERE project_id = @project",
+            new { runsOn, project },
+            cancellationToken: Ct));
+    }
+
+    [Fact]
     public async Task TheRoutesAreTheUsersAndFromThePlatformsOrigin()
     {
         await using var routes = await Routes.Start();

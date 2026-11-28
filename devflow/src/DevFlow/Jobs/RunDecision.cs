@@ -216,7 +216,8 @@ public enum SetupGate
 /// <param name="Setup">Where the worker's setup version stands.</param>
 /// <param name="SetupKind">The setup's next job for a worker built from no recipe, null with
 /// none.</param>
-/// <param name="Login">The project's user's Claude login.</param>
+/// <param name="Login">The project's user's Claude login, read only for a project on the
+/// subscription, see <paramref name="RunsOn"/>.</param>
 /// <param name="WorkerSeen">Whether any worker of the project was seen in the last
 /// <see cref="RunStore.Silence"/>.</param>
 /// <param name="NextKind">The kind of the cards' next job, <see cref="JobStore.NextKind"/>'s, null
@@ -233,6 +234,8 @@ public enum SetupGate
 /// <param name="Budget">Why the project waits for its daily budget, the tokens of its runs that
 /// finished today having reached it, by <see cref="Usage.DailyBudget"/>; null when it has none or
 /// used less.</param>
+/// <param name="RunsOn">What the project runs on, <see cref="Projects.RunsOn"/>: only one on the
+/// subscription waits for the Claude login.</param>
 public sealed record ProjectSituation(
     string Project,
     bool NeedsRebuild,
@@ -249,7 +252,8 @@ public sealed record ProjectSituation(
     WaitReason.OutsideSchedule? Outside = null,
     bool RunNow = false,
     string? RunNowKind = null,
-    WaitReason.BudgetReached? Budget = null);
+    WaitReason.BudgetReached? Budget = null,
+    string RunsOn = Projects.RunsOn.Subscription);
 
 /// <summary>A card's decision, and the kind of job due for it, null for one that waits for another
 /// card with none due.</summary>
@@ -273,7 +277,7 @@ public static class RunDecision
     /// lately; it waits after failures outside its cards, other than a usage limit; the worker's
     /// setup version has no check that passed, when a check due is what runs, since it runs no agent
     /// and needs no Claude login, once a worker of the project was seen lately; no Claude login, or
-    /// one past its renewal; Claude's usage limit; no worker of the project seen lately. Past them a worker built from no recipe runs the setup's
+    /// one past its renewal, for a project on the subscription; Claude's usage limit; no worker of the project seen lately. Past them a worker built from no recipe runs the setup's
     /// next job, and any other the cards' next, or nothing when there is none.
     /// </summary>
     public static Decision Of(ProjectSituation situation)
@@ -348,7 +352,7 @@ public static class RunDecision
                     : new Decision.Wait(new WaitReason.NoWorker(situation.Project));
         }
 
-        if (LoginReason(situation.Login) is { } login)
+        if (Projects.RunsOn.NeedsClaudeLogin(situation.RunsOn) && LoginReason(situation.Login) is { } login)
         {
             return new Decision.Wait(login);
         }
@@ -434,6 +438,7 @@ public static class RunDecision
                        {RunNowStore.AnySql} AS RunNow,
                        {JobStore.RunNowKindSql} AS RunNowKind,
                        (SELECT l.given_at FROM claude_logins l WHERE l.user_id = p.user_id) AS LoginGivenAt,
+                       (SELECT ps.runs_on FROM project_settings ps WHERE ps.project_id = p.id) AS RunsOn,
                        EXISTS (SELECT 1 FROM workers s WHERE s.project_id = p.id AND s.last_seen_at >= @seenSince) AS WorkerSeen
                 FROM projects p
                 LEFT JOIN LATERAL (
@@ -467,7 +472,7 @@ public static class RunDecision
             ? new ProjectWait(failures, row.Reason!, Utc(row.Since!.Value), Utc(row.WaitUntil!.Value), row.UntilReset ?? false)
             : null;
         return new ProjectSituation(row.Project, row.Rebuild is not null, WatchStore.Read(row.Hold), wait, setup, row.SetupKind, login, row.WorkerSeen, row.NextKind, row.Version, now, Pauses.Read(row.Pause),
-            schedule is null ? null : Schedules.Schedule.Reason(schedule), row.RunNow, row.RunNowKind, budget);
+            schedule is null ? null : Schedules.Schedule.Reason(schedule), row.RunNow, row.RunNowKind, budget, row.RunsOn ?? Projects.RunsOn.Subscription);
     }
 
     private static DateTimeOffset Utc(DateTime at) => new(DateTime.SpecifyKind(at, DateTimeKind.Utc));
@@ -509,6 +514,8 @@ public static class RunDecision
         public string? RunNowKind { get; init; }
 
         public DateTime? LoginGivenAt { get; init; }
+
+        public string? RunsOn { get; init; }
 
         public bool WorkerSeen { get; init; }
     }

@@ -60,7 +60,7 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
     protected RunLogSender Sending(Job job)
     {
         ArgumentNullException.ThrowIfNull(job);
-        return _sending = RunLogSender.Start(Client, job.JobId, WorkerId, job.ClaudeToken ?? "", job.Values, Time, Log);
+        return _sending = RunLogSender.Start(Client, job.JobId, WorkerId, job.Credential?.Secret ?? "", job.Values, Time, Log);
     }
 
     /// <summary>Where a program's output goes as it is written, standard output's and standard
@@ -141,7 +141,7 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
             return AgentResult.Stopped([], "", null);
         }
 
-        var run = new AgentRun(workingDirectory, job.Brief, job.ReportSchema.GetRawText(), job.Model, limits, new AgentCredential(job.ClaudeToken), access, job.Values, Log.Run, Stop);
+        var run = new AgentRun(workingDirectory, job.Brief, job.ReportSchema.GetRawText(), job.Model, limits, new AgentCredential(job.Credential?.Secret ?? ""), access, job.Values, Log.Run, Stop);
         using var limit = new CancellationTokenSource(limits.Time, Time);
         using var either = CancellationTokenSource.CreateLinkedTokenSource(stopping, limit.Token);
         Log.Write($"Starting the agent on {job.Model}");

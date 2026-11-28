@@ -102,12 +102,34 @@ public sealed partial class ApiKeys(UserDb database, Vault vault, TimeProvider t
     }
 
     /// <summary>
-    /// Removes the user's key and its sealed secret. Empty when it was removed, or when there was
-    /// none.
+    /// Removes the user's key and its sealed secret, unless a project of theirs runs on it. The key's
+    /// row is taken for update first, so a save of settings moving a project onto the key, which
+    /// holds that row with a share lock, is either seen here or finds the key gone. The names of the
+    /// projects that run on it, in order, when it was not removed; empty when it was, or when there
+    /// was none.
     /// </summary>
     public async Task<IReadOnlyList<string>> Remove(Guid userId, CancellationToken cancellationToken) =>
         await database.InUserTransaction<IReadOnlyList<string>>(userId, async transaction =>
         {
+            await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                "SELECT 1 FROM api_keys WHERE user_id = @userId FOR UPDATE",
+                new { userId },
+                transaction,
+                cancellationToken: cancellationToken));
+            var runOnIt = (await transaction.Connection!.QueryAsync<string>(new CommandDefinition(
+                """
+                SELECT p.name FROM projects p JOIN project_settings s ON s.project_id = p.id
+                WHERE s.runs_on <> @subscription
+                ORDER BY lower(p.name), p.name
+                """,
+                new { subscription = Projects.RunsOn.Subscription },
+                transaction,
+                cancellationToken: cancellationToken))).ToList();
+            if (runOnIt.Count > 0)
+            {
+                return runOnIt;
+            }
+
             await transaction.Connection!.ExecuteAsync(new CommandDefinition(
                 "DELETE FROM api_keys WHERE user_id = @userId",
                 new { userId },

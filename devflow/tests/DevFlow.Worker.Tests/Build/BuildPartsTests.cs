@@ -192,7 +192,7 @@ public sealed class BuildPartsTests
         "The brief",
         JsonDocument.Parse("{}").RootElement,
         "true",
-        "sk-ant-oat01-a-token",
+        new JobCredential(JobCredential.Subscription, "sk-ant-oat01-a-token"),
         "ghs_a_push_key",
         new DateTimeOffset(2026, 11, 18, 10, 0, 0, TimeSpan.Zero),
         new JobCommitter("devflow[bot]", "1+devflow[bot]@users.noreply.github.com"),

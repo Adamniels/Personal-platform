@@ -1,6 +1,8 @@
 using System.Text;
 using System.Text.Json;
 
+using Dapper;
+
 using DevFlow.Briefs;
 using DevFlow.ClaudeLogin;
 using DevFlow.CodeHost;
@@ -68,6 +70,7 @@ public sealed partial class Dispatcher(
     WorkerStore workers,
     WatchStore watch,
     ClaudeLogins logins,
+    ApiKeys apiKeys,
     ICodeHost host,
     WorkerStart start,
     TimeProvider time,
@@ -93,14 +96,20 @@ public sealed partial class Dispatcher(
     private static readonly JsonElement ReadingSchema = JsonSerializer.SerializeToElement(Protocol.Reading.Schema());
 
     /// <summary>
-    /// Why a user's project hands out no work for their Claude login, as the project's page says
-    /// it: <c>no_claude_login</c> without one, <c>claude_login_expired</c> past its renewal, or
-    /// null. A login due soon still works. <see cref="RunDecision.LoginReason"/> words, as the
-    /// project's page and the workers list name them.
+    /// Why a user's project on <paramref name="runsOn"/> hands out no work for their Claude login,
+    /// as the project's page says it: <c>no_claude_login</c> without one, <c>claude_login_expired</c>
+    /// past its renewal, or null. A login due soon still works, and a project on the API key needs
+    /// none. <see cref="RunDecision.LoginReason"/> words, as the project's page and the workers list
+    /// name them.
     /// </summary>
-    public static string? HeldFor(ClaudeLoginStatus login)
+    public static string? HeldFor(ClaudeLoginStatus login, string runsOn)
     {
         ArgumentNullException.ThrowIfNull(login);
+        if (!RunsOn.NeedsClaudeLogin(runsOn))
+        {
+            return null;
+        }
+
         return RunDecision.LoginReason(login.State) switch
         {
             null => null,
@@ -160,7 +169,7 @@ public sealed partial class Dispatcher(
         // feature's fix's fetch and push.
         var purpose = kind is Job.Review or Job.FeatureReview or Job.Read ? WritePurpose.Fetch : WritePurpose.Push;
         if (await Facts(projectId, userId, repository, cancellationToken) is not { } facts
-            || await logins.ForRun(userId, cancellationToken) is not { } token
+            || await Credential(userId, projectId, cancellationToken) is not { } credential
             || await Key(projectId, userId, repository, purpose, cancellationToken) is not { } key)
         {
             return new NextJob.None();
@@ -198,7 +207,8 @@ public sealed partial class Dispatcher(
             if (await watch.HoldUnderLock(transaction, projectId, cancellationToken) != ProjectHold.None
                 || await Pauses.HeldUnderLock(transaction, projectId, cancellationToken) != PauseHold.None
                 || await Usage.DailyBudget.ReachedIn(transaction, projectId, now, cancellationToken) is not null
-                || await RunSettings.Read(transaction, projectId, cancellationToken) is not { } run)
+                || await RunSettings.Read(transaction, projectId, cancellationToken) is not { } run
+                || !Carries(run, credential))
             {
                 return null;
             }
@@ -212,27 +222,27 @@ public sealed partial class Dispatcher(
             IReadOnlyList<JobValue> carried = Values.ProjectValues.Carries(kind) ? await values.Open(transaction, userId, projectId, cancellationToken) : [];
             var handed = kind switch
             {
-                Job.Review => ReviewJob(await JobStore.ClaimReview(transaction, projectId, userId, workerId, run, now, runNowOnly, cancellationToken), repository, facts, run, token, key),
-                Job.FeatureReview => FeatureReviewJob(await JobStore.ClaimFeatureReview(transaction, projectId, userId, workerId, run, facts.DefaultBranch, facts.Check, now, runNowOnly, cancellationToken), repository, facts, run, token, key),
-                Job.Fix => FixJob(await JobStore.ClaimFix(transaction, projectId, userId, workerId, run, facts.Check, now, runNowOnly, cancellationToken), repository, facts, run, token, key),
-                Job.FeatureFix => FeatureFixJob(await JobStore.ClaimFeatureFix(transaction, projectId, userId, workerId, run, facts.DefaultBranch, facts.Check, now, runNowOnly, cancellationToken), repository, facts, run, token, key),
-                Job.Conflict => ConflictJob(await JobStore.ClaimConflict(transaction, projectId, userId, workerId, run, due!, facts.DefaultBranch, facts.Check, now, runNowOnly, cancellationToken), repository, facts, run, token, key, files),
-                Job.Read => ReadJob(await Readings.ReadingStore.Claim(transaction, projectId, userId, workerId, run, facts.DefaultBranch, now, runNowOnly, cancellationToken), repository, facts, run, token, key),
-                _ => BuildJob(await JobStore.Claim(transaction, projectId, userId, workerId, run, facts.DefaultBranch, facts.Check, now, runNowOnly, cancellationToken), repository, facts, run, token, key),
+                Job.Review => ReviewJob(await JobStore.ClaimReview(transaction, projectId, userId, workerId, run, now, runNowOnly, cancellationToken), repository, facts, run, credential, key),
+                Job.FeatureReview => FeatureReviewJob(await JobStore.ClaimFeatureReview(transaction, projectId, userId, workerId, run, facts.DefaultBranch, facts.Check, now, runNowOnly, cancellationToken), repository, facts, run, credential, key),
+                Job.Fix => FixJob(await JobStore.ClaimFix(transaction, projectId, userId, workerId, run, facts.Check, now, runNowOnly, cancellationToken), repository, facts, run, credential, key),
+                Job.FeatureFix => FeatureFixJob(await JobStore.ClaimFeatureFix(transaction, projectId, userId, workerId, run, facts.DefaultBranch, facts.Check, now, runNowOnly, cancellationToken), repository, facts, run, credential, key),
+                Job.Conflict => ConflictJob(await JobStore.ClaimConflict(transaction, projectId, userId, workerId, run, due!, facts.DefaultBranch, facts.Check, now, runNowOnly, cancellationToken), repository, facts, run, credential, key, files),
+                Job.Read => ReadJob(await Readings.ReadingStore.Claim(transaction, projectId, userId, workerId, run, facts.DefaultBranch, now, runNowOnly, cancellationToken), repository, facts, run, credential, key),
+                _ => BuildJob(await JobStore.Claim(transaction, projectId, userId, workerId, run, facts.DefaultBranch, facts.Check, now, runNowOnly, cancellationToken), repository, facts, run, credential, key),
             };
             if (handed is null)
             {
                 return null;
             }
 
-            await JobStore.RecordModel(transaction, handed.JobId, handed.Model, cancellationToken);
+            await JobStore.RecordModel(transaction, handed.JobId, handed.Model, credential, cancellationToken);
             return handed with { Values = carried };
         }, cancellationToken);
         if (job is null)
         {
             // Another worker took the last card of the kind since it was looked for, or the project
             // was stopped, paused, left its schedules with nothing of the kind covered by an override,
-            // or went unwatched while GitHub was asked; the key made for it is dropped
+            // was moved to another credential, or went unwatched while GitHub was asked; the key made for it is dropped
             // unused, and runs out within the hour. The worker asks again.
             return new NextJob.None();
         }
@@ -292,7 +302,7 @@ public sealed partial class Dispatcher(
             "",
             NoSchema,
             facts.Check,
-            "",
+            null,
             key.Value,
             key.ExpiresAt,
             new JobCommitter(facts.Committer.Name, facts.Committer.Email),
@@ -323,7 +333,7 @@ public sealed partial class Dispatcher(
         if (await host.DefaultBranch(userId, repository, cancellationToken) is not CodeHostResult<string>.Found { Value: var defaultBranch }
             || await host.CloneAddress(userId, repository, cancellationToken) is not CodeHostResult<Uri>.Found { Value: var clone }
             || await host.AppCommitter(userId, repository, cancellationToken) is not CodeHostResult<Committer>.Found { Value: var committer }
-            || await logins.ForRun(userId, cancellationToken) is not { } token
+            || await Credential(userId, projectId, cancellationToken) is not { } credential
             || await Key(projectId, userId, repository, kind == SetupRunStore.ReviewKind ? WritePurpose.Fetch : WritePurpose.Push, cancellationToken) is not { } key)
         {
             LogNotRead(log, projectId, "what a setup job needs");
@@ -339,7 +349,8 @@ public sealed partial class Dispatcher(
                 || await Pauses.HeldUnderLock(transaction, projectId, cancellationToken) != PauseHold.None
                 || await Usage.DailyBudget.ReachedIn(transaction, projectId, now, cancellationToken) is not null
                 || await Schedules.ScheduleStore.OutsideUnderLock(transaction, projectId, now, cancellationToken)
-                || await RunSettings.Read(transaction, projectId, cancellationToken) is not { } run)
+                || await RunSettings.Read(transaction, projectId, cancellationToken) is not { } run
+                || !Carries(run, credential))
             {
                 return null;
             }
@@ -352,8 +363,8 @@ public sealed partial class Dispatcher(
                     return null;
                 }
 
-                await JobStore.RecordModel(transaction, review.RunId, run.ModelFor(Job.Review), cancellationToken);
-                return SetupReviewJob(review, where, run, token, key, by) with { Values = [] };
+                await JobStore.RecordModel(transaction, review.RunId, run.ModelFor(Job.Review), credential, cancellationToken);
+                return SetupReviewJob(review, where, run, credential, key, by) with { Values = [] };
             }
 
             var claimed = kind == Job.Fix
@@ -367,7 +378,7 @@ public sealed partial class Dispatcher(
             var fix = claimed.FromCommit is not null || claimed.Comments.Count > 0
                 ? new FixInput(claimed.FromCommit is null ? null : claimed.Round, claimed.Report, claimed.Review, claimed.Comments, run.FixRoundsCard)
                 : null;
-            await JobStore.RecordModel(transaction, claimed.RunId, run.ModelFor(Job.Setup), cancellationToken);
+            await JobStore.RecordModel(transaction, claimed.RunId, run.ModelFor(Job.Setup), credential, cancellationToken);
             return new Job(
                 claimed.RunId,
                 Job.Setup,
@@ -378,7 +389,7 @@ public sealed partial class Dispatcher(
                 Brief.Setup(new SetupFacts(claimed.Branch, claimed.Base), fix, claimed.SentBack),
                 SetupSchema,
                 "",
-                token.Value,
+                credential,
                 key.Value,
                 key.ExpiresAt,
                 by,
@@ -400,7 +411,7 @@ public sealed partial class Dispatcher(
     /// setup's reviewer brief, the verdict's form, and what the review reads, the setup report and
     /// Dev flow's validation as the check. Its card is the setup's pull request, under its title,
     /// since a worker's review reads one.</summary>
-    private static Job SetupReviewJob(ClaimedSetupReview claimed, JobRepository where, RunSettings run, ClaudeToken token, AppWriteToken key, JobCommitter by)
+    private static Job SetupReviewJob(ClaimedSetupReview claimed, JobRepository where, RunSettings run, JobCredential credential, AppWriteToken key, JobCommitter by)
     {
         using var report = JsonDocument.Parse(claimed.Report);
         return new Job(
@@ -413,7 +424,7 @@ public sealed partial class Dispatcher(
             Brief.SetupReviewer(new ReviewFacts(claimed.Commit, claimed.Branch, claimed.Base, claimed.Earlier.Count)),
             VerdictSchema,
             SetupFiles.Validation,
-            token.Value,
+            credential,
             key.Value,
             key.ExpiresAt,
             by,
@@ -421,6 +432,48 @@ public sealed partial class Dispatcher(
             run.ModelFor(Job.Review),
             new JobReview(claimed.Commit, report.RootElement.Clone(), new CheckResult(claimed.ExitCode, claimed.Output), [.. claimed.Earlier.Select(Round)]));
     }
+
+    /// <summary>
+    /// The credential a job of the project carries, for what it runs on now: its user's Claude
+    /// token on the subscription, or their API key, each opened by its one method; null when the one
+    /// it runs on is not given, which is no work now. The project's setting is read again under its
+    /// lock, by <see cref="Carries"/>, so a job never carries a credential the project was moved off
+    /// meanwhile.
+    /// </summary>
+    private async Task<JobCredential?> Credential(Guid userId, Guid projectId, CancellationToken cancellationToken)
+    {
+        var runsOn = await database.InUserTransaction(userId, transaction => transaction.Connection!.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
+            "SELECT runs_on FROM project_settings WHERE project_id = @projectId",
+            new { projectId },
+            transaction,
+            cancellationToken: cancellationToken)), cancellationToken);
+        switch (runsOn)
+        {
+            case RunsOn.Subscription:
+                return await logins.ForRun(userId, cancellationToken) is { } token
+                    ? new JobCredential(JobCredential.Subscription, token.Value)
+                    : null;
+            case RunsOn.ApiKey:
+                if (await apiKeys.ForRun(userId, cancellationToken) is { } apiKey)
+                {
+                    return new JobCredential(JobCredential.ApiKey, apiKey.Value);
+                }
+
+                LogNoApiKey(log, projectId);
+                return null;
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>Whether <paramref name="credential"/>, opened before the lock, is still the one the
+    /// project runs on, as <paramref name="run"/> read it under the lock.</summary>
+    private static bool Carries(RunSettings run, JobCredential credential) => (run.RunsOn, credential.Kind) switch
+    {
+        (RunsOn.Subscription, JobCredential.Subscription) => true,
+        (RunsOn.ApiKey, JobCredential.ApiKey) => true,
+        _ => false,
+    };
 
     /// <summary>The commit <paramref name="branch"/> is at, read as the app, or null when the code
     /// host did not answer it now.</summary>
@@ -436,7 +489,7 @@ public sealed partial class Dispatcher(
     }
 
     /// <summary>The build job for a card taken to build, or null when none was.</summary>
-    private static Job? BuildJob(ClaimedCard? claimed, Repository repository, RepositoryFacts facts, RunSettings run, ClaudeToken token, AppWriteToken key)
+    private static Job? BuildJob(ClaimedCard? claimed, Repository repository, RepositoryFacts facts, RunSettings run, JobCredential credential, AppWriteToken key)
     {
         if (claimed is null)
         {
@@ -460,7 +513,7 @@ public sealed partial class Dispatcher(
             brief,
             ReportSchema,
             facts.Check,
-            token.Value,
+            credential,
             key.Value,
             key.ExpiresAt,
             new JobCommitter(facts.Committer.Name, facts.Committer.Email),
@@ -474,7 +527,7 @@ public sealed partial class Dispatcher(
     /// parent or the card on its own as its card, or a refused card read again, alone, on the branch
     /// whose code is read, from the default branch, with the reader's brief, the reading's form, no
     /// check, the reading model, and every card to read as picked.</summary>
-    private static Job? ReadJob(Readings.ClaimedRead? claimed, Repository repository, RepositoryFacts facts, RunSettings run, ClaudeToken token, AppWriteToken key)
+    private static Job? ReadJob(Readings.ClaimedRead? claimed, Repository repository, RepositoryFacts facts, RunSettings run, JobCredential credential, AppWriteToken key)
     {
         if (claimed is null)
         {
@@ -492,7 +545,7 @@ public sealed partial class Dispatcher(
             brief,
             ReadingSchema,
             "",
-            token.Value,
+            credential,
             key.Value,
             key.ExpiresAt,
             new JobCommitter(facts.Committer.Name, facts.Committer.Email),
@@ -504,7 +557,7 @@ public sealed partial class Dispatcher(
     /// <summary>The conflict job for a feature taken to resolve, or null when none was: on the
     /// feature's branch, with the default branch as its base, the feature's parent as its card, the
     /// conflict brief, the report's form, the check, and the two commits it merges.</summary>
-    private static Job? ConflictJob(ClaimedConflict? claimed, Repository repository, RepositoryFacts facts, RunSettings run, ClaudeToken token, AppWriteToken key, IReadOnlyList<string> files)
+    private static Job? ConflictJob(ClaimedConflict? claimed, Repository repository, RepositoryFacts facts, RunSettings run, JobCredential credential, AppWriteToken key, IReadOnlyList<string> files)
     {
         if (claimed is null)
         {
@@ -522,7 +575,7 @@ public sealed partial class Dispatcher(
             brief,
             ReportSchema,
             facts.Check,
-            token.Value,
+            credential,
             key.Value,
             key.ExpiresAt,
             new JobCommitter(facts.Committer.Name, facts.Committer.Email),
@@ -535,7 +588,7 @@ public sealed partial class Dispatcher(
     /// the feature's branch, with the default branch as its base, the feature's parent as its card,
     /// the feature reviewer's brief, the verdict's form, the project's check, and what the review
     /// reads besides the code.</summary>
-    private static Job? FeatureReviewJob(ClaimedFeatureReview? claimed, Repository repository, RepositoryFacts facts, RunSettings run, ClaudeToken token, AppWriteToken key)
+    private static Job? FeatureReviewJob(ClaimedFeatureReview? claimed, Repository repository, RepositoryFacts facts, RunSettings run, JobCredential credential, AppWriteToken key)
     {
         if (claimed is null)
         {
@@ -553,7 +606,7 @@ public sealed partial class Dispatcher(
             brief,
             VerdictSchema,
             facts.Check,
-            token.Value,
+            credential,
             key.Value,
             key.ExpiresAt,
             new JobCommitter(facts.Committer.Name, facts.Committer.Email),
@@ -565,7 +618,7 @@ public sealed partial class Dispatcher(
     /// <summary>The fix job for a feature taken to fix as a whole, or null when none was: a fix's job
     /// on the feature's branch, with the default branch as its base, the feature's parent as its
     /// card, the feature's fix brief, the report's form, and where the fix starts.</summary>
-    private static Job? FeatureFixJob(ClaimedFeatureFix? claimed, Repository repository, RepositoryFacts facts, RunSettings run, ClaudeToken token, AppWriteToken key)
+    private static Job? FeatureFixJob(ClaimedFeatureFix? claimed, Repository repository, RepositoryFacts facts, RunSettings run, JobCredential credential, AppWriteToken key)
     {
         if (claimed is null)
         {
@@ -586,7 +639,7 @@ public sealed partial class Dispatcher(
             brief,
             ReportSchema,
             facts.Check,
-            token.Value,
+            credential,
             key.Value,
             key.ExpiresAt,
             new JobCommitter(facts.Committer.Name, facts.Committer.Email),
@@ -600,7 +653,7 @@ public sealed partial class Dispatcher(
     /// <summary>The fix job for a card taken to fix, or null when none was: a build's job on the
     /// card's branch and base, with the fix brief, the developer's with what to fix, the report's
     /// form, and where the fix starts.</summary>
-    private static Job? FixJob(ClaimedFix? claimed, Repository repository, RepositoryFacts facts, RunSettings run, ClaudeToken token, AppWriteToken key)
+    private static Job? FixJob(ClaimedFix? claimed, Repository repository, RepositoryFacts facts, RunSettings run, JobCredential credential, AppWriteToken key)
     {
         if (claimed is null)
         {
@@ -623,7 +676,7 @@ public sealed partial class Dispatcher(
             brief,
             ReportSchema,
             facts.Check,
-            token.Value,
+            credential,
             key.Value,
             key.ExpiresAt,
             new JobCommitter(facts.Committer.Name, facts.Committer.Email),
@@ -637,7 +690,7 @@ public sealed partial class Dispatcher(
     /// <summary>The review job for a card taken to review, or null when none was: the build's
     /// branch, base and check, the commit it left, its report, the check's result and its pictures,
     /// the reviewer's brief and the verdict's form.</summary>
-    private static Job? ReviewJob(ClaimedReview? claimed, Repository repository, RepositoryFacts facts, RunSettings run, ClaudeToken token, AppWriteToken key)
+    private static Job? ReviewJob(ClaimedReview? claimed, Repository repository, RepositoryFacts facts, RunSettings run, JobCredential credential, AppWriteToken key)
     {
         if (claimed is null)
         {
@@ -657,7 +710,7 @@ public sealed partial class Dispatcher(
             brief,
             VerdictSchema,
             claimed.Check ?? facts.Check,
-            token.Value,
+            credential,
             key.Value,
             key.ExpiresAt,
             new JobCommitter(facts.Committer.Name, facts.Committer.Email),
@@ -848,6 +901,9 @@ public sealed partial class Dispatcher(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "No job for project {ProjectId}: the code host refused to make the branch of feature {Feature}, with {Status}")]
     private static partial void LogBranchRefused(ILogger logger, Guid projectId, int feature, int status);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "No job for project {ProjectId}: it runs on the API key, and none is given")]
+    private static partial void LogNoApiKey(ILogger logger, Guid projectId);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "No job for project {ProjectId}: its .devflow/project.json is not valid: {Error}")]
     private static partial void LogBadProjectFile(ILogger logger, Guid projectId, string error);

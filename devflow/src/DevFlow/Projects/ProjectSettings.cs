@@ -50,6 +50,8 @@ namespace DevFlow.Projects;
 /// <param name="DailyTokenBudget">The tokens the project's runs may use in a day in the user's zone
 /// before it starts nothing new until midnight, a whole number of millions; null for off, the
 /// default. Outside every preset. See <see cref="Usage.DailyBudget"/>.</param>
+/// <param name="RunsOn">What its runs log in with, one of <see cref="Projects.RunsOn.Values"/>, the
+/// subscription by default. Outside every preset.</param>
 public sealed record ProjectSettings(
     string PickupLabel,
     string HoldLabel,
@@ -70,7 +72,8 @@ public sealed record ProjectSettings(
     int FixRoundsCard,
     int FixRoundsFeature,
     bool Questions,
-    long? DailyTokenBudget)
+    long? DailyTokenBudget,
+    string RunsOn)
 {
     /// <summary>The preset these settings match, or <c>custom</c>, never stored; see
     /// <see cref="Presets"/>.</summary>
@@ -86,10 +89,10 @@ public sealed record ProjectSettings(
     public static ProjectSettings Defaults { get; } = new(
         "devflow", "devflow-hold", "devflow-attention", "devflow-review", "always", true, true, true, [], [],
         RunSettings.Defaults.ModelReading, RunSettings.Defaults.ModelBuilding, RunSettings.Defaults.ModelReviewing,
-        RunSettings.Defaults.Minutes, RunSettings.Defaults.Turns, RunSettings.Defaults.BudgetUsd, RunSettings.Defaults.FixRoundsCard, RunSettings.Defaults.FixRoundsFeature, true, null);
+        RunSettings.Defaults.Minutes, RunSettings.Defaults.Turns, RunSettings.Defaults.BudgetUsd, RunSettings.Defaults.FixRoundsCard, RunSettings.Defaults.FixRoundsFeature, true, null, Projects.RunsOn.Subscription);
 }
 
-/// <summary>What <c>PUT /devflow/api/projects/{id}/settings</c> takes: all twenty, every time,
+/// <summary>What <c>PUT /devflow/api/projects/{id}/settings</c> takes: all twenty-one, every time,
 /// the trusted accounts as plain logins. The daily budget may be null, for off, but is never left
 /// out: one left out is refused as the request's shape, so a client that does not know it never
 /// switches a budget off by saving.</summary>
@@ -113,7 +116,8 @@ public sealed record SettingsRequest(
     int? FixRoundsCard,
     int? FixRoundsFeature,
     bool? Questions,
-    [property: JsonRequired] long? DailyTokenBudget)
+    [property: JsonRequired] long? DailyTokenBudget,
+    string? RunsOn)
 {
     /// <summary>
     /// The settings, with the trusted accounts to store, or what is wrong with each field, by its
@@ -132,6 +136,9 @@ public sealed record SettingsRequest(
     /// as any number, so that one with a fraction is refused naming it rather than as the request's
     /// shape, and must be whole. <c>questions</c> is given.
     /// <c>daily_token_budget</c> is null or as <see cref="Usage.DailyBudget.Holds"/> has it.
+    /// <c>runs_on</c> is one of <see cref="Projects.RunsOn.Values"/>, exactly; whether an API key is
+    /// given for <c>api_key</c> is the store's, under the key's lock, see
+    /// <see cref="ProjectSettingsStore.Save"/>.
     /// </summary>
     public (ProjectSettings? Settings, TrustedAccounts? Trusted, Dictionary<string, string[]> Errors) Check(string? mine)
     {
@@ -211,6 +218,11 @@ public sealed record SettingsRequest(
             errors["daily_token_budget"] = [Usage.DailyBudget.Problem];
         }
 
+        if (RunsOn is null || !Projects.RunsOn.Values.Contains(RunsOn, StringComparer.Ordinal))
+        {
+            errors["runs_on"] = [$"must be {string.Join(" or ", Projects.RunsOn.Values)}"];
+        }
+
         if (errors.Count > 0)
         {
             return (null, null, errors);
@@ -222,7 +234,7 @@ public sealed record SettingsRequest(
             new ProjectSettings(
                 PickupLabel!, HoldLabel!, AttentionLabel!, ReviewLabel!, WaitsForOwner!, WaitWhenMarked!.Value, WaitWhenPaths!.Value, WaitWhenDecision!.Value, paths, trusted.Listed,
                 ModelReading!, ModelBuilding!, ModelReviewing!, RunMinutes!.Value, RunTurns!.Value, (int)RunBudgetUsd!.Value, FixRoundsCard!.Value, FixRoundsFeature!.Value, Questions!.Value,
-                DailyTokenBudget),
+                DailyTokenBudget, RunsOn!),
             trusted,
             errors);
     }
@@ -280,6 +292,19 @@ public sealed record SettingsRequest(
     };
 }
 
+/// <summary>What saving a project's settings came to.</summary>
+public enum SaveOutcome
+{
+    /// <summary>Saved.</summary>
+    Saved,
+
+    /// <summary>The user has no such project.</summary>
+    NoProject,
+
+    /// <summary>The settings use the API key, and the user has given none.</summary>
+    NoApiKey,
+}
+
 /// <summary>A project's settings in the database, through the door as the project's user.</summary>
 public sealed class ProjectSettingsStore(UserDb database)
 {
@@ -301,7 +326,7 @@ public sealed class ProjectSettingsStore(UserDb database)
                    s.trusted_logins AS TrustedLogins, a.login AS Mine, s.model_reading AS ModelReading,
                    s.model_building AS ModelBuilding, s.model_reviewing AS ModelReviewing, s.run_minutes AS RunMinutes,
                    s.run_turns AS RunTurns, s.run_budget_usd AS RunBudgetUsd, s.fix_rounds_card AS FixRoundsCard, s.fix_rounds_feature AS FixRoundsFeature,
-                   s.questions AS Questions, s.daily_token_budget AS DailyTokenBudget
+                   s.questions AS Questions, s.daily_token_budget AS DailyTokenBudget, s.runs_on AS RunsOn
             FROM project_settings s
             LEFT JOIN github_accounts a ON a.user_id = s.user_id
             WHERE s.project_id = @projectId
@@ -314,7 +339,7 @@ public sealed class ProjectSettingsStore(UserDb database)
             : new ProjectSettings(
                 row.PickupLabel, row.HoldLabel, row.AttentionLabel, row.ReviewLabel, row.WaitsForOwner, row.WaitWhenMarked, row.WaitWhenPaths,
                 row.WaitWhenDecision, row.WaitPaths, TrustedAccounts.Of(row.Mine, row.TrustedLogins).Listed, row.ModelReading, row.ModelBuilding,
-                row.ModelReviewing, row.RunMinutes, row.RunTurns, row.RunBudgetUsd, row.FixRoundsCard, row.FixRoundsFeature, row.Questions, row.DailyTokenBudget);
+                row.ModelReviewing, row.RunMinutes, row.RunTurns, row.RunBudgetUsd, row.FixRoundsCard, row.FixRoundsFeature, row.Questions, row.DailyTokenBudget, row.RunsOn);
     }
 
     /// <summary>The owner's linked login, whatever the link's state, or null without one.</summary>
@@ -331,13 +356,35 @@ public sealed class ProjectSettingsStore(UserDb database)
     /// <see cref="Setup.SetupStore.SettingsDueSql"/>, marks them accepted at <paramref name="now"/>,
     /// which does the step, whether the owner pressed "Accept" on a proposal or saved the panel. A
     /// save before then is kept but does not do it. See "Setting up a project" in
-    /// devflow/README.md.</summary>
-    /// <returns>Whether the user has such a project.</returns>
-    public async Task<bool> Save(Guid userId, Guid projectId, ProjectSettings settings, TrustedAccounts trusted, DateTimeOffset now, CancellationToken cancellationToken)
+    /// devflow/README.md. Settings that use the API key are saved only while the user has one,
+    /// read with a share lock on its row, so removing the key, which takes that row for update
+    /// before it looks for projects on it, never passes a save that moves a project onto it.</summary>
+    public async Task<SaveOutcome> Save(Guid userId, Guid projectId, ProjectSettings settings, TrustedAccounts trusted, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(trusted);
-        return await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
+        return await database.InUserTransaction(userId, async transaction =>
+        {
+            if (RunsOn.NeedsApiKey(settings.RunsOn) && !await ApiKeyHeld(transaction, userId, cancellationToken))
+            {
+                return SaveOutcome.NoApiKey;
+            }
+
+            return await Update(transaction, projectId, settings, trusted, now, cancellationToken) > 0 ? SaveOutcome.Saved : SaveOutcome.NoProject;
+        }, cancellationToken);
+    }
+
+    /// <summary>Whether the user has an API key, its row held with a share lock until the
+    /// transaction ends.</summary>
+    private static async Task<bool> ApiKeyHeld(NpgsqlTransaction transaction, Guid userId, CancellationToken cancellationToken) =>
+        await transaction.Connection!.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
+            "SELECT user_id FROM api_keys WHERE user_id = @userId FOR SHARE",
+            new { userId },
+            transaction,
+            cancellationToken: cancellationToken)) is not null;
+
+    private static Task<int> Update(NpgsqlTransaction transaction, Guid projectId, ProjectSettings settings, TrustedAccounts trusted, DateTimeOffset now, CancellationToken cancellationToken) =>
+        transaction.Connection!.ExecuteAsync(new CommandDefinition(
             $"""
             UPDATE project_settings
             SET pickup_label = @PickupLabel, hold_label = @HoldLabel, attention_label = @AttentionLabel, review_label = @ReviewLabel,
@@ -345,7 +392,7 @@ public sealed class ProjectSettingsStore(UserDb database)
                 wait_when_decision = @WaitWhenDecision, wait_paths = @waitPaths, trusted_logins = @trustedLogins,
                 model_reading = @ModelReading, model_building = @ModelBuilding, model_reviewing = @ModelReviewing,
                 run_minutes = @RunMinutes, run_turns = @RunTurns, run_budget_usd = @RunBudgetUsd, fix_rounds_card = @FixRoundsCard, fix_rounds_feature = @FixRoundsFeature,
-                questions = @Questions, daily_token_budget = @DailyTokenBudget,
+                questions = @Questions, daily_token_budget = @DailyTokenBudget, runs_on = @RunsOn,
                 accepted_at = coalesce(accepted_at, CASE WHEN EXISTS (SELECT 1 FROM projects p WHERE p.id = @projectId AND {Setup.SetupStore.SettingsDueSql}) THEN @now END)
             WHERE project_id = @projectId
             """,
@@ -372,11 +419,11 @@ public sealed class ProjectSettingsStore(UserDb database)
                 settings.FixRoundsFeature,
                 settings.Questions,
                 settings.DailyTokenBudget,
+                settings.RunsOn,
                 now,
             },
             transaction,
-            cancellationToken: cancellationToken)), cancellationToken) > 0;
-    }
+            cancellationToken: cancellationToken));
 
     /// <summary>Takes the project's settings as accepted, as they are, when they are not yet: for the
     /// fake worker only, which stands in for the owner's first save so a test of anything after
@@ -413,5 +460,6 @@ public sealed class ProjectSettingsStore(UserDb database)
         public int FixRoundsFeature { get; init; }
         public bool Questions { get; init; }
         public long? DailyTokenBudget { get; init; }
+        public string RunsOn { get; init; } = "";
     }
 }

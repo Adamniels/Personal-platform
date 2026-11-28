@@ -6,10 +6,13 @@ using DevFlow.ClaudeLogin;
 using DevFlow.CodeHost;
 using DevFlow.Jobs;
 using DevFlow.Reading;
+using DevFlow.Tests.Link;
 using DevFlow.Tests.Workers;
 
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+
+using PlatformData.Testing;
 
 namespace DevFlow.Tests.Jobs;
 
@@ -167,7 +170,7 @@ public sealed class DispatchTests
         Assert.Equal(StatusCodes.Status200OK, response.Response.StatusCode);
         var job = await Workers.Workers.Json(response);
         Assert.Equal(5, (int)job["card"]!["number"]!);
-        Assert.Equal("sk-ant-oat01-bob-test-token", (string)job["claude_token"]!);
+        Assert.Equal("sk-ant-oat01-bob-test-token", (string)job["credential"]!["secret"]!);
         Assert.Equal(bob, Assert.Single(await jobs.Runs(bobs)).UserId);
     }
 
@@ -203,6 +206,49 @@ public sealed class DispatchTests
     }
 
     [Fact]
+    public async Task AnApiKeyProjectsJobCarriesTheKey()
+    {
+        // No Claude login at all: a project on the key needs none.
+        await using var jobs = await Jobs.Start([Jobs.Card(1)], login: false);
+        await jobs.RunOnTheKey();
+        Assert.Null((string?)(await Workers.Workers.List(jobs.Routes, jobs.Project))["held"]);
+
+        var job = await jobs.Job();
+
+        Assert.Equal(1, (int)job["card"]!["number"]!);
+        Assert.True(JsonNode.DeepEquals(
+            new JsonObject { ["kind"] = "api_key", ["secret"] = Jobs.ApiKey },
+            job["credential"]));
+        Assert.Equal("api_key", Assert.Single(await jobs.Runs()).Credential);
+
+        // The Projects tab's summary says nothing holds it either.
+        var listed = JsonNode.Parse(await Harness.Body(await jobs.Routes.App.Get("/devflow/api/projects", Contract.Token)))!["projects"]!.AsArray();
+        Assert.Null((string?)Assert.Single(listed)!["summary"]!["workers"]!["held"]);
+    }
+
+    [Fact]
+    public async Task ASubscriptionProjectsJobCarriesTheToken()
+    {
+        await using (var jobs = await Jobs.Start([Jobs.Card(1)]))
+        {
+            var job = await jobs.Job();
+
+            Assert.True(JsonNode.DeepEquals(
+                new JsonObject { ["kind"] = "subscription", ["secret"] = Jobs.ClaudeToken },
+                job["credential"]));
+            Assert.Equal("subscription", Assert.Single(await jobs.Runs()).Credential);
+        }
+
+        // With no Claude login, it is held as before, an API key given or not.
+        await using var held = await Jobs.Start([Jobs.Card(1)], login: false);
+        await held.Routes.App.Services.GetRequiredService<ApiKeys>().Set(Jobs.User, Jobs.ApiKey, Ct);
+        Assert.Equal(StatusCodes.Status204NoContent, (await held.Next()).Response.StatusCode);
+        Assert.Equal("queued", (await held.Card(1)).State);
+        Assert.Equal("no_claude_login", (string?)(await Workers.Workers.List(held.Routes, held.Project))["held"]);
+        Assert.Empty(await held.Runs());
+    }
+
+    [Fact]
     public async Task TheJobHoldsWhatTheWorkerNeedsAndNoMore()
     {
         await using var jobs = await Jobs.Start(
@@ -212,7 +258,7 @@ public sealed class DispatchTests
         var job = await jobs.Job();
 
         Assert.Equal(
-            ["base", "branch", "brief", "card", "check", "claude_token", "committer", "job_id", "kind", "limits", "model", "push_key", "push_key_expires_at", "report_schema", "repository", "start", "to_check", "to_fix", "to_read", "to_resolve", "to_review", "to_review_feature", "url", "values"],
+            ["base", "branch", "brief", "card", "check", "committer", "credential", "job_id", "kind", "limits", "model", "push_key", "push_key_expires_at", "report_schema", "repository", "start", "to_check", "to_fix", "to_read", "to_resolve", "to_review", "to_review_feature", "url", "values"],
             job.Select(pair => pair.Key).Order(StringComparer.Ordinal));
         // The project has no values, so a build carries an empty list of them.
         Assert.Empty(job["values"]!.AsArray());
@@ -248,8 +294,8 @@ public sealed class DispatchTests
         Assert.Contains("The list is blank when there are none.", (string)job["brief"]!, StringComparison.Ordinal);
         Assert.Equal(DevFlow.Protocol.Report.Schema().ToJsonString(), job["report_schema"]!.ToJsonString());
 
-        // The token is the run's user's.
-        Assert.Equal(Jobs.ClaudeToken, (string)job["claude_token"]!);
+        // The credential is the run's user's token, as the project runs on the subscription.
+        Assert.Equal(Jobs.ClaudeToken, (string)job["credential"]!["secret"]!);
 
         // The push key is the fake's, narrowed to Push on the project's repository, for an hour.
         var key = (string)job["push_key"]!;

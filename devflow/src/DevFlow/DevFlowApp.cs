@@ -169,6 +169,7 @@ public static class DevFlowApp
             provider.GetRequiredService<WorkerStore>(),
             provider.GetRequiredService<WatchStore>(),
             provider.GetRequiredService<ClaudeLogins>(),
+            provider.GetRequiredService<ApiKeys>(),
             provider.GetRequiredService<ICodeHost>(),
             provider.GetRequiredService<WorkerStart>(),
             provider.GetRequiredService<TimeProvider>(),

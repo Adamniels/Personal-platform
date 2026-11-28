@@ -79,7 +79,7 @@ public sealed class ProtocolTests
             "The brief.",
             JsonSerializer.SerializeToElement(Report.Schema()),
             "npm test",
-            "sk-ant-oat01-token",
+            new JobCredential(JobCredential.Subscription, "sk-ant-oat01-token"),
             "ghs_key",
             new DateTimeOffset(2026, 11, 18, 9, 0, 0, TimeSpan.Zero),
             new JobCommitter("devflow[bot]", "1+devflow[bot]@users.noreply.github.com"),

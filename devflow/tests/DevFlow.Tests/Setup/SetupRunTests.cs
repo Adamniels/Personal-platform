@@ -163,7 +163,7 @@ public sealed class SetupRunTests
         Assert.Equal(SetupReport.Schema().ToJsonString(), job["report_schema"]!.ToJsonString());
         Assert.Equal("sonnet", (string)job["model"]!);
         Assert.Equal((45, 300), ((int)job["limits"]!["minutes"]!, (int)job["limits"]!["turns"]!));
-        Assert.Equal(Jobs.ClaudeToken, (string)job["claude_token"]!);
+        Assert.Equal(Jobs.ClaudeToken, (string)job["credential"]!["secret"]!);
         Assert.Equal(WritePurpose.Push, jobs.Fake.Issued(Jobs.User, (string)job["push_key"]!)!.Value.Purpose);
         var brief = (string)job["brief"]!;
         Assert.Contains("# Set this project up for Dev flow", brief, StringComparison.Ordinal);

@@ -904,15 +904,17 @@ public static class JobStore
     /// <summary>A commit's first seven characters, or "an unknown commit" when there is none.</summary>
     private static string Short(string? commit) => commit is { Length: >= 7 } ? commit[..7] : "an unknown commit";
 
-    /// <summary>Records on the run the model its job was handed out with, inside the transaction
-    /// that took the work, as its minutes are, so "Running now" names the model the run uses
-    /// whatever the project's setting is changed to after.</summary>
-    public static async Task RecordModel(NpgsqlTransaction transaction, Guid runId, string model, CancellationToken cancellationToken)
+    /// <summary>Records on the run the model and the credential its job was handed out with,
+    /// inside the transaction that took the work, as its minutes are, so "Running now" names the
+    /// model the run uses whatever the project's setting is changed to after, and spend on the API
+    /// key is counted apart from the subscription's.</summary>
+    public static async Task RecordModel(NpgsqlTransaction transaction, Guid runId, string model, JobCredential credential, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(transaction);
+        ArgumentNullException.ThrowIfNull(credential);
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
-            "UPDATE runs SET model = @model WHERE id = @runId",
-            new { runId, model },
+            "UPDATE runs SET model = @model, credential = @credential WHERE id = @runId",
+            new { runId, model, credential = credential.Kind },
             transaction,
             cancellationToken: cancellationToken));
     }

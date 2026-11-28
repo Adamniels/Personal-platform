@@ -178,7 +178,7 @@ public sealed class ProjectStore(UserDb database, UserTokens tokens, ICodeHost h
     /// The user's projects, by owner and name, each with its summary, under row level security:
     /// the projects with their workers' health, the cards counted by group and the open features,
     /// one query each in one transaction. <c>held</c> is the workers list's, the pauses, the project's
-    /// hold and then the user's Claude login, and <c>cannot_run</c> its too; setting up is
+    /// hold and then the user's Claude login for a project on the subscription, and <c>cannot_run</c> its too; setting up is
     /// <see cref="SetupStore.Of"/>, asked only for a project not registered, since its values step
     /// is worked out from the newest setup report in C#. See "Projects" in
     /// devflow/docs/devflow-architecture.md.
@@ -196,7 +196,8 @@ public sealed class ProjectStore(UserDb database, UserTokens tokens, ICodeHost h
                        p.paused_at AS PausedAt,
                        {ProjectWaits.CannotRunReasonSql} AS CannotRunReason,
                        {SetupStore.RegisteredSql} AS Registered,
-                       (SELECT r.last_success_at FROM project_reads r WHERE r.project_id = p.id) AS LastReadAt
+                       (SELECT r.last_success_at FROM project_reads r WHERE r.project_id = p.id) AS LastReadAt,
+                       coalesce((SELECT s.runs_on FROM project_settings s WHERE s.project_id = p.id), '{RunsOn.Subscription}') AS RunsOn
                 FROM projects p
                 ORDER BY lower(p.owner), lower(p.name), p.id
                 """,
@@ -240,11 +241,12 @@ public sealed class ProjectStore(UserDb database, UserTokens tokens, ICodeHost h
             return (projects.ToList(), cards.ToDictionary(row => row.ProjectId), features.ToDictionary(row => row.ProjectId));
         }, cancellationToken);
 
-        // Asked once, and only when a project's own hold does not already say why.
-        string? login = null;
-        if (projects.Any(row => row.Held is null))
+        // Asked once, and only when a project on the subscription has no hold of its own that
+        // already says why.
+        ClaudeLoginStatus? login = null;
+        if (projects.Any(row => row.Held is null && RunsOn.NeedsClaudeLogin(row.RunsOn)))
         {
-            login = Dispatcher.HeldFor(await logins.Status(userId, cancellationToken));
+            login = await logins.Status(userId, cancellationToken);
         }
 
         var listed = new List<ListedProject>(projects.Count);
@@ -266,7 +268,7 @@ public sealed class ProjectStore(UserDb database, UserTokens tokens, ICodeHost h
             var workers = new WorkersHealth(
                 row.Workers,
                 row.LastSeenAt is { } seen ? GitHubLink.Utc(seen) : null,
-                row.Held ?? login,
+                row.Held ?? (login is null ? null : Dispatcher.HeldFor(login, row.RunsOn)),
                 row.CannotRunReason is { } reason ? ProjectWaits.CannotRun(row.Name, reason) : null);
             listed.Add(new ListedProject(row.Id, row.InstallationId, row.RepositoryId, row.Owner, row.Name, GitHubLink.Utc(row.CreatedAt),
                 row.LastReadAt is { } read ? GitHubLink.Utc(read) : null,
@@ -301,7 +303,7 @@ public sealed class ProjectStore(UserDb database, UserTokens tokens, ICodeHost h
     };
 
     private sealed record Row(Guid Id, long InstallationId, long RepositoryId, string Owner, string Name, DateTime CreatedAt,
-        int Workers, DateTime? LastSeenAt, string? Held, DateTime? PausedAt, string? CannotRunReason, bool Registered, DateTime? LastReadAt);
+        int Workers, DateTime? LastSeenAt, string? Held, DateTime? PausedAt, string? CannotRunReason, bool Registered, DateTime? LastReadAt, string RunsOn);
 
     private sealed record CountsRow(Guid ProjectId, int NeedsYou, int InProgress, int Queued, int Done);
 

@@ -2,10 +2,12 @@ using System.Text.Json.Nodes;
 
 using Dapper;
 
+using DevFlow.ClaudeLogin;
 using DevFlow.Tests.Link;
 using DevFlow.Tests.Reading;
 
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 using PlatformData.Testing;
 
@@ -45,6 +47,7 @@ public sealed class SettingsTests
         ["fix_rounds_feature"] = 3,
         ["questions"] = true,
         ["daily_token_budget"] = null,
+        ["runs_on"] = "subscription",
     };
 
     /// <summary>What the route answers for <paramref name="body"/>: the settings, and the preset
@@ -267,6 +270,79 @@ public sealed class SettingsTests
                 new { wrong, project },
                 cancellationToken: Ct)));
         }
+    }
+
+    [Fact]
+    public async Task RunsOnIsChecked()
+    {
+        await using var routes = await Routes.Start();
+        var project = await routes.Project(Routes.User);
+
+        // A new project runs on the subscription.
+        Assert.Equal("subscription", (string)(await Get(routes, project))["runs_on"]!);
+        Assert.Equal("subscription", await RunsOn(routes, project));
+
+        // The API key without one given is refused, naming runs_on, with what to do first.
+        var onTheKey = Settings();
+        onTheKey["runs_on"] = "api_key";
+        var refused = await Put(routes, project, onTheKey);
+        Assert.Equal(StatusCodes.Status422UnprocessableEntity, refused.Response.StatusCode);
+        var problem = JsonNode.Parse(await Harness.Body(refused))!.AsObject();
+        Assert.Equal(["runs_on"], problem["errors"]!.AsObject().Select(error => error.Key));
+        Assert.Equal("Give an API key on the Projects tab first", (string)problem["errors"]!["runs_on"]![0]!);
+        Assert.Equal("subscription", await RunsOn(routes, project));
+
+        // Once one is given, it is taken, saved and answered as given; the preset is not touched.
+        await routes.App.Services.GetRequiredService<ApiKeys>().Set(Routes.User, "sk-ant-api03-settings-test-key", Ct);
+        var saved = await Put(routes, project, onTheKey);
+        Assert.Equal(StatusCodes.Status200OK, saved.Response.StatusCode);
+        Assert.Equal(Answer(onTheKey, "only_i_merge").ToJsonString(), JsonNode.Parse(await Harness.Body(saved))!.ToJsonString());
+        Assert.Equal("api_key", await RunsOn(routes, project));
+        Assert.Equal("api_key", (string)(await Get(routes, project))["runs_on"]!);
+
+        // Anything but the two, left out among them, is refused naming the field alone, and it
+        // stays as it was.
+        var wrongs = new List<JsonObject>();
+        foreach (var wrong in new JsonNode?[] { "Subscription", "api-key", "", "subscription_then_api_key", 1, null })
+        {
+            var body = Settings();
+            body["runs_on"] = wrong;
+            wrongs.Add(body);
+        }
+
+        wrongs.Add(Without(Settings(), "runs_on"));
+        foreach (var body in wrongs)
+        {
+            var answer = await Put(routes, project, body);
+            Assert.True(answer.Response.StatusCode is StatusCodes.Status422UnprocessableEntity or StatusCodes.Status400BadRequest, $"{body.ToJsonString()} is refused");
+            if (answer.Response.StatusCode == StatusCodes.Status422UnprocessableEntity)
+            {
+                Assert.Equal(["runs_on"], JsonNode.Parse(await Harness.Body(answer))!["errors"]!.AsObject().Select(error => error.Key));
+            }
+
+            Assert.Equal("api_key", await RunsOn(routes, project));
+        }
+
+        // Back to the subscription is always taken.
+        Assert.Equal(StatusCodes.Status200OK, (await Put(routes, project, Settings())).Response.StatusCode);
+        Assert.Equal("subscription", await RunsOn(routes, project));
+
+        // The table refuses a row written around the route.
+        await using var admin = await routes.Database.OpenAdmin(Ct);
+        await Assert.ThrowsAsync<Npgsql.PostgresException>(() => admin.ExecuteAsync(new CommandDefinition(
+            "UPDATE project_settings SET runs_on = 'both' WHERE project_id = @project",
+            new { project },
+            cancellationToken: Ct)));
+    }
+
+    /// <summary>What the project runs on as stored, read past row level security.</summary>
+    private static async Task<string> RunsOn(Routes routes, Guid project)
+    {
+        await using var admin = await routes.Database.OpenAdmin(Ct);
+        return await admin.QuerySingleAsync<string>(new CommandDefinition(
+            "SELECT runs_on FROM project_settings WHERE project_id = @project",
+            new { project },
+            cancellationToken: Ct));
     }
 
     /// <summary>The project's spend per run as stored, read past row level security.</summary>
