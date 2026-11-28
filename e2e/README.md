@@ -18,8 +18,9 @@ from the repository root:
 for dir in $(bash scripts/ci/frontends.sh); do (cd "$dir" && npm ci && npm run build); done
 ```
 
-and every service in `infra/services.json` on its port, as "Starting the platform" in step 9
-starts them. Then, from this directory:
+and every service in `infra/services.json` on its port. `bash scripts/agent/gate.sh --start-platform`,
+from the repository root, does all of it but the preflight, and `--stop-platform` stops the services
+again. Then, from this directory:
 
 ```zsh
 uv run playwright install chromium   # once
@@ -30,6 +31,24 @@ uv run ruff format --check
 
 With the stack down the tests fail with a connection error, which is the expected red.
 Screenshots land in `screenshots/`, which is git ignored.
+
+The agents do not run the suite by hand: `scripts/agent/gate.sh` runs the tests a change can reach,
+the files `scripts/agent/e2e-scope.sh` picks from each service's `e2e` globs in
+`infra/services.json`. CI runs all of it on every push.
+
+## Running in parallel
+
+`addopts` runs the suite on four workers (`-n 4`, pytest-xdist), each with its own browser, which
+takes the suite from about 20 minutes to a fraction of it. It holds because every test signs up an
+account of its own, and every feature's state, Dev flow's fake code host and fake worker included,
+belongs to an account. `-n 0` runs it in one process, which a debugger needs.
+
+A test that changes state no account owns is marked `serial`. Every serial test holds one exclusive
+file lock, `platform-e2e-serial.lock` in the system's temp folder, for its whole run, fixtures
+included, so no two run at once on any worker; the rest run beside them. Today that is the backup
+line's two tests, which read and replace the hosted copy's one status file. A lock rather than
+pytest-xdist's `xdist_group`, which 3.8.0 cannot apply under pytest 9: it renames each test's node
+id in a field pytest 9 no longer reads, so the grouping silently does nothing.
 
 ## Fixtures
 
@@ -130,7 +149,7 @@ every page shares.
 
 ## Markers
 
-Two markers, registered in `pyproject.toml`, which runs with `--strict-markers` so a misspelt one
+Three markers, registered in `pyproject.toml`, which runs with `--strict-markers` so a misspelt one
 fails:
 
 - `dev_stack_only(reason=...)`, for a test that cannot hold against the hosted copy. The reason says
@@ -140,6 +159,8 @@ fails:
   and the hosted copy sets it.
 - `hosted_only`, for a test that needs something only the hosted copy has: the backup line's tests,
   which need the backup job and its status file.
+- `serial`, for a test that changes state no account owns, so no two such tests run at once; see
+  "Running in parallel".
 
 A plain `uv run pytest` is against the dev stack and leaves `hosted_only` out, through `addopts`.
 A `-m` on the command line replaces that one.
@@ -178,3 +199,7 @@ repository that already has Rust and Python. Playwright over Selenium for auto-w
 (`expect`), which removes most sleeps and flakiness.
 
 **pytest 9.2.0** and **ruff 0.17.4** with default rules, as in `canary/`.
+
+**pytest-xdist 3.8.0**, for the four workers in "Running in parallel": the standard way to run a
+pytest suite in processes, and pytest-playwright starts a browser per worker by itself. Its
+`--dist loadgroup` does not work under pytest 9, which is why `serial` is a lock.

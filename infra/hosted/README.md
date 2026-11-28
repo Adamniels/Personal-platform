@@ -645,8 +645,12 @@ packages for the suite, and no Rust or .NET, since the images bring their own to
 Docker layer cache, so each run builds every image from nothing, within its 45 minute timeout. On a
 failure it uploads `HOSTED_CHECK_LOGS` as the artifact `hosted-logs`.
 
-GitHub's runner is `linux/amd64` and the Mac mini `linux/arm64`, so the same Dockerfiles build on
-both: CI checks the first, and the implementer's own run of `check.sh` on the Mac mini, the second.
+The job runs on `ubuntu-24.04-arm`, GitHub's `linux/arm64` runner, free for a public repository:
+the architecture of the Mac mini, where the hosted copy runs, so the images are proven on what is
+released, before it merges. Nothing builds them for `linux/amd64`, since nothing runs them there.
+The implementer's local gate, `scripts/agent/gate.sh`, does not run `check.sh`: it built every image
+and ran the whole suite a third time in every such run, for what this job checks on every pull
+request that sets `hosted`.
 
 ## Resources
 

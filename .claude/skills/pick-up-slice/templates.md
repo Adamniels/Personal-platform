@@ -93,6 +93,8 @@ enough to match it.
 
 ~~~markdown
 Answers to the review of <short sha of the commit the review was for>, now at <new head short sha>.
+<Or, for a round with only a CI failure to answer: "Answers to CI on <short sha>, now at <new head
+short sha, or "unchanged">.">
 
 ## Blocking
 
@@ -105,6 +107,13 @@ Answers to the review of <short sha of the commit the review was for>, now at <n
 
 - `<path:line>` <the nit>: **Fixed** in <short sha>.
 - `<path:line>` <the nit>: **Left.** <Why: not cheap, or in a file the branch does not change.>
+
+## CI
+
+- `<job>` <the failing test or step, in a few words>: **Fixed** in <short sha>. <What the branch
+  broke and how.>
+- `<job>` <the failing test or step>: **Outside the branch.** <The log excerpt, and why it is not
+  this branch's: it fails on `main` too, a runner outage, and so on.>
 
 ## Owner comments
 
@@ -120,7 +129,7 @@ was committed.>
 (when any) <Each one quoted, with where it was.>
 ~~~
 
-Write `None.` under Blocking, Nits or Owner comments when the round had none.
+Write `None.` under Blocking, Nits, CI or Owner comments when the round had none.
 
 ## Blocked comment, on the slice
 

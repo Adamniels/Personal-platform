@@ -270,6 +270,8 @@ def test_the_home_page_says_nothing_about_backups_without_the_setting(
 
 
 @pytest.mark.hosted_only
+# Both read the one backup status file, which the second replaces.
+@pytest.mark.serial
 def test_the_home_page_shows_the_last_backup(
     page: Page, invite_code: str, viewport: str, base_url: str
 ):
@@ -292,6 +294,8 @@ def test_the_home_page_shows_the_last_backup(
 
 
 @pytest.mark.hosted_only
+# Both read the one backup status file, which the second replaces.
+@pytest.mark.serial
 def test_the_home_page_warns_when_the_backup_is_stale(
     page: Page,
     invite_code: str,

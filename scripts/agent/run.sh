@@ -79,7 +79,9 @@
 #                        never a count against the slice. One difference: the turn never waits the poll interval.
 #                        With `ci-ok is pending` among the reasons it records nothing, labels nothing and
 #                        returns, and the pull request's merge or owner item settles it once CI has reported;
-#                        and when the mention for this head was made before, it sets the label and goes on.
+#                        with `ci-ok failed` among them it does the same, and the next pending.sh offers the CI
+#                        fix round or, past it, the item that hands the pull request over; and when the mention
+#                        for this head was made before, it sets the label and goes on.
 #                        Nothing is settled when the run's own accounting paused or set the slice Blocked, or
 #                        when the pull request was merged or closed meanwhile.
 #   merge <pr> <slice>   merge-gate.sh <pr>, only for a head this loop found approved; any other head (it moved
@@ -146,7 +148,7 @@
 #                               pending.sh, merge-gate.sh, board.sh, verdict.sh, gh-guard.sh, pr-slice.sh and
 #                               next.sh instead: a test override
 #   AGENT_POLL_SECONDS          [600] idle, ci-ok pending and already-told wait
-#   AGENT_TIMEOUT_SECONDS       [5400] a claude run is killed, with its process group, after this long
+#   AGENT_TIMEOUT_SECONDS       [7200] a claude run is killed, with its process group, after this long
 #   AGENT_CALL_TIMEOUT_SECONDS  [per call, 60 to 300] one timeout for every other external call: a test override
 #   AGENT_SLEEP                 [sleep] the sleep command
 #   AGENT_DOCKER_START          [open -a Docker] starts Docker when its probe fails; empty never starts it
@@ -183,7 +185,7 @@ repo="${AGENT_REPO:-$(cd "$here/../.." && pwd)}"
 remote="${AGENT_REMOTE:-https://github.com/$REPO_SLUG.git}"
 scripts_override="${AGENT_SCRIPTS:-}"
 poll="${AGENT_POLL_SECONDS:-600}"
-timeout_secs="${AGENT_TIMEOUT_SECONDS:-5400}"
+timeout_secs="${AGENT_TIMEOUT_SECONDS:-7200}"
 call_override="${AGENT_CALL_TIMEOUT_SECONDS:-}"
 sleep_cmd="${AGENT_SLEEP:-sleep}"
 docker_start="${AGENT_DOCKER_START-open -a Docker}"
@@ -533,11 +535,11 @@ do_block() { # slice pr sha
 # block_slice: the mention goes on the PR for a PR item (R54), so it counts as the bot's reply there; runner-made text
 # and the log path only, first line never a marker.
 block_slice() { # slice pr sha item short logfile
-  local n see="" where="$1"
+  local n see="" where="$1" again="Set the slice In progress if its branch has commits, or Ready if not, to run it again."
   n="$(failures "$1")"
   [ -n "$6" ] && see=" See $6 on the Mac mini."
-  [ "$2" = - ] || where="$2"
-  if escalate "blocked-$1" "$where" "@$OWNER slice #$1 is Blocked: $n runs in a row failed on it, the last one $4 ($5).$see Comment on this PR or move the slice off Blocked to run it again." do_block "$1" "$2" "$3"; then
+  [ "$2" = - ] || { where="$2"; again="Comment on this PR or move the slice off Blocked to run it again."; }
+  if escalate "blocked-$1" "$where" "@$OWNER slice #$1 is Blocked: $n runs in a row failed on it, the last one $4 ($5).$see $again" do_block "$1" "$2" "$3"; then
     log "slice $1 set Blocked after $n failures"
     reset_failures "$1"
   else
@@ -868,6 +870,13 @@ merge_item() { # pr slice [turn]; head $cur_sha, labels $cur_labels
           log "#$pr is approved and waits for ci-ok ($(tr '\n' ',' <<<"$reasons")); its item settles it"; return
         fi
         log "#$pr waits for ci-ok ($(tr '\n' ',' <<<"$reasons"))"; ci_wait "$pr" "$cur_sha" "$slice"; nap "$poll"; return
+      fi
+      # ci-ok failed while the review ran. A mention now would read as the implementer's answer to the failure, and
+      # pending.sh would never offer its fix round; the next pending.sh offers that round, or, past the CI round cap
+      # or once the failure is answered, the merge or owner item that hands the pull request over.
+      if [ "$turn" = turn ] && grep -qxF "ci-ok failed" <<<"$reasons"; then
+        log "#$pr is approved but ci-ok failed ($(tr '\n' ',' <<<"$reasons")); pending.sh decides between a fix round and the owner"
+        ci_clear "$pr"; return
       fi
       ci_clear "$pr"
       [ -n "$reasons" ] || owner_only=0

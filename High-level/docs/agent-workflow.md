@@ -136,10 +136,18 @@ reviewer lists it for him with its own view, and blocks only when one of the thr
 and `has-decision` is missing. How a doc that disagrees with the plan is handled is step 8 of
 `pick-up-slice`.
 
-**The gate is what CI runs**, decided from the branch's diff by `scripts/ci/changed-areas.sh`, so
-`ci-ok` passes on the first push. When the e2e area is touched, the Playwright suite runs against
-the stack through `https://platform.test`, and for UI work the agent also looks at the screenshots
-at desktop and 390px phone width for what a test does not catch. Screenshots are committed to the
+**The gate is what CI runs, scoped to what the change can reach**, so `ci-ok` passes on the first
+push. It is one script, `scripts/agent/gate.sh`, which the agent runs after every change: the areas
+come from the branch's diff through `scripts/ci/changed-areas.sh`, each runs its workflow's steps,
+and an area that passed with the same content is not run again, so a fix round runs only what its
+change reaches. Locally, e2e runs the tests `scripts/agent/e2e-scope.sh` picks against the stack
+through `https://platform.test`: a service's own tests, declared in `infra/services.json`, and the
+ones every page shares, or the whole suite for a change that reaches every page. The hosted check
+is not run locally. CI runs everything in full on every push, and what fails there comes back as a
+fix round. For UI work the agent also looks at the screenshots the gate's e2e run wrote, at desktop
+and 390px phone width, for what a test does not catch. The time a run spends checking is what this
+keeps small: before the gate was one script, most of a run was spent running the e2e suite again
+and waiting on CI, and most runs timed out. Screenshots are committed to the
 disposable orphan branch `pr-screenshots` by `scripts/agent/screenshots.sh` and embedded in the pull
 request, since GitHub has no API for attaching images.
 
@@ -179,6 +187,14 @@ is wrong. Nits are fixed when cheap. A fresh reviewer then reads the whole diff 
 earlier findings and the replies. Only blocking findings start another round. After 3 fix rounds,
 a fourth `changes` verdict ends the loop: the pull request gets `owner-blocked` and the owner a
 mention.
+
+**CI comes back as a fix round.** The implementer opens the pull request and ends its run without
+waiting for CI, since CI takes about as long as the e2e suite and nothing is done meanwhile. When
+`ci-ok` fails on the head, `pending.sh` offers a fix item, and `/pick-up-slice` reads the failed
+jobs as its round: what the branch broke is fixed, and a failure from outside the branch is
+answered in the reply, which ends the round. At most three of a pull request's commits get such a
+round; after that, and after a failure answered as outside the branch, the merge gate refuses
+`ci-ok failed` and the owner is told, as before.
 
 **An approve is settled in the same turn.** When a review ends in `approve` for the head commit,
 the runner sets `review-ok` and asks the merge gate straight away, before it looks for any other
@@ -329,7 +345,7 @@ turn never waits for it. Last of all comes an approved pull request that carries
 `owner-blocked`: it is looked at every turn, since the gate's reasons say whether it has become
 ready, and for that reason only when there is nothing else to do. A slice blocked by a slice still
 waiting for the owner is not picked; the runner takes other work. Implementer and reviewer each run in a fresh `claude -p` session under a
-timeout of 90 minutes, so no run carries another's context. With nothing to do it waits 10 minutes
+timeout of two hours, so no run carries another's context. With nothing to do it waits 10 minutes
 and looks again. The script's header is the exact behaviour.
 
 **Each turn begins by making the labels and `review-ok` true** for every open pull request by the
