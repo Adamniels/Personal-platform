@@ -1,11 +1,13 @@
 """Fixtures shared by the acceptance tests. See README.md."""
 
 import base64
+import fcntl
 import json
 import os
 import re
 import shlex
 import subprocess
+import tempfile
 import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
@@ -27,6 +29,30 @@ VIEWPORTS = {
 # capture() names it too, but the viewport fixture never runs a test at it.
 WIDE = {"width": 1920, "height": 1080}
 CAPTURED = {**VIEWPORTS, "wide": WIDE}
+
+
+# One lock for every test marked serial, whichever worker runs it.
+SERIAL_LOCK = Path(tempfile.gettempdir()) / "platform-e2e-serial.lock"
+
+
+@pytest.fixture(autouse=True)
+def _serial(request: pytest.FixtureRequest) -> Iterator[None]:
+    """Holds an exclusive lock on SERIAL_LOCK for the whole of a test marked
+    serial, its fixtures included, so no two of them run at once on any of
+    the workers. Autouse fixtures are set up first and torn down last, so a
+    fixture that restores shared state, such as backup_status, has restored
+    it before the next one starts. A lock rather than xdist_group, which
+    pytest-xdist 3.8.0 cannot apply under pytest 9: it renames the node id
+    in a field pytest 9 no longer reads."""
+    if request.node.get_closest_marker("serial") is None:
+        yield
+        return
+    with SERIAL_LOCK.open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 @pytest.fixture(scope="session")

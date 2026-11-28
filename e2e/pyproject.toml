@@ -8,6 +8,7 @@ dependencies = []
 dev = [
     "pytest>=9.2.0",
     "pytest-playwright>=0.10.0",
+    "pytest-xdist>=3.8.0",
     "ruff>=0.17.4",
 ]
 
@@ -17,8 +18,13 @@ base_url = "https://platform.test"
 testpaths = ["tests"]
 # A plain run is against the dev stack, so hosted_only tests are left out;
 # infra/hosted/check.sh passes its own -m, which replaces this one.
-addopts = "--strict-markers -m 'not hosted_only'"
+# Four workers, each with its own browser: every test signs up its own
+# account, so tests do not see each other, and the serial ones take a lock;
+# see "Running in parallel" in README.md. -n 0 runs in this one process, for
+# a debugger.
+addopts = "--strict-markers -m 'not hosted_only' -n 4"
 markers = [
     "dev_stack_only(reason): cannot hold against the hosted copy; the reason says why",
     "hosted_only: needs something only the hosted copy has",
+    "serial: changes state no account owns, so no two of these run at once",
 ]
