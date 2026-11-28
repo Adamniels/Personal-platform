@@ -181,6 +181,7 @@ with one entry per service in start order.
 | `start`    | the command run from `dir` to start it in the foreground; it may use `$HOST`, 127.0.0.1 unless the caller sets it, and `$PORT`, the entry's port |
 | `database` | optional: `name`, its `owner` and `app` roles, `owner_password` and `app_password`, the names of their variables in `.env`, `owner_url`, the variable `migrate` reads the owner's URL from, and optionally `app_url`, the one `start` reads the app's URL from |
 | `ci`       | optional, for a C# service with a database: `{"init_script": "infra/postgres/initdb/<name>.sh"}`, the script `.github/workflows/dotnet.yml` creates its database and roles with |
+| `e2e`      | optional, its own e2e tests: globs under `e2e/`, such as `["tests/test_review*.py"]`. The agents' local gate runs them, with the tests every page shares, for a change under `dir`; a service without the field gets the whole suite, as the core does, since every test signs in through it. CI always runs the whole suite. See `scripts/agent/e2e-scope.sh` |
 
 Each `uv run` in a command has `UV_LOCKED=1` in front and each `cargo` command `--locked`, as
 `scripts/ci/workflows-locked.test.sh` checks, since they also run outside CI's environment.
@@ -194,7 +195,9 @@ It is read through `scripts/agent/services.sh` alone, which lists the services a
   and lists each C# service to check in `dotnet_services`, with the fields `dotnet.yml` takes, so
   `ci.yml` runs `dotnet.yml` once for each;
 - `.github/workflows/e2e.yml`, which migrates, starts and waits for every service;
-- the agents' `pick-up-slice` skill, for its ports, password, migrate, start and health steps.
+- `scripts/agent/gate.sh`, the agents' local gate, which starts every service for e2e as
+  `e2e.yml` does, and `scripts/agent/e2e-scope.sh`, which reads each entry's `e2e` globs;
+- the agents' `pick-up-slice` skill, for its ports and password checks.
 
 So a new service in a language the platform already has is an entry here, and its Dockerfile and
 entries in `infra/hosted/`, which `agree.test.sh` holds it to, and nothing under `.github/`,

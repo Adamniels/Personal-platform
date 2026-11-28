@@ -136,10 +136,18 @@ reviewer lists it for him with its own view, and blocks only when one of the thr
 and `has-decision` is missing. How a doc that disagrees with the plan is handled is step 8 of
 `pick-up-slice`.
 
-**The gate is what CI runs**, decided from the branch's diff by `scripts/ci/changed-areas.sh`, so
-`ci-ok` passes on the first push. When the e2e area is touched, the Playwright suite runs against
-the stack through `https://platform.test`, and for UI work the agent also looks at the screenshots
-at desktop and 390px phone width for what a test does not catch. Screenshots are committed to the
+**The gate is what CI runs, scoped to what the change can reach**, so `ci-ok` passes on the first
+push. It is one script, `scripts/agent/gate.sh`, which the agent runs after every change: the areas
+come from the branch's diff through `scripts/ci/changed-areas.sh`, each runs its workflow's steps,
+and an area that passed with the same content is not run again, so a fix round runs only what its
+change reaches. Locally, e2e runs the tests `scripts/agent/e2e-scope.sh` picks against the stack
+through `https://platform.test`: a service's own tests, declared in `infra/services.json`, and the
+ones every page shares, or the whole suite for a change that reaches every page. The hosted check
+is not run locally. CI runs everything in full on every push, and what fails there comes back as a
+fix round. For UI work the agent also looks at the screenshots the gate's e2e run wrote, at desktop
+and 390px phone width, for what a test does not catch. The time a run spends checking is what this
+keeps small: before the gate was one script, most of a run was spent running the e2e suite again
+and waiting on CI, and most runs timed out. Screenshots are committed to the
 disposable orphan branch `pr-screenshots` by `scripts/agent/screenshots.sh` and embedded in the pull
 request, since GitHub has no API for attaching images.
 

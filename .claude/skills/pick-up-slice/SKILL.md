@@ -211,9 +211,11 @@ migration, and is fixed as part of the work. After editing a migration this run 
 run `bash scripts/agent/reset-db.sh` again before `migrate`.
 
 **Before screenshots**, in new mode, for a slice that changes a page that exists. Now, before your
-first change, while the branch still equals `main`: start the platform (step 9), run the e2e tests
-that cover that page, and keep the PNGs `capture()` wrote as `<name>-<viewport>-before.png` in
-`<tmp>`. Stop the services afterwards, as step 9 says to stop them.
+first change, while the branch still equals `main`: start the platform with
+`bash scripts/agent/gate.sh --start-platform`, run the e2e tests that cover that page from `e2e/`,
+`UV_LOCKED=1 uv run pytest --base-url "$(bash ../scripts/agent/services.sh origin)" <test files>`,
+keep the PNGs `capture()` wrote as `<name>-<viewport>-before.png` in `<tmp>`, and stop it with
+`bash scripts/agent/gate.sh --stop-platform`.
 
 Keep the pull request body in `<tmp>/body.md`. Start it from
 `templates.md`, copy the slice's Tasks checklist into it, and tick each task there as its commit
@@ -237,7 +239,7 @@ with it. Do not recreate it; write the red run under Verification as
 Work the slice's Tasks in order. For each:
 
 1. Make the change, and the tests that go with it.
-2. Run the gate steps for the areas the change touches (step 9), and read the output.
+2. Run the gate (step 9), and read the output.
 3. **Commit** the task alone: a subject and a short body saying what and why. No `Refs`, no
    `Co-Authored-By`, no "Generated with". Push: `git push -u origin <branch>`.
 4. Tick the task in the pull request body.
@@ -283,110 +285,53 @@ version), a deletion, and a doc that disagrees with the plan.
 
 ## 9. The gate
 
-The gate is what CI runs, so that `ci-ok` passes on the first push. Decide what to run from what
-the branch changed:
+The gate is what CI runs, scoped to what the branch's change can reach, so that `ci-ok` passes on
+the first push. It is one script, run from the repository root:
 
 ```
-git diff --name-only origin/main...HEAD | bash scripts/ci/changed-areas.sh
+bash scripts/agent/gate.sh
 ```
 
-For each area printed as `true`, run every step of its workflow under `.github/workflows/`, locally
-and in the same order. Read the workflows each run; today they are:
+It reads the branch's changes against `origin/main`, uncommitted and untracked ones included, and
+runs each area's workflow steps in order: the core, canary, the brain, the libraries, each C#
+service, the script tests, the frontends, and the e2e tests `scripts/agent/e2e-scope.sh` picks,
+against the platform it starts from the working tree. The hosted check is left to CI. Its header in
+`scripts/agent/gate.sh` is the exact behaviour. It prints one line per area, `ok`, `cached`, or
+`FAIL` with its log's path and last lines, and last `gate: passed` or `gate: failed`.
 
-- **core** (`core.yml`), from `Core/`: `cargo fmt --check`; the core's migrations from step 6,
-  `bash scripts/agent/services.sh run core migrate`; `cargo clippy --locked --all-targets -- -D warnings`;
-  `CORE_TEST_ADMIN_DATABASE_URL="postgres://postgres:$(grep '^POSTGRES_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/postgres" cargo test --locked`;
-  `CORE_OWNER_DATABASE_URL="postgres://core_owner:$(grep '^CORE_OWNER_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/core" cargo test --locked --test app_roles -- --ignored`;
-  and `cargo sqlx prepare --check -- --all-targets --locked`, with sqlx-cli at the version
-  `core.yml` installs.
-- **canary** (`canary.yml`), from `canary/`: `UV_LOCKED=1 uv run ruff check`,
-  `UV_LOCKED=1 uv run ruff format --check`, `UV_LOCKED=1 uv run pytest`.
-- **brain** (`brain.yml`), from `Brain/`: `UV_LOCKED=1 uv run ruff check`,
-  `UV_LOCKED=1 uv run ruff format --check`, `UV_LOCKED=1 uv run mypy`; the brain's migrations from
-  step 6, `bash scripts/agent/services.sh run brain migrate`; and
-  `BRAIN_TEST_ADMIN_DATABASE_URL="postgres://postgres:$(grep '^POSTGRES_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/postgres" BRAIN_APP_DATABASE_URL="postgres://brain_app:$(grep '^BRAIN_APP_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/brain" UV_LOCKED=1 uv run pytest`.
-- **libs** (`libs.yml`): in every directory matching `libs/python/*/` that holds a
-  `pyproject.toml`, `UV_LOCKED=1 uv run ruff check`, `UV_LOCKED=1 uv run ruff format --check`,
-  `UV_LOCKED=1 uv run mypy` and `UV_LOCKED=1 uv run pytest`, in that order. With no such
-  directory there is nothing to run, and the step passes. Then, in every directory matching
-  `libs/dotnet/*/` that holds a `.slnx`, the steps of `dotnet.yml` below, without a database.
-- **dotnet** (`dotnet.yml`, called by `ci.yml`): for each C# service in the `dotnet_services` line,
-  from its `dir`: `dotnet tool restore` when `.config/dotnet-tools.json` exists,
-  `dotnet restore --locked-mode`, `dotnet format --verify-no-changes --no-restore`,
-  `dotnet build --no-restore -c Release`; with `"postgres": true`, its migrations from step 6,
-  `bash scripts/agent/services.sh run <name> migrate`; and `dotnet test --no-build --no-restore -c Release`,
-  with `<NAME>_TEST_ADMIN_DATABASE_URL` set as the core's and the brain's are when it has a
-  database, `<NAME>` its name upper cased, and its `app_url` variable set to its app role's string
-  from `infra/.env`. The line is `dotnet_services=[]` while no C# service exists, and then there is
-  nothing to run.
-- **scripts** (`ci.yml`): every `scripts/**/*.test.sh`, as the job's loop does:
-  `for t in $(find scripts -name '*.test.sh' | sort); do bash "$t" || echo "FAILED $t"; done`.
-- **web** (`web.yml`): in every folder `bash scripts/ci/frontends.sh` prints, as the job's loop
-  does, from that folder: `npm ci`, `npx biome ci .`, `npx tsc --noEmit`, `npx vitest run`,
-  `npm run build`.
-- **e2e** (`e2e.yml`): whenever `e2e=true`, always, against the running stack. Start the platform
-  from the branch's code first, as below. Then, from `e2e/`:
-  `UV_LOCKED=1 uv run playwright install chromium` (a no op once installed),
-  `UV_LOCKED=1 uv run pytest --base-url "$(bash ../scripts/agent/services.sh origin)"`,
-  `UV_LOCKED=1 uv run ruff check`, `UV_LOCKED=1 uv run ruff format --check`. The origin is
-  `https://platform.test` with the port `PLATFORM_HTTPS_PORT` in `infra/.env` sets, 8443 on the Mac
-  mini, where Tailscale serve holds 443; see "The HTTPS port" in `infra/README.md`.
-- **hosted** (`hosted.yml`): whenever `hosted=true`, run `bash infra/hosted/check.sh` from the
-  repository root, with Docker running; it uses its own project and ports, so the dev stack stays
-  up. Its suite needs Playwright's Chromium and `design/ui`'s packages, which it never installs:
-  from `e2e/`, `UV_LOCKED=1 uv run playwright install chromium`, and from `design/ui/`, `npm ci`,
-  first, when the e2e step did not run. It is listed after e2e, since it is the slowest.
+- **Run it after every change.** An area that passed with the same content is `cached` and not
+  run again, so only what the change can reach runs: a fix to one e2e test runs that test and the
+  lint, not the core's tests.
+- **Run it in the background, and wait for its completion notice.** A Bash call is limited to ten
+  minutes and a gate can take longer: `bash scripts/agent/gate.sh > <tmp>/gate.log 2>&1` with
+  `run_in_background`, then read `<tmp>/gate.log` when you are told it ended. Never poll it with a
+  loop. While it runs you may draft the pull request body; change nothing in the tree, since the
+  gate is checking it.
+- **A failing area is fixed** before going on, never skipped, weakened or marked as expected to
+  fail. Read its log, fix, and run the gate again until it prints `gate: passed`.
+- **The platform never came up.** An e2e `FAIL` saying it `never answered 200` comes with each
+  service's log tail. A service that fails because of the branch's code is a failing step, fixed
+  like any other. Anything else ends the run with
+  `ENVIRONMENT: <origin> never answered 200 (<the log line that says why>)`.
+- **`--no-cache`** runs every area. Use it only when something the cache cannot see changed, such
+  as `infra/.env` or an installed tool.
+- Keep each run's area lines for Verification. The gate stops the services it started; Postgres,
+  Caddy and Docker stay running.
 
-**Starting the platform.** Stop any service you started earlier, so the code as it is now runs.
-Stopping one is always done the way step 4 finds it: the listener on its port, from `lsof` with
-`-sTCP:LISTEN`, and only when its command is one of the manifest's services. Build every
-frontend, as `e2e.yml` does, from the repository root:
-`for dir in $(bash scripts/ci/frontends.sh); do (cd "$dir" && npm ci && npm run build); done`;
-a build that fails is a failing step. Recreate Caddy, so it reads the Caddyfile as the branch has
-it, since a change to the mounted file does not reach a running container: from `infra/`,
-`docker compose up -d --wait --force-recreate caddy`. Then start every service in manifest order,
-from the repository root, each in the background with its own log:
-`for name in $(bash scripts/agent/services.sh names); do bash scripts/agent/services.sh run "$name" start > <tmp>/$name.log 2>&1 & done`.
-`services.sh` runs each entry's `start` from its folder on 127.0.0.1, with its app role's string
-set for that process and written nowhere. Wait at most three minutes for every service with a
-`health` path to answer through Caddy, at the dev stack's origin:
-
-```
-origin="$(bash scripts/agent/services.sh origin)"
-for _ in $(seq 1 90); do
-  up=true
-  for health_path in $(bash scripts/agent/services.sh health); do
-    [ "$(curl --cacert ~/caddy-root.crt -s -o /dev/null -w '%{http_code}' "$origin$health_path")" = 200 ] || { up=false; break; }
-  done
-  [ "$up" = true ] && break
-  sleep 2
-done
-```
-
-The loop runs in zsh as well as bash: it splits the command's output, never a variable, and its
-variable is not `path`, which zsh ties to `PATH`.
-
-If one never answers `200`, read the tail of every service's log. A service that fails because of
-the branch's code is a failing step, fixed like any other. Anything else ends the run with
-`ENVIRONMENT: <origin> never answered 200 (<the log line that says why>)`.
-
-A failing step is fixed before going on, never skipped, weakened or marked as expected to fail.
-Loop until every step is green. Keep each command and its result for Verification. Leave the
-services running when step 10 follows; otherwise stop what you started, the same way.
-Leave Postgres, Caddy and Docker running.
+CI runs every area of the branch in full, the whole e2e suite and the hosted check included, on
+every push. What fails there comes back as a fix round (step F).
 
 ## 10. Look at it
 
 For UI work, look at what you built, not only at whether the tests pass. The before screenshots
 were taken in step 6.
 
-After the gate, with the platform still running the branch's current code (start it again as in step
-9, frontends built and Caddy recreated, if anything changed since it started), empty
-`e2e/screenshots/` (git ignored, generated output) and run the suite once more, so `capture()`
-writes fresh PNGs at desktop and 390px phone width. Open each one and look for what a test does not
-catch: overflow, clipped text, overlapping elements, an unreadable phone layout. Fix what you find
-as part of the task it belongs to, and gate again. Then stop the services you started, as step 9
-says to stop them; leave Postgres, Caddy and Docker running.
+The gate's e2e run wrote fresh PNGs to `e2e/screenshots/` (git ignored, generated output) for the
+tests it ran, at desktop and 390px phone width, from the branch's current code. When its e2e line
+was `cached`, those on disk are from the run that passed with the same content; if they are missing,
+run the gate with `--no-cache`. Open each one and look for what a test does not catch: overflow,
+clipped text, overlapping elements, an unreadable phone layout. Fix what you find as part of the
+task it belongs to, and gate again, which runs the tests again and writes new ones.
 
 ## 11. The pull request
 
@@ -505,7 +450,7 @@ A design question is never a stop. Decide it (step 8).
 - Change `.github/`, `scripts/`, `.claude/`, `AGENTS.md` or `CLAUDE.md` unless the slice's Tasks or
   Settled name the path.
 - Close the slice or any issue. The pull request closes the slice when it merges.
-- Skip the re-read, the tests first, the gate or the e2e suite because the slice is small.
+- Skip the re-read, the tests first or the gate because the slice is small.
 
 ## Red flags
 
@@ -519,7 +464,9 @@ A design question is never a stop. Decide it (step 8).
 | "I'll tick the Tasks box on the issue" | Never edit the slice body. Tick it in the pull request body. |
 | "The checkpoint commit is messy, I'll reset it away" | Never rewrite. Inspect it, finish its task on top, gate it. |
 | "I'll watch CI before handing over, to be sure" | The runner reads `ci-ok` and calls you back on a failure. Hand over and end. |
-| "e2e is slow and my change is small" | When `e2e=true` the suite runs, every time. |
+| "e2e is slow and my change is small" | The gate runs the e2e tests that reach the change whenever they are not cached. Never run pytest instead of the gate to save time. |
+| "I'll run the whole e2e suite to be safe" | CI runs it on every push. The gate runs what reaches the change, once. |
+| "I'll write my own gate script, it is quicker" | `scripts/agent/gate.sh` is the gate. A gate of your own misses steps and does not fail on a platform that never came up. |
 | "One e2e test is flaky, I'll skip it" | A failing step is fixed, never skipped or weakened. |
 | "The finding is wrong, so I'll ignore it" | Argue it in the reply. Every finding gets an entry. |
 | "I'll quote the reviewer's first line in my reply" | Never write the marker text. The runner refuses it. |
