@@ -50,6 +50,7 @@ public sealed class SometimesSettingsTests
             ["model_reviewing"] = "opus",
             ["run_minutes"] = 90,
             ["run_turns"] = 200,
+            ["run_budget_usd"] = 25,
             ["fix_rounds_card"] = 3,
             ["fix_rounds_feature"] = 3,
             ["questions"] = true,

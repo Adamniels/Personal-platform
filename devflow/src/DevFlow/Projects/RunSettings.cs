@@ -19,16 +19,14 @@ namespace DevFlow.Projects;
 /// <param name="ModelReviewing">The model of a card's review and a feature's.</param>
 /// <param name="Minutes">The longest a run may take.</param>
 /// <param name="Turns">The most turns a run may take.</param>
+/// <param name="BudgetUsd">The most a run may cost, in whole US dollars, which Claude Code enforces
+/// as <c>--max-budget-usd</c>; on the subscription it is Claude Code's estimate.</param>
 /// <param name="FixRoundsCard">The fix rounds a card's reviews may start.</param>
 /// <param name="FixRoundsFeature">The fix rounds a whole feature's reviews may start.</param>
-public sealed record RunSettings(string ModelReading, string ModelBuilding, string ModelReviewing, int Minutes, int Turns, int FixRoundsCard, int FixRoundsFeature)
+public sealed record RunSettings(string ModelReading, string ModelBuilding, string ModelReviewing, int Minutes, int Turns, int BudgetUsd, int FixRoundsCard, int FixRoundsFeature)
 {
     /// <summary>The models a setting takes, Claude Code's aliases.</summary>
     public static readonly IReadOnlyList<string> Models = ["opus", "sonnet", "haiku"];
-
-    /// <summary>What every job is given to spend, in US dollars, until part 8's budget makes it a
-    /// setting.</summary>
-    public const decimal BudgetUsd = 25m;
 
     /// <summary>What <see cref="Minutes"/> takes.</summary>
     public static readonly Range MinutesRange = new(10, 240);
@@ -36,11 +34,14 @@ public sealed record RunSettings(string ModelReading, string ModelBuilding, stri
     /// <summary>What <see cref="Turns"/> takes.</summary>
     public static readonly Range TurnsRange = new(20, 1000);
 
+    /// <summary>What <see cref="BudgetUsd"/> takes.</summary>
+    public static readonly Range BudgetUsdRange = new(1, 100);
+
     /// <summary>What <see cref="FixRoundsCard"/> and <see cref="FixRoundsFeature"/> take.</summary>
     public static readonly Range RoundsRange = new(0, 10);
 
     /// <summary>A new project's, as the table's defaults make them.</summary>
-    public static RunSettings Defaults { get; } = new("opus", "opus", "opus", 90, 200, 3, 3);
+    public static RunSettings Defaults { get; } = new("opus", "opus", "opus", 90, 200, 25, 3, 3);
 
     /// <summary>The model a job of <paramref name="kind"/> runs on.</summary>
     public string ModelFor(string kind) => kind switch
@@ -51,8 +52,7 @@ public sealed record RunSettings(string ModelReading, string ModelBuilding, stri
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "No job of this kind runs a model"),
     };
 
-    /// <summary>The limits a job carries: the project's minutes and turns, and
-    /// <see cref="BudgetUsd"/>.</summary>
+    /// <summary>The limits a job carries: the project's minutes, turns and spend.</summary>
     public JobLimits Limits => new(Turns, BudgetUsd, Minutes);
 
     /// <summary>The project's models and limits inside <paramref name="transaction"/>, which runs as
@@ -63,7 +63,7 @@ public sealed record RunSettings(string ModelReading, string ModelBuilding, stri
         return await transaction.Connection!.QuerySingleOrDefaultAsync<RunSettings>(new CommandDefinition(
             """
             SELECT model_reading AS ModelReading, model_building AS ModelBuilding, model_reviewing AS ModelReviewing,
-                   run_minutes AS Minutes, run_turns AS Turns, fix_rounds_card AS FixRoundsCard, fix_rounds_feature AS FixRoundsFeature
+                   run_minutes AS Minutes, run_turns AS Turns, run_budget_usd AS BudgetUsd, fix_rounds_card AS FixRoundsCard, fix_rounds_feature AS FixRoundsFeature
             FROM project_settings WHERE project_id = @projectId
             """,
             new { projectId },
@@ -78,5 +78,14 @@ public sealed record RunSettings(string ModelReading, string ModelBuilding, stri
 
         /// <summary>Why a value outside it is refused.</summary>
         public string Problem => string.Create(CultureInfo.InvariantCulture, $"must be from {Least} to {Most}");
+
+        /// <summary>Why <paramref name="value"/>, which may have a fraction, is refused, or null when
+        /// it is a whole number in the range.</summary>
+        public string? ProblemOf(decimal? value) => value switch
+        {
+            null => "is missing",
+            { } number when decimal.IsInteger(number) && number >= Least && number <= Most => null,
+            _ => string.Create(CultureInfo.InvariantCulture, $"must be a whole number from {Least} to {Most}"),
+        };
     }
 }

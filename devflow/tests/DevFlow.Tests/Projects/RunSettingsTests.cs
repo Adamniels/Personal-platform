@@ -2,10 +2,12 @@ using System.Text.Json.Nodes;
 
 using Dapper;
 
+using DevFlow.Protocol;
 using DevFlow.Tests.Reading;
 
 using Microsoft.AspNetCore.Http;
 
+using PlatformData;
 using PlatformData.Testing;
 
 namespace DevFlow.Tests.Projects;
@@ -44,6 +46,7 @@ public sealed class RunSettingsTests
             ["model_reviewing"] = "opus",
             ["run_minutes"] = 90,
             ["run_turns"] = 200,
+            ["run_budget_usd"] = 25,
             ["fix_rounds_card"] = 3,
             ["fix_rounds_feature"] = 3,
             ["questions"] = true,
@@ -214,6 +217,107 @@ public sealed class RunSettingsTests
         await jobs.Routes.Read(jobs.Project, Jobs.Jobs.User);
         runs = await jobs.Runs();
         Assert.Equal(("lost", "lost"), (runs.Single(run => run.CardNumber == 1).Result, runs.Single(run => run.CardNumber == 2).Result));
+    }
+
+    [Fact]
+    public async Task SpendDefaultsTo25()
+    {
+        // A new project's spend per run is 25 USD, in its row and as the route answers it.
+        await using (var routes = await Routes.Start())
+        {
+            var project = await routes.Project(Routes.User);
+            Assert.Equal(25, await Spend(routes.Database, project));
+            Assert.Equal(25, (int)(await Get(routes, project))["run_budget_usd"]!);
+        }
+
+        // Every project made before the migration has 25 after it, whatever its other limits.
+        await using var database = await Databases.DevFlow.Empty(Ct);
+        var migrations = Migrator.Embedded(typeof(DevFlow.Settings.DevFlowSettings).Assembly);
+        var spend = migrations.Single(migration => migration.Name == "spend_per_run");
+        await using (var owner = await database.OpenOwner(Ct))
+        {
+            await Migrator.Run(owner, DevFlow.Settings.DevFlowSettings.Service, [.. migrations.Where(migration => migration.Version < spend.Version)], Ct);
+        }
+
+        var before = new[] { Guid.CreateVersion7(), Guid.CreateVersion7() };
+        await using (var admin = await database.OpenAdmin(Ct))
+        {
+            foreach (var (project, at) in before.Select((project, at) => (project, at)))
+            {
+                await admin.ExecuteAsync(new CommandDefinition(
+                    """
+                    INSERT INTO projects (id, user_id, code_host, installation_id, repository_id, owner, name, created_at)
+                    VALUES (@project, @user, 'github', 1, @repository, 'Adamniels', 'Personal-platform', now());
+                    UPDATE project_settings SET run_turns = 50 WHERE project_id = @project AND @at = 1;
+                    """,
+                    new { project, user = Guid.CreateVersion7(), repository = 100 + at, at },
+                    cancellationToken: Ct));
+            }
+        }
+
+        await using (var owner = await database.OpenOwner(Ct))
+        {
+            await Migrator.Run(owner, DevFlow.Settings.DevFlowSettings.Service, migrations, Ct);
+        }
+
+        foreach (var project in before)
+        {
+            Assert.Equal(25, await Spend(database, project));
+        }
+    }
+
+    [Fact]
+    public async Task AJobCarriesTheProjectsSpend()
+    {
+        // Set to 40 through the route, as the page saves it, every kind that runs a model carries
+        // 40: a build, a card's review, its fix, a conflict, a whole feature's review and its fix,
+        // a reading and a setup.
+        var kinds = new List<string>();
+        await Jobs.JobModelTests.EachKind(
+            jobs => Change(jobs, ("run_budget_usd", 40)),
+            (kind, job) =>
+            {
+                kinds.Add(kind);
+                Assert.Equal(40m, (decimal)job["limits"]!["budget_usd"]!);
+            });
+        Assert.Equal(Jobs.JobModelTests.Kinds, kinds);
+    }
+
+    [Fact]
+    public async Task ARunUnderWayKeepsItsSpend()
+    {
+        await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(1), Jobs.Jobs.Card(2)]);
+
+        // The first card's job carries the spend as it was when it was handed out.
+        var first = await jobs.Job();
+        Assert.Equal((1, 25m), ((int)first["card"]!["number"]!, (decimal)first["limits"]!["budget_usd"]!));
+
+        // The owner raises it while that run is under way: the run is left as it was, still under
+        // way on its worker, which enforces what its job carried, and only the next job carries 40.
+        await Change(jobs, ("run_budget_usd", 40));
+        await jobs.SayHello(Jobs.Jobs.SecondWorker);
+        var second = await jobs.Job(Jobs.Jobs.SecondWorker);
+        Assert.Equal((2, 40m), ((int)second["card"]!["number"]!, (decimal)second["limits"]!["budget_usd"]!));
+        var runs = await jobs.Runs();
+        Assert.Null(runs.Single(run => run.CardNumber == 1).Result);
+
+        // Lowered below what the first run carried, it is still not stopped, and it finishes as
+        // its job said.
+        await Change(jobs, ("run_budget_usd", 1));
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Post(WorkerApi.ResultPath((Guid)first["job_id"]!), Jobs.Jobs.Result(Jobs.Jobs.FirstWorker, (string)first["branch"]!))).Response.StatusCode);
+        runs = await jobs.Runs();
+        Assert.Equal("succeeded", runs.Single(run => run.CardNumber == 1).Result);
+    }
+
+    /// <summary>The project's spend per run as its row holds it, read past row level
+    /// security.</summary>
+    private static async Task<int> Spend(TestDatabase database, Guid project)
+    {
+        await using var admin = await database.OpenAdmin(Ct);
+        return await admin.QuerySingleAsync<int>(new CommandDefinition(
+            "SELECT run_budget_usd FROM project_settings WHERE project_id = @project",
+            new { project },
+            cancellationToken: Ct));
     }
 
     /// <summary>The minutes the run of card <paramref name="card"/> was handed out with.</summary>
