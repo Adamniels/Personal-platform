@@ -202,6 +202,44 @@ describe("the settings page's form", () => {
 		expect(settings.queryByText(SAVED)).toBeNull();
 	});
 
+	test("spend per run sits with the limits and is saved", async () => {
+		const { saveSettings } = renderPage();
+		const settings = await page();
+		const runs = within(settings.getByRole("article", { name: "Runs" }));
+		const spend = runs.getByLabelText("Spend per run, USD") as HTMLInputElement;
+
+		// After the turns, before the fix rounds, a whole number from 1 to 100,
+		// a new project's 25, with what reaching it does as its help.
+		const fields = runs.getAllByRole("spinbutton");
+		expect(fields.indexOf(spend)).toBe(
+			fields.indexOf(runs.getByLabelText("Turns a run may take")) + 1,
+		);
+		expect(fields.indexOf(spend) + 1).toBe(
+			fields.indexOf(runs.getByLabelText("Fix rounds a card gets")),
+		);
+		expect(spend.value).toBe("25");
+		expect([spend.min, spend.max, spend.step]).toEqual(["1", "100", "1"]);
+		expect(
+			runs.getByText("1 to 100. Claude Code ends a run that reaches it."),
+		).toBeTruthy();
+
+		// Changed, the Save bar counts it, and it is saved with the rest in the
+		// one request.
+		fireEvent.change(spend, { target: { value: "40" } });
+		expect(settings.getByText("1 unsaved change")).toBeTruthy();
+		fireEvent.click(settings.getByRole("button", { name: "Save" }));
+
+		expect(await settings.findByText(SAVED)).toBeTruthy();
+		expect(saveSettings).toHaveBeenCalledTimes(1);
+		expect(saveSettings).toHaveBeenCalledWith(ID, {
+			...REQUEST,
+			run_budget_usd: 40,
+			trusted_logins: ["octo-owner"],
+		});
+		expect(spend.value).toBe("40");
+		expect(settings.getByText("No unsaved changes")).toBeTruthy();
+	});
+
 	test("the daily budget is off, switched on with a number, and saved", async () => {
 		const { saveSettings } = renderPage();
 		const settings = await page();

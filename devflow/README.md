@@ -372,8 +372,10 @@ bar:
   list of inset rows, the owner's own login first with "you, always on" and no Remove, the others
   each with "Remove", and the field "Add a trusted account" with "Add", Enter in it adding too.
 - **"Runs"**: the selects "Reading model", "Building model", with "A build, a fix, a conflict." as
-  its help, and "Reviewing model"; then the four limits as number fields in the mono font, each with
-  its range as help.
+  its help, and "Reviewing model"; then the five limits as number fields in the mono font, each with
+  its range as help, "Spend per run, USD" after "Turns a run may take" with "1 to 100. Claude Code
+  ends a run that reaches it." as its own. The project page's settings summary shows no limit, the
+  spend among them.
 - **"Usage"**: its id `usage`, which "Raise the budget" on "Waiting for you", the project's page
   and Running now opens, `/devflow/projects/<id>/settings#usage`, scrolled to once the form is
   drawn. The package's `Switch` "Daily budget", off for a budget of null, and, on, the number field
@@ -410,11 +412,11 @@ bar:
 
 The Save bar, the region "Save the settings", is one bar at the foot of the form: a mono count of
 unsaved changes, "No unsaved changes", "1 unsaved change" or "<n> unsaved changes", counting each
-of the eighteen settings that differs from the settings as last read or saved; then "Undo changes",
+of the twenty settings that differs from the settings as last read or saved; then "Undo changes",
 a ghost, disabled with nothing changed, which puts the form back to the settings as last read or
 saved; and "Save", the page's one primary. Save stays enabled with nothing changed, since saving
 the settings once does the setup's settings step. Lines of "Paths" are trimmed and blank ones
-dropped as it is saved. "Save" puts all eighteen in one `PUT`, never the preset, and then says
+dropped as it is saved. "Save" puts all twenty in one `PUT`, never the preset, and then says
 "Saved."; a limit that is not a whole number is named under its field and nothing is sent; a value
 Dev flow refuses is shown under its field as the field's error, from the problem's `errors`; any
 other failure is the alert "The settings were not saved. Try again.", and what was typed is kept.
@@ -1763,7 +1765,7 @@ in `src/DevFlow/Cards/`.
 
 ### Settings
 
-Nineteen, and only the nineteen something reads, with the preset they match, see "Presets" below:
+Twenty, and only the twenty something reads, with the preset they match, see "Presets" below:
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -1782,6 +1784,7 @@ Nineteen, and only the nineteen something reads, with the preset they match, see
 | `model_reviewing` | `opus` | The model of a card's review and a feature's review |
 | `run_minutes` | 90 | The longest a run may take, 10 to 240; the worker ends it then. A run is lost by its heartbeat, never by its time, see "A lost run" under "Jobs" |
 | `run_turns` | 200 | The most turns a run may take, 20 to 1000, which Claude Code enforces |
+| `run_budget_usd` | 25 | The most a run may cost, a whole number of US dollars from 1 to 100, which Claude Code enforces as `--max-budget-usd`, overshooting by about a turn; on the subscription it is Claude Code's estimate. Reached, the run fails in the card, "it reached its budget of <n> USD". The route takes any number and refuses one with a fraction with 422 naming it, as it does one out of range. Outside every preset |
 | `fix_rounds_card` | 3 | The fix rounds a card's reviews may start, 0 to 10; a `changes` verdict after them stops the card, see "Fixing" |
 | `fix_rounds_feature` | 3 | The fix rounds a whole feature's reviews may start, 0 to 10; a `changes` verdict after them has it wait for the owner, see "Fixing a feature" |
 | `daily_token_budget` | null, off | The tokens the project's runs may use in a day, in the user's time zone, a whole number of millions from 1 to 10 000, which the settings page takes in millions; reached, the project starts nothing new until midnight there, see "The daily budget" under "Stops". The route refuses anything but null or such a number with 422 naming it, and a request that leaves it out, rather than reading that as off, with 400 |
@@ -1844,16 +1847,16 @@ not; without a link nobody is known to be him, and nothing is trusted. A login i
 letters, digits and single hyphens, with no hyphen at either end, GitHub's rule. Who changes a label
 is read by the list too, see "Cards" below.
 
-- `GET /devflow/api/projects/{id}/settings` answers the eighteen and `preset`,
+- `GET /devflow/api/projects/{id}/settings` answers the twenty and `preset`,
   `{"pickup_label", "hold_label", "attention_label", "review_label", "waits_for_owner",
   "wait_when_marked", "wait_when_paths", "wait_when_decision", "wait_paths", "trusted_logins",
   "model_reading", "model_building", "model_reviewing", "run_minutes", "run_turns",
-  "fix_rounds_card", "fix_rounds_feature", "questions"}`, the three conditions and `questions` booleans, `wait_paths` a list of
+  "run_budget_usd", "fix_rounds_card", "fix_rounds_feature", "questions", "daily_token_budget"}`, the three conditions and `questions` booleans, `wait_paths` a list of
   patterns in their order, `trusted_logins` a list of `{"login", "mine"}`, the caller's linked login
-  first with `mine` true, then the others in the order they were given, the four limits whole
-  numbers, and `preset` one of `fully_automatic`, `guided`, `only_i_merge` and `custom`, computed
+  first with `mine` true, then the others in the order they were given, the five limits whole
+  numbers, `daily_token_budget` a number of tokens or null, and `preset` one of `fully_automatic`, `guided`, `only_i_merge` and `custom`, computed
   and never stored. Another user's project, or none, is `404`.
-- `PUT /devflow/api/projects/{id}/settings` takes all eighteen, `trusted_logins` as a list of logins,
+- `PUT /devflow/api/projects/{id}/settings` takes all twenty, `trusted_logins` as a list of logins,
   and answers them as saved, with the preset they match. A `preset` sent with them is not read. One that breaks a rule, or is missing, is `422`, a validation problem
   whose `errors` names each field, and nothing changes: a label that is another's whatever its case,
   named on the later of the two, `sometimes` with no condition ticked, under `waits_for_owner`, a
@@ -1881,7 +1884,9 @@ gives each run its `run_minutes`, see "Jobs". From `migrations/0040_questions.sq
 `boolean`, true by default, which makes it true for every project there was. From
 `migrations/0041_presets.sql`, `waits_for_owner` is `always` by default, and every project there
 was was set to `questions` true and `always`, "Only I merge", its three conditions kept; the
-policy is forced, so the migration lifts it for that one update and forces it again. A
+policy is forced, so the migration lifts it for that one update and forces it again. From
+`migrations/0058_spend_per_run.sql`, `run_budget_usd`, `int`, 25 by default, which gave every
+project there was the 25 every job carried before, checked to be from 1 to 100. A
 trigger on `projects`
 makes a project's row when the project is made, running as the caller, and the migration made one
 for every project before it.
@@ -1900,7 +1905,7 @@ The mode is `project_settings.runs_by`, `always` or `schedule`, and the windows 
 `project_schedules`, `(project_id, user_id, id, name, days, from_time, to_time, active, position)`,
 guarded like every scoped table, a name unique in its project whatever its case. The zone is
 `user_settings`, `(user_id, time_zone)`, guarded the same way, a user without a row in
-`Europe/Stockholm`. Neither is one of the eighteen settings: each saves at once through its own
+`Europe/Stockholm`. Neither is one of the twenty settings: each saves at once through its own
 route, never through the settings page's "Save".
 
 **The rules**, which the route checks and the table's checks repeat:
@@ -2837,7 +2842,7 @@ standard error, and how it was logged in. Two implementations:
   ```zsh
   claude -p <brief> --model <the job's model> --permission-mode bypassPermissions \
     --output-format stream-json --verbose \
-    --json-schema <schema> --max-turns <the job's turns> --max-budget-usd 25
+    --json-schema <schema> --max-turns <the job's turns> --max-budget-usd <the job's spend>
   ```
 
   for a build, the `Write` access of `AgentRun`. A review's reviewer, `ReadOnly`, runs in the job's
@@ -2954,7 +2959,7 @@ API or the machine. The usage is taken as Claude Code gives it: `usage`, `modelU
 
 **The model and the limits** are the job's, from its project's settings as they were when it was
 handed out, see "Jobs"; the worker has no model or limit of its own. The turns, 200 by default, and
-the spend, 25 USD for every job until part 8's budget, Claude Code enforces, overshooting by about a
+the spend, 25 USD by default, Claude Code enforces, overshooting by about a
 turn; the minutes, 90 by default, the worker enforces by ending the process and every process still
 in its tree. A job without a model, or with one that is not a model's name, lowercase letters and
 digits with single dots or hyphens between, is a protocol error: the worker refuses it before
@@ -3288,7 +3293,7 @@ queued; moves it to `building`; records a run for the worker; and answers `200` 
 | `values` | The project's values, each `name` and `value`, opened in the transaction that takes the work, on every job that runs the project's code, a build, a fix, a conflict, a feature's fix, a setup and a check; an empty list on a reading and a review, of a card, a feature or a setup, which run none of it. See "Setting up a project" and "The worker" |
 | `push_key`, `push_key_expires_at` | A key the app made for this job, narrowed to fetching and pushing the repository's code, and when it stops working, an hour on |
 | `committer` | `name` and `email`, the app's bot, `<app-slug>[bot]` and `<id>+<app-slug>[bot]@users.noreply.github.com`, read once from GitHub's `GET /users/<app-slug>[bot]` and kept; `devflow-fake[bot]` with a fixed address in the fake mode |
-| `limits` | `turns` and `minutes`, the project's `run_turns` and `run_minutes` when the job was handed out, 200 and 90 by default, and `budget_usd`, 25 for every job until part 8's budget |
+| `limits` | `turns`, `budget_usd` and `minutes`, the project's `run_turns`, `run_budget_usd` and `run_minutes` when the job was handed out, 200, 25 and 90 by default |
 | `model` | The model Claude Code runs on, given as `--model`: the project's `model_building` for a build, a fix, a conflict and a feature's fix, its `model_reviewing` for a review of a card or of a feature, its `model_reading` for a reading, `opus` by default; read when the job was handed out |
 | `to_resolve` | For a conflict, `feature_commit`, the commit the feature's branch is at, and `default_commit`, the default branch's commit to bring in; null on any other job |
 | `to_review_feature` | For a whole feature's review, what it reads besides the code, see "Reviewing a feature"; null on any other job |

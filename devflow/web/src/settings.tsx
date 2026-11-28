@@ -195,6 +195,7 @@ type ModelField = "model_reading" | "model_building" | "model_reviewing";
 type LimitField =
 	| "run_minutes"
 	| "run_turns"
+	| "run_budget_usd"
 	| "fix_rounds_card"
 	| "fix_rounds_feature";
 
@@ -225,13 +226,14 @@ const MODEL_NAMES: { value: string; name: string }[] = [
 	{ value: "haiku", name: "Haiku" },
 ];
 
-/** The four limits, each with the range Dev flow takes, which the field
- * offers too and its help says. */
+/** The five limits, each with the range Dev flow takes, which the field
+ * offers too and its help says, or help of its own that says it. */
 const LIMITS: {
 	field: LimitField;
 	label: string;
 	min: number;
 	max: number;
+	help?: string;
 }[] = [
 	{
 		field: "run_minutes",
@@ -244,6 +246,13 @@ const LIMITS: {
 		label: "Turns a run may take",
 		min: 20,
 		max: 1000,
+	},
+	{
+		field: "run_budget_usd",
+		label: "Spend per run, USD",
+		min: 1,
+		max: 100,
+		help: "1 to 100. Claude Code ends a run that reaches it.",
 	},
 	{
 		field: "fix_rounds_card",
@@ -269,6 +278,7 @@ type LimitTexts = Record<LimitField, string>;
 const asTexts = (settings: ProjectSettings): LimitTexts => ({
 	run_minutes: String(settings.run_minutes),
 	run_turns: String(settings.run_turns),
+	run_budget_usd: String(settings.run_budget_usd),
 	fix_rounds_card: String(settings.fix_rounds_card),
 	fix_rounds_feature: String(settings.fix_rounds_feature),
 });
@@ -923,11 +933,11 @@ export function SettingsPage({
 										))}
 									</div>
 									<div className={`${styles.limits} ${styles.rule}`}>
-										{LIMITS.map(({ field, label, min, max }) => (
+										{LIMITS.map(({ field, label, min, max, help }) => (
 											<TextField
 												key={field}
 												label={label}
-												help={`${min} to ${max}`}
+												help={help ?? `${min} to ${max}`}
 												className={styles.mono}
 												type="number"
 												inputMode="numeric"
