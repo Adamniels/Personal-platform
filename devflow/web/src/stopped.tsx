@@ -10,7 +10,7 @@ import { useState } from "react";
 import { type ActionsApi, describe } from "./actions";
 import { Detail } from "./detail";
 import { askNavAgain } from "./nav-attention";
-import type { OwnItem } from "./waiting";
+import type { StoppedProjectItem } from "./waiting";
 import styles from "./waiting.module.css";
 
 /** What landed, as a verb with "by" after it. */
@@ -35,7 +35,7 @@ export const stoppedTitle = (branch: string) =>
 	`Something landed on ${branch} that Dev flow did not put there`;
 
 export type StoppedProjectProps = {
-	stop: OwnItem;
+	stop: StoppedProjectItem;
 	api: ActionsApi;
 	/** Reads the list again. */
 	reload: () => Promise<unknown>;

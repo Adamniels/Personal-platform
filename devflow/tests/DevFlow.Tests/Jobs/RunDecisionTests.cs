@@ -288,6 +288,7 @@ public sealed class RunDecisionTests
         {
             (new WaitReason.AllPaused(), "Everything is paused: continue it", ActedOn.Nowhere),
             (new WaitReason.Paused(), "Paused: continue it", ActedOn.ProjectPage),
+            (new WaitReason.BudgetReached(1_200_000, 1_000_000, new DateTimeOffset(2026, 11, 24, 0, 0, 0, TimeSpan.FromHours(1))), "Daily budget reached, runs again at Tue 00:00", ActedOn.Budget),
             (new WaitReason.OutsideSchedule(new DateTimeOffset(2026, 11, 23, 9, 0, 0, TimeSpan.FromHours(1))), "Outside its schedule, runs again Mon 09:00", ActedOn.Schedules),
             (new WaitReason.OutsideSchedule(null), "No schedule is on", ActedOn.Schedules),
             (new WaitReason.NeedsRebuild(), "Its worker needs building again", ActedOn.Nowhere),

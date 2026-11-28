@@ -16,6 +16,7 @@ import { describe } from "./actions";
 import { navigate, plainClick } from "./address";
 import type { GetAnswer } from "./api/client";
 import type { components } from "./api/schema";
+import { RaiseTheBudget } from "./budget";
 import {
 	type CardCounts,
 	type CardList,
@@ -71,6 +72,13 @@ export const rebuildNotice = (
 	rebuild === "recipe"
 		? `${project}'s recipe has changed: run the command again`
 		: "A new base image was released: run the command again";
+/** The list's held of a pause, the only holds before the daily budget. */
+const PAUSED = ["all_paused", "paused"];
+
+/** The daily budget as the settings summary says it, in millions. */
+export const budgetLine = (budget: number | null) =>
+	budget === null ? "Off" : `${budget / 1_000_000} M tokens`;
+
 /** Why no worker of the project is handed work, by the list's held. */
 export const heldNotice = (held: string): string => {
 	switch (held) {
@@ -518,7 +526,8 @@ const WAITS: Record<string, string> = {
 };
 
 /** The settings in the side column: the preset, questions before starting,
- * whether pull requests wait, and the four labels, as label and value rows,
+ * whether pull requests wait, the daily budget and the four labels, as label
+ * and value rows,
  * and "Edit settings", which opens the project's settings page. */
 function SettingsSummary({
 	id,
@@ -535,6 +544,7 @@ function SettingsSummary({
 					"Pull requests wait for you",
 					WAITS[settings.waits_for_owner] ?? settings.waits_for_owner,
 				],
+				["Daily budget", budgetLine(settings.daily_token_budget)],
 				["Pick-up label", settings.pickup_label],
 				["Hold label", settings.hold_label],
 				["Attention label", settings.attention_label],
@@ -718,7 +728,16 @@ function WorkersPanel({
 				footer={actions}
 			>
 				<div className={styles.body}>
-					{list?.held ? (
+					{/* The daily budget holds the project after a pause and before
+					    every other hold, as the one rule has it, so it is said in
+					    their place. */}
+					{list?.budget && !PAUSED.includes(list.held ?? "") ? (
+						<p className={styles.held}>
+							<Status tone="needs-you">No work</Status>
+							<span>{list.budget.sentence}</span>
+							<RaiseTheBudget id={id} />
+						</p>
+					) : list?.held ? (
 						<p className={styles.held}>
 							<Status tone="needs-you">No work</Status>
 							<span>{heldNotice(list.held)}</span>

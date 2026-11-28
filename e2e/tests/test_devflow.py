@@ -785,7 +785,7 @@ def _item(page: Page, title: str, group: str | re.Pattern | None = None):
     rows = _queue(page)
     if group is not None:
         rows = rows.get_by_role("region", name=group)
-    rows.get_by_role("link", name=re.compile(f"^{re.escape(title)} ")).click()
+    rows.get_by_role("link", name=title).click()
     return page.get_by_role("article", name=title)
 
 
@@ -7724,3 +7724,113 @@ def test_i_run_a_feature_now_anyway(
         next_up.get_by_role("link", name=re.compile("Plan the night")).first
     ).to_be_visible()
     expect(next_up).not_to_contain_text("No schedule is on")
+
+
+def test_a_project_reaches_its_budget(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    """A card's build used 1.2 million tokens today; on the settings page I
+    switch the daily budget on at 1 million, and "Waiting for you" lists the
+    project under Stopped, until midnight; "Raise the budget" opens the
+    settings page at the field, and raising it to 2 million clears the item.
+    See "Settings" under "Cards", "Waiting for you" and "Stops" in
+    devflow/README.md."""
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    add_issue(world, 61, "Make the feature's branch", labels=["devflow"])
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+    _fake_read(page, base_url, project, [_ready(61)])
+
+    # The build used 1,000,000 + 150,000 + 50,000 tokens, its cache reads
+    # apart.
+    built = _fake_build(
+        page,
+        base_url,
+        project,
+        {
+            "input_tokens": 1_000_000,
+            "cache_creation_input_tokens": 150_000,
+            "cache_read_input_tokens": 4_000_000,
+            "output_tokens": 50_000,
+        },
+    )
+    assert built["card"] == 61
+
+    # On the settings page the budget is off; switched on, its field takes
+    # millions, and it is saved with the rest.
+    page.reload()
+    content = _edit_settings(page)
+    usage = content.get_by_role("article", name="Usage", exact=True)
+    daily = usage.get_by_role("switch", name="Daily budget")
+    expect(daily).not_to_be_checked()
+    expect(usage.get_by_label("Million tokens a day")).to_have_count(0)
+    daily.check()
+    millions = usage.get_by_label("Million tokens a day")
+    millions.fill("1")
+    expect(
+        usage.get_by_text(
+            "Counts input, cache writes and output. When reached, nothing new starts until midnight."
+        )
+    ).to_be_visible()
+    content.get_by_role("button", name="Save", exact=True).click()
+    expect(content.get_by_text("Saved.", exact=True)).to_be_visible()
+    saved = page.request.get(f"/devflow/api/projects/{project}/settings").json()
+    assert saved["daily_token_budget"] == 1_000_000
+    usage.scroll_into_view_if_needed()
+    _looks_right(page)
+    capture(page, "devflow-settings-budget")
+
+    # "Waiting for you" lists it under Stopped, with what it used of what,
+    # and until when nothing new starts, midnight in Stockholm.
+    page.goto("/devflow")
+    stopped = page.get_by_role("region", name="Stopped")
+    title = f"{OWNER}/{NAME} reached its daily budget"
+    row = stopped.get_by_role("link", name=title)
+    expect(row).to_be_visible()
+    expect(row).to_contain_text("1.2 M of 1 M tokens")
+    row.click()
+    item = page.get_by_role("article", name=title)
+    midnight = datetime.now(ZoneInfo("Europe/Stockholm")).date() + timedelta(days=1)
+    expect(
+        item.get_by_text(
+            f"Nothing new starts until {midnight.strftime('%a')} 00:00, midnight in "
+            "Europe/Stockholm. The run that went over finished."
+        )
+    ).to_be_visible()
+    _looks_right(page)
+    capture(page, "devflow-budget-reached")
+
+    # Raise the budget opens the settings page at the field.
+    item.get_by_role("link", name="Raise the budget").click()
+    expect(page).to_have_url(
+        re.compile(rf"/devflow/projects/{project}/settings#usage$")
+    )
+    millions = page.get_by_role("article", name="Usage", exact=True).get_by_label(
+        "Million tokens a day"
+    )
+    expect(millions).to_have_value("1")
+    expect(millions).to_be_in_viewport()
+
+    # Raised to 2 million, the item is gone.
+    millions.fill("2")
+    page.get_by_role("button", name="Save", exact=True).click()
+    expect(page.get_by_text("Saved.", exact=True)).to_be_visible()
+    page.goto("/devflow")
+    expect(page.get_by_role("tab", name="Waiting for you")).to_be_visible()
+    expect(page.get_by_role("link", name=title)).to_have_count(0)

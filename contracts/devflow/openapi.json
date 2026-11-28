@@ -56,6 +56,32 @@
         ],
         "type": "object"
       },
+      "BudgetHold": {
+        "properties": {
+          "budget": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "lifts_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "sentence": {
+            "type": "string"
+          },
+          "used": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "used",
+          "budget",
+          "lifts_at",
+          "sentence"
+        ],
+        "type": "object"
+      },
       "CardCheck": {
         "properties": {
           "command": {
@@ -2685,6 +2711,71 @@
         "type": "object"
       },
       "OwnItem": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/OwnItemProjectStoppedItem"
+          },
+          {
+            "$ref": "#/components/schemas/OwnItemBudgetReachedItem"
+          }
+        ],
+        "discriminator": {
+          "mapping": {
+            "budget_reached": "#/components/schemas/OwnItemBudgetReachedItem",
+            "project_stopped": "#/components/schemas/OwnItemProjectStoppedItem"
+          },
+          "propertyName": "kind"
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "OwnItemBudgetReachedItem": {
+        "properties": {
+          "budget": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "budget_reached"
+            ],
+            "type": "string"
+          },
+          "lifts_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "project_name": {
+            "type": "string"
+          },
+          "time_zone": {
+            "type": "string"
+          },
+          "used": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "used",
+          "budget",
+          "lifts_at",
+          "time_zone",
+          "project_id",
+          "project_name",
+          "owner"
+        ]
+      },
+      "OwnItemProjectStoppedItem": {
         "properties": {
           "activity_type": {
             "type": "string"
@@ -2706,7 +2797,10 @@
             "type": "string"
           },
           "kind": {
-            "$ref": "#/components/schemas/OwnItemKind"
+            "enum": [
+              "project_stopped"
+            ],
+            "type": "string"
           },
           "landed_at": {
             "format": "date-time",
@@ -2728,23 +2822,16 @@
           }
         },
         "required": [
-          "kind",
-          "project_id",
-          "project_name",
-          "owner",
           "branch",
           "activity_type",
           "actor",
           "commit",
           "commit_url",
           "landed_at",
-          "stopped_at"
-        ],
-        "type": "object"
-      },
-      "OwnItemKind": {
-        "enum": [
-          "project_stopped"
+          "stopped_at",
+          "project_id",
+          "project_name",
+          "owner"
         ]
       },
       "OwnerDecision": {
@@ -2972,6 +3059,13 @@
           "attention_label": {
             "type": "string"
           },
+          "daily_token_budget": {
+            "format": "int64",
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
           "fix_rounds_card": {
             "format": "int32",
             "type": "integer"
@@ -3062,6 +3156,7 @@
           "fix_rounds_card",
           "fix_rounds_feature",
           "questions",
+          "daily_token_budget",
           "preset"
         ],
         "type": "object"
@@ -4195,6 +4290,13 @@
               "string"
             ]
           },
+          "daily_token_budget": {
+            "format": "int64",
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
           "fix_rounds_card": {
             "format": "int32",
             "type": [
@@ -4326,7 +4428,8 @@
           "run_turns",
           "fix_rounds_card",
           "fix_rounds_feature",
-          "questions"
+          "questions",
+          "daily_token_budget"
         ],
         "type": "object"
       },
@@ -5521,6 +5624,16 @@
       },
       "WorkerList": {
         "properties": {
+          "budget": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BudgetHold"
+              }
+            ]
+          },
           "cannot_run": {
             "type": [
               "null",
@@ -7825,7 +7938,7 @@
     },
     "/devflow/api/projects/{id}/settings": {
       "get": {
-        "description": "The labels that pick and hold its cards, mark what needs the caller and mark a card for their review; whether a card's pull request waits for them, never, sometimes or always, with the three conditions of sometimes and the paths it watches; its trusted accounts, the GitHub logins whose cards, edits and comments count, the caller's linked login first and marked as theirs; the model that reads, builds and reviews its cards and the limits of its runs; and questions, whether a card its reading found questions in waits for the caller's answers rather than going on the reader's recommendations; and preset, the preset the settings match, fully_automatic, guided or only_i_merge, or custom, computed and never stored. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "description": "The labels that pick and hold its cards, mark what needs the caller and mark a card for their review; whether a card's pull request waits for them, never, sometimes or always, with the three conditions of sometimes and the paths it watches; its trusted accounts, the GitHub logins whose cards, edits and comments count, the caller's linked login first and marked as theirs; the model that reads, builds and reviews its cards and the limits of its runs; and questions, whether a card its reading found questions in waits for the caller's answers rather than going on the reader's recommendations; daily_token_budget, the tokens its runs may use in a day in the caller's time zone before it starts nothing new until midnight, null for off; and preset, the preset the settings match, fully_automatic, guided or only_i_merge, or custom, computed and never stored. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.",
         "operationId": "getProjectSettings",
         "parameters": [
           {
@@ -7869,7 +7982,7 @@
         ]
       },
       "put": {
-        "description": "Takes all eighteen, never a preset, and answers them as saved with the preset they match. A label is written, at most 50 characters, with no space at either end and no comma, and the four are different names whatever their case; waits_for_owner is never, sometimes or always, and sometimes has at least one of wait_when_marked, wait_when_paths and wait_when_decision; wait_paths is at most 100 glob patterns of at most 200 characters, none starting with ! or /, and a pattern given twice is kept once; trusted_logins is a list of GitHub logins that holds the caller's linked login, and a login given twice whatever its case is kept once; each model is opus, sonnet or haiku, and each limit within its range; questions is true or false. The first save also does the project's setup step settings, as accepting a setup run's proposal does. 422 naming each field that breaks a rule, 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "description": "Takes all nineteen, never a preset, and answers them as saved with the preset they match. A label is written, at most 50 characters, with no space at either end and no comma, and the four are different names whatever their case; waits_for_owner is never, sometimes or always, and sometimes has at least one of wait_when_marked, wait_when_paths and wait_when_decision; wait_paths is at most 100 glob patterns of at most 200 characters, none starting with ! or /, and a pattern given twice is kept once; trusted_logins is a list of GitHub logins that holds the caller's linked login, and a login given twice whatever its case is kept once; each model is opus, sonnet or haiku, and each limit within its range; questions is true or false; daily_token_budget is null for off or a whole number of millions of tokens from 1 000 000 to 10 000 000 000, and is never left out, which is refused with 400 rather than read as off. The first save also does the project's setup step settings, as accepting a setup run's proposal does. 422 naming each field that breaks a rule, 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.",
         "operationId": "saveProjectSettings",
         "parameters": [
           {
@@ -8570,7 +8683,7 @@
     },
     "/devflow/api/projects/{id}/workers": {
       "get": {
-        "description": "Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; start_command, the command that builds and starts the project's worker; and held, why the project hands out no work whichever worker asks, the first that applies: all_paused, when the caller paused everything, paused, when the caller paused the project, stopped, when something landed on its default branch that Dev flow did not put there, unwatched, when its default branch has not been read for five minutes, no_claude_login when its user has given no Claude login, claude_login_expired when it is past its renewal, or null; and cannot_run, once six runs in a row have failed outside their cards, \"Dev flow cannot run <project>'s cards: <the last reason>\", until a run succeeds, or null. The key itself is never in it. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "description": "Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; start_command, the command that builds and starts the project's worker; and held, why the project hands out no work whichever worker asks, the first that applies: all_paused, when the caller paused everything, paused, when the caller paused the project, stopped, when something landed on its default branch that Dev flow did not put there, unwatched, when its default branch has not been read for five minutes, no_claude_login when its user has given no Claude login, claude_login_expired when it is past its renewal, or null; cannot_run, once six runs in a row have failed outside their cards, \"Dev flow cannot run <project>'s cards: <the last reason>\", until a run succeeds, or null; and budget, once the project's runs that finished today in the caller's time zone used its daily budget, with used, budget, lifts_at, the next midnight there in its own offset, and sentence, \"Daily budget reached, runs again at <day time>\", the one rule's own, which holds it after a pause and before every other hold in held, or null. The key itself is never in it. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.",
         "operationId": "listWorkers",
         "parameters": [
           {
@@ -8616,7 +8729,7 @@
     },
     "/devflow/api/running": {
       "get": {
-        "description": "Every run under way of the caller's projects, oldest first, as Running now shows each: its project, its worker by the name it said hello with, its kind, state, running or checking once its check runs, stopping when the caller marked it to stop and its worker has not ended it yet, its card's or its feature's number and title, null for a setup's run or a check, a fix's round, the model its job was handed out with, null for a check, when it started, its tokens so far, input_tokens + cache_creation_input_tokens + output_tokens, and its cache reads so far beside them; busy_workers, how many workers hold them; and next, the cards that come next, Next up: every card of the caller's projects queued, waiting to be read, or waiting for its review or its fix round, with no run under way, in each project's queue order and across projects by priority label and then age, at most 50, each with its project, number, title, state, the job due for it, the sentence of the reason the one rule gives it, null for one that runs as soon as a worker asks, and where that reason is acted on, link, card with link_card, waiting_for_you, project_page, settings, or schedules, the card \"When it runs\" on its project's settings page, null where it has no place, feature, the number of the feature it is a card of, null for a card on its own, and run_now, whether the one rule holds it only for its project's schedules, so runFeatureNow on its feature, or runCardNow on a card on its own, would run it; and next_more, how many come after those 50. Without a valid token, 401 with an empty body.",
+        "description": "Every run under way of the caller's projects, oldest first, as Running now shows each: its project, its worker by the name it said hello with, its kind, state, running or checking once its check runs, stopping when the caller marked it to stop and its worker has not ended it yet, its card's or its feature's number and title, null for a setup's run or a check, a fix's round, the model its job was handed out with, null for a check, when it started, its tokens so far, input_tokens + cache_creation_input_tokens + output_tokens, and its cache reads so far beside them; busy_workers, how many workers hold them; and next, the cards that come next, Next up: every card of the caller's projects queued, waiting to be read, or waiting for its review or its fix round, with no run under way, in each project's queue order and across projects by priority label and then age, at most 50, each with its project, number, title, state, the job due for it, the sentence of the reason the one rule gives it, null for one that runs as soon as a worker asks, and where that reason is acted on, link, card with link_card, waiting_for_you, project_page, settings, schedules, the card \"When it runs\" on its project's settings page, or budget, the card \"Usage\" there, where its daily budget is raised, null where it has no place, feature, the number of the feature it is a card of, null for a card on its own, and run_now, whether the one rule holds it only for its project's schedules, so runFeatureNow on its feature, or runCardNow on a card on its own, would run it; and next_more, how many come after those 50. Without a valid token, 401 with an empty body.",
         "operationId": "listRunning",
         "responses": {
           "200": {
@@ -8803,7 +8916,7 @@
     },
     "/devflow/api/waiting": {
       "get": {
-        "description": "Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; own_items are Dev flow's own, read from its own tables, in this part each a project stopped because something landed on its default branch that Dev flow did not put there, with the commit, who did it, when, and the commit's address on GitHub, by project; cards are Dev flow's own cards whose pull requests wait for the caller, each with its pull request, the head commit its run built and checked, the branch it merges into, the report's summary, the decisions the agent marked for the caller with the count of the others, the check Dev flow ran, review, the reviewer's verdict on its head commit with its summary and how many findings block, null when it has none, and can_merge, false while the project is stopped, by project and number; stopped_cards are Dev flow's own cards that stopped, each with its issue's address, where a comment runs it again, why it stopped, when, its pull request's address or null, stopped_by_owner, true for a card the caller stopped, which Run again and Drop act on in place of a comment, and feature_number, its feature's number or null for a card on its own, by project and number; stopped_features are Dev flow's own features held because the caller stopped one of their own runs, a review, a fix or a conflict, each with its parent's address, the state it is held in, its reason and when it was stopped, which Run again releases, by project and number; refused_cards are Dev flow's own cards refused as too thin to build, each with its issue's address, where an edit or a comment reads it again, what is missing, each a line, and when it was refused, by project and number; question_cards are Dev flow's own cards whose reading found questions, with the project's questions on, that wait for the caller's answers, each with its id, which the answers route names, its issue's address, its feature, number and title, or null for a card on its own, reading_id, the reading that asked them, each question with the reader's recommendation and why, in order, and when it was read, by project and number; failing_projects are the projects whose runs have failed outside their cards six times in a row, each with message, \"Dev flow cannot run <project>'s cards: <the last reason>\", the reason, how many failures, since when and until when it hands out no job, shown until a run succeeds, by project; decisions are the open issues Dev flow opened for the decisions the agent marked for the caller on cards it merged, each with what was chosen, the alternative, why and the reviewer's view, by project, oldest first, until the caller closes it on GitHub; setup_projects are the projects whose newest check of their setup failed with no other asked for since, so that version's workers get nothing, each with its state, setting_up or registered, the version, the check's exit code and when it failed, by project, its output and Check again being on the project's page; count is the items not sent back, the own items, the cards, the stopped and refused cards, the stopped features, the failing projects, the decisions, the features, the question cards and the setup projects, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.",
+        "description": "Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; own_items are Dev flow's own, read from its own tables, each named by its kind: project_stopped, a project stopped because something landed on its default branch that Dev flow did not put there, with the commit, who did it, when, and the commit's address on GitHub; and budget_reached, a project whose runs that finished today in the caller's time zone used its daily budget, with used, the tokens by the one definition, budget, lifts_at, the next midnight there in its own offset, and time_zone, worked out as the list is read and gone once the budget is raised or the day ends; the stopped projects first, then the budgets, each by project; cards are Dev flow's own cards whose pull requests wait for the caller, each with its pull request, the head commit its run built and checked, the branch it merges into, the report's summary, the decisions the agent marked for the caller with the count of the others, the check Dev flow ran, review, the reviewer's verdict on its head commit with its summary and how many findings block, null when it has none, and can_merge, false while the project is stopped, by project and number; stopped_cards are Dev flow's own cards that stopped, each with its issue's address, where a comment runs it again, why it stopped, when, its pull request's address or null, stopped_by_owner, true for a card the caller stopped, which Run again and Drop act on in place of a comment, and feature_number, its feature's number or null for a card on its own, by project and number; stopped_features are Dev flow's own features held because the caller stopped one of their own runs, a review, a fix or a conflict, each with its parent's address, the state it is held in, its reason and when it was stopped, which Run again releases, by project and number; refused_cards are Dev flow's own cards refused as too thin to build, each with its issue's address, where an edit or a comment reads it again, what is missing, each a line, and when it was refused, by project and number; question_cards are Dev flow's own cards whose reading found questions, with the project's questions on, that wait for the caller's answers, each with its id, which the answers route names, its issue's address, its feature, number and title, or null for a card on its own, reading_id, the reading that asked them, each question with the reader's recommendation and why, in order, and when it was read, by project and number; failing_projects are the projects whose runs have failed outside their cards six times in a row, each with message, \"Dev flow cannot run <project>'s cards: <the last reason>\", the reason, how many failures, since when and until when it hands out no job, shown until a run succeeds, by project; decisions are the open issues Dev flow opened for the decisions the agent marked for the caller on cards it merged, each with what was chosen, the alternative, why and the reviewer's view, by project, oldest first, until the caller closes it on GitHub; setup_projects are the projects whose newest check of their setup failed with no other asked for since, so that version's workers get nothing, each with its state, setting_up or registered, the version, the check's exit code and when it failed, by project, its output and Check again being on the project's page; count is the items not sent back, the own items, the cards, the stopped and refused cards, the stopped features, the failing projects, the decisions, the features, the question cards and the setup projects, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.",
         "operationId": "listWaiting",
         "responses": {
           "200": {

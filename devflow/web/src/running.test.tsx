@@ -9,13 +9,8 @@ import {
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { App } from "./app";
 import { fakeEvents } from "./events.testing";
-import {
-	amount,
-	type NextCard,
-	type RunningApi,
-	type RunningList,
-	type RunningRun,
-} from "./running";
+import type { NextCard, RunningApi, RunningList, RunningRun } from "./running";
+import { amount } from "./tokens";
 
 const NOW = Date.parse("2027-01-15T12:00:00Z");
 const PROJECT = "11111111-1111-1111-1111-111111111111";
@@ -321,6 +316,36 @@ describe("Running now", () => {
 				`/devflow/projects/${PROJECT}/settings#settings-schedules`,
 			);
 		}
+	});
+
+	test("a card held by the daily budget says until when, with Raise the budget", async () => {
+		const reason = "Daily budget reached, runs again at Sat 00:00";
+		openRunning(
+			list(
+				[run()],
+				[
+					nextCard({
+						number: 62,
+						title: "Over budget",
+						reason,
+						link: "budget",
+						link_card: null,
+					}),
+				],
+			),
+		);
+		await screen.findByRole("article", { name: "#51 Share a plan by link" });
+
+		// The sentence is said, and what to do is its own link, to the settings
+		// page's card "Usage".
+		const shown = nextRow("#62 Over budget");
+		expect(within(shown).getAllByText(reason).length).toBeGreaterThan(0);
+		expect(within(shown).queryByRole("link", { name: reason })).toBeNull();
+		linksTo(
+			shown,
+			"Raise the budget",
+			`/devflow/projects/${PROJECT}/settings#usage`,
+		);
 	});
 
 	test("a card outside its schedule offers run now anyway, for its feature or itself", async () => {

@@ -178,3 +178,29 @@ export function decisionsTile(forYou: number, others: number): Tile {
 				: "none it decided alone",
 	};
 }
+
+/** A link to a page of Dev flow's own, followed without a reload. */
+export function PageLink({
+	href,
+	className,
+	children,
+}: {
+	href: string;
+	className?: string;
+	children: ReactNode;
+}) {
+	return (
+		<a
+			className={className}
+			href={href}
+			onClick={(event: MouseEvent<HTMLAnchorElement>) => {
+				if (plainClick(event)) {
+					event.preventDefault();
+					navigate(href);
+				}
+			}}
+		>
+			{children}
+		</a>
+	);
+}

@@ -282,7 +282,11 @@ When the list's `held` says the project hands out no work, it shows first the `n
 Projects tab", or for `claude_login_expired` "No work is handed out: your Claude login is past its
 renewal. Give a new one on the Projects tab", for `paused` "No work is handed out: you paused it.
 Continue it at the top of this page" and for `all_paused` "No work is handed out: you paused
-everything. Continue everything on Running now", see "Jobs"; when its `cannot_run` is set, the
+everything. Continue everything on Running now", see "Jobs"; when the list's `budget` is set and
+`held` is not a pause, the daily budget's hold comes before every other in the one rule, so in
+their place it shows "No work", the rule's own sentence, "Daily budget reached, runs again at <day>
+00:00", and the secondary link "Raise the budget" to the settings page's card "Usage", see "The
+daily budget" under "Stops"; when its `cannot_run` is set, the
 `failed` status "Cannot run" and its text, see "Stops". Then how many workers have said hello, in
 thin numerals at `--text-num-l-size`, with "worker has said hello" or "workers have said hello"
 beside it, and the list "Workers", each an inset row, by when it first said hello: its name, in
@@ -315,7 +319,8 @@ The settings summary, the package's `Card` titled "Settings", read from
 `GET /devflow/api/projects/{id}/settings` as the page loads, is plain label and value rows 36px
 high, each with a 1px `--border` under it, the label in `--text-2` and the value in the mono font:
 "Preset", "Questions before starting", "On" or "Off", "Pull requests wait for you", "Never",
-"Sometimes" or "Always", and "Pick-up label", "Hold label", "Attention label" and "Review label".
+"Sometimes" or "Always", "Daily budget", "Off" or "<n> M tokens", and "Pick-up label", "Hold
+label", "Attention label" and "Review label".
 "Edit settings", `EditSettings` in `src/project.tsx`, a link drawn as a secondary button, opens the
 project's settings page in place on a plain click; the setup's settings step shows it too. The page
 reads the settings each time it opens, so a save on the settings page shows in the summary and the
@@ -347,7 +352,7 @@ it in place; a mono caption with `OWNER/NAME`; "Settings" as the page title; and
 Dev flow does on its own in <name>, which cards it takes, and how its runs are set." Under it is a
 wrapping row: the form, `flex: 999 1 560px`, and the side column, `flex: 1 1 300px`, which stacks
 under the form on phone. The settings are read from `GET /devflow/api/projects/{id}/settings`; the
-form is three of the package's `Card`s, then the cards "When it runs" and "Values" and the Save
+form is four of the package's `Card`s, then the cards "When it runs" and "Values" and the Save
 bar:
 
 - **"How much happens alone"**: "Preset", a radio group drawn as the Tabs track of `design/DESIGN.md`
@@ -369,6 +374,14 @@ bar:
 - **"Runs"**: the selects "Reading model", "Building model", with "A build, a fix, a conflict." as
   its help, and "Reviewing model"; then the four limits as number fields in the mono font, each with
   its range as help.
+- **"Usage"**: its id `usage`, which "Raise the budget" on "Waiting for you", the project's page
+  and Running now opens, `/devflow/projects/<id>/settings#usage`, scrolled to once the form is
+  drawn. The package's `Switch` "Daily budget", off for a budget of null, and, on, the number field
+  "Million tokens a day" in the mono font, with "Counts input, cache writes and output. When
+  reached, nothing new starts until midnight." as help. Saved with the rest, in tokens, null while
+  it is off; the switch is one change on the Save bar, and so is a changed number while it is on.
+  A field that is not a whole number is named under it and nothing is sent, and one Dev flow
+  refuses is named "must be a whole number from 1 to 10 000", in the field's own unit.
 - **"When it runs"**: `SchedulesCard` in `src/schedules.tsx`, its anchor `settings-schedules`,
   which "Edit schedules" on the project's page and on Running now opens. A radio group drawn as the
   Tabs track, as the preset's is, "Always" and "By schedule", then the help "Outside every schedule
@@ -1691,8 +1704,10 @@ action, first in its row. Each kind:
   `slice_number`, null when the body closes none, `head_commit`, `can_merge`, `summary`, `reason`,
   `decisions`, each `{"chosen", "alternative", "why"}`, `other_decisions`, `reviewer_view`,
   `screenshots` and `read_at`, by project and number. `own_items` are Dev flow's own, read from its
-  own tables beside the runner's, by project; in this part each is a stopped project, see
-  "Watching branches". `screenshots` are the stored names paired for
+  own tables beside the runner's, each named by its `kind`: `project_stopped`, a stopped project,
+  see "Watching branches", and `budget_reached`, a project whose runs reached its daily budget
+  today, see "The daily budget" under "Stops"; the stopped projects first, then the budgets, each
+  by project. `screenshots` are the stored names paired for
   the page by `Screenshots.Group`, each `{"name", "images"}`: the part of the names before
   `-desktop` and `-phone`, and the names, the desktop one first; what each means is `RunnerItem` in
   `src/DevFlow/Runner/RunnerItem.cs`, and every text is plain text to show as text. `cards` are Dev
@@ -1748,7 +1763,7 @@ in `src/DevFlow/Cards/`.
 
 ### Settings
 
-Eighteen, and only the eighteen something reads, with the preset they match, see "Presets" below:
+Nineteen, and only the nineteen something reads, with the preset they match, see "Presets" below:
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -1769,6 +1784,7 @@ Eighteen, and only the eighteen something reads, with the preset they match, see
 | `run_turns` | 200 | The most turns a run may take, 20 to 1000, which Claude Code enforces |
 | `fix_rounds_card` | 3 | The fix rounds a card's reviews may start, 0 to 10; a `changes` verdict after them stops the card, see "Fixing" |
 | `fix_rounds_feature` | 3 | The fix rounds a whole feature's reviews may start, 0 to 10; a `changes` verdict after them has it wait for the owner, see "Fixing a feature" |
+| `daily_token_budget` | null, off | The tokens the project's runs may use in a day, in the user's time zone, a whole number of millions from 1 to 10 000, which the settings page takes in millions; reached, the project starts nothing new until midnight there, see "The daily budget" under "Stops". The route refuses anything but null or such a number with 422 naming it, and a request that leaves it out, rather than reading that as off, with 400 |
 | `questions` | true | Questions before starting: on, a card its reading found questions in is `needs_answers` and waits for the owner's answers under "Questions before starting" on "Waiting for you"; off, it is built on the reader's recommendations, which the app posts on it. See "Reading a card" under "Jobs" |
 
 A label is written, at most 50 characters, GitHub's limit, with no space at either end, no comma,
@@ -1790,8 +1806,8 @@ the setting as it is now.
 **Presets.** Three shortcuts, never stored: a project's preset is the one its settings match, which
 `Presets.Of` in `src/DevFlow/Projects/Presets.cs` answers, and the settings page works out the same
 way from the form as it is typed. Each covers three settings, `questions`, `waits_for_owner` and the
-three conditions of `sometimes`, and nothing else: labels, trusted accounts, paths, models and
-limits are outside every preset and never change which one matches.
+three conditions of `sometimes`, and nothing else: labels, trusted accounts, paths, models,
+limits and the daily budget are outside every preset and never change which one matches.
 
 | Preset | `preset` | `questions` | `waits_for_owner` |
 |---|---|---|---|
@@ -3610,8 +3626,10 @@ project's next card has the higher priority label goes first, then the one writt
 another card with none due, `reason`, the sentence of its `WaitReason`, null for one that runs as
 soon as a worker asks, and `link`, where that reason is acted on: `card` with `link_card` the card
 it waits for, when that is an issue of the project's own repository that is a card,
-`waiting_for_you`, `project_page`, `settings`, or `schedules`, the card "When it runs" on its
-project's settings page, from the reason's `ActedOn`; null where it has no place to act; `feature`,
+`waiting_for_you`, `project_page`, `settings`, `schedules`, the card "When it runs" on its
+project's settings page, or `budget`, the card "Usage" there, from the reason's `ActedOn`; the
+page says a `budget` reason's sentence, "Daily budget reached, runs again at <day> 00:00", and
+links "Raise the budget" beside it, as it links "Edit schedules" beside a schedule's; null where it has no place to act; `feature`,
 the number of the feature it is a card of, null for a card on its own; and `run_now`, true when its
 reason is `OutsideSchedule`, so "Run now anyway" on its feature, or on it when it is on its own, is
 what to do.
@@ -5367,7 +5385,8 @@ the nav's dot and the front page.
 
 **On "Waiting for you".** Under "Stopped", after Dev flow's stopped projects: each failing project,
 the package's `Card` titled with its message, the `failed` status "Cannot run", its repository, and
-how many runs failed since when and when Dev flow tries again; then each stopped card, its `Card`
+how many runs failed since when and when Dev flow tries again; then each project that reached its
+daily budget, see "The daily budget" below; then each stopped card, its `Card`
 titled with its title, the `failed` status "Stopped", its repository and number, "Why it stopped"
 with its reason, when it stopped, and in its footer "Comment to run again", which opens a box
 labelled "A comment runs it again." with Send, and "Open on GitHub", its issue, and no Merge, as
@@ -5383,6 +5402,30 @@ when, "Open the feature" and "Run again", the primary. Each action ends in a toa
 again" or "Dropped #<number>", or its refusal in the item, and the list read again. A feature's page
 shows the same line, "Stopped by you. None of its jobs is handed out until you run it again.", with
 "Run again", in its header in place of its reason, while `stopped_by_owner` is true.
+
+**The daily budget.** A project with `daily_token_budget` set, see "Settings" under "Cards", is held
+once the tokens of its runs that finished since the latest midnight in the user's time zone reach
+it: `DailyBudget` in `src/DevFlow/Usage/DailyBudget.cs` sums them with `Tokens.Sql`, the one
+definition, input plus cache writes plus output, so cache reads never count, over every kind of run,
+on the day's bounds from `DevFlowTime`, 23 or 25 hours long when the clocks change. A run under way
+counts once it finishes, so it always finishes and a day overshoots by one run at most. Held,
+`RunDecision` answers `WaitReason.BudgetReached` with the tokens used, the budget and `LiftsAt`, the
+next midnight there in the zone's own offset, after `AllPaused` and `Paused` and before
+`OutsideSchedule`, so it holds every job kind, the check and the setup's among them, and no "Run now
+anyway" gets past it; the dispatcher reads it again under the project's lock in each of the three
+ways a job is handed out. Nothing is stored: it lifts by itself at that midnight, and at once when
+the budget is raised above what was used or switched off. It shows on Running now's queue and the
+project's Workers card as "Daily budget reached, runs again at <day> 00:00" with "Raise the budget",
+and on "Waiting for you" under "Stopped", after the stopped and failing projects, as an own item of
+kind `budget_reached`, with the project's id, `project_name`, `owner`, `used`, `budget`, `lifts_at`
+and `time_zone`, counted in `count` and the nav's dot, and gone once the hold lifts. It reads
+"<owner>/<name> reached its daily budget", the `needs-you` status "Budget reached", since nothing
+failed, the meta line "<used> of <budget> tokens", short as Running now says tokens, and "Nothing new
+starts until <day> 00:00, midnight in <zone>. The run that went over finished.", with the secondary
+link "Raise the budget" to `/devflow/projects/<id>/settings#usage`; its key is `budget/<project>`.
+The front page's stopped count does not count it, as it does not count a failing project. The
+column is `project_settings.daily_token_budget`, from `migrations/0057_daily_budget.sql`, with an
+index on `runs (project_id, finished_at)` for the day's sum, read every time a worker asks.
 
 **The tables**, from `migrations/0021_stops.sql`: `cards` gains `in_card_failures`, 0 or 1,
 `failed_at_commit`, `stopped_at`, `stop_marked_at` and `attention_labelled`; `runs` gains

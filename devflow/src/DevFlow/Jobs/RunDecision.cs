@@ -27,6 +27,9 @@ public enum ActedOn
 
     /// <summary>The project's schedules, the card "When it runs" on its settings page.</summary>
     Schedules,
+
+    /// <summary>The project's daily budget, the card "Usage" on its settings page.</summary>
+    Budget,
 }
 
 /// <summary>Why a project's next job, or a card, does not run yet: a closed set, each with its
@@ -55,6 +58,17 @@ public abstract record WaitReason
         public override string Sentence => "Paused: continue it";
 
         public override ActedOn Where => ActedOn.ProjectPage;
+    }
+
+    /// <summary>The project's runs that finished today, in the user's zone, used
+    /// <paramref name="Used"/> tokens, at least its daily budget, <paramref name="Budget"/>; it lifts
+    /// at <paramref name="LiftsAt"/>, the next midnight there, in the zone's own offset, so its
+    /// sentence says it as wall clock there.</summary>
+    public sealed record BudgetReached(long Used, long Budget, DateTimeOffset LiftsAt) : WaitReason
+    {
+        public override string Sentence => string.Create(CultureInfo.InvariantCulture, $"Daily budget reached, runs again at {LiftsAt:ddd HH:mm}");
+
+        public override ActedOn Where => ActedOn.Budget;
     }
 
     /// <summary>The project runs by schedule and is outside every window that is on; a window that
@@ -216,6 +230,9 @@ public enum SetupGate
 /// card, holds, <see cref="RunNowStore"/>.</param>
 /// <param name="RunNowKind">The kind of the next job among those the overrides cover,
 /// <see cref="JobStore.RunNowKindSql"/>'s, null with none.</param>
+/// <param name="Budget">Why the project waits for its daily budget, the tokens of its runs that
+/// finished today having reached it, by <see cref="Usage.DailyBudget"/>; null when it has none or
+/// used less.</param>
 public sealed record ProjectSituation(
     string Project,
     bool NeedsRebuild,
@@ -231,7 +248,8 @@ public sealed record ProjectSituation(
     PauseHold Pause = PauseHold.None,
     WaitReason.OutsideSchedule? Outside = null,
     bool RunNow = false,
-    string? RunNowKind = null);
+    string? RunNowKind = null,
+    WaitReason.BudgetReached? Budget = null);
 
 /// <summary>A card's decision, and the kind of job due for it, null for one that waits for another
 /// card with none due.</summary>
@@ -246,8 +264,9 @@ public static class RunDecision
 {
     /// <summary>
     /// The project's decision for its situation, its gates in the order the dispatcher meets them:
-    /// everything is paused, then the project is, then it is outside its schedules, before any
-    /// other, since they hold every kind of job, the setup's and the check among them. Outside its
+    /// everything is paused, then the project is, then its daily budget is reached, then it is
+    /// outside its schedules, before any other, since they hold every kind of job, the setup's and
+    /// the check among them; no override of the schedules gets past the budget. Outside its
     /// schedules with an override, "Run now anyway", that holds, the rest of the rule decides among
     /// the jobs the overrides cover alone, <see cref="ProjectSituation.RunNowKind"/>, and a setup's
     /// job or a check, which no override covers, still waits for the schedules; after that, the worker asking needs a rebuild; the project is stopped, or its default branch not read
@@ -267,6 +286,11 @@ public static class RunDecision
                 return new Decision.Wait(new WaitReason.AllPaused());
             case PauseHold.Paused:
                 return new Decision.Wait(new WaitReason.Paused());
+        }
+
+        if (situation.Budget is { } budget)
+        {
+            return new Decision.Wait(budget);
         }
 
         var nextKind = situation.NextKind;
@@ -359,7 +383,7 @@ public static class RunDecision
     /// <summary>
     /// The project's situation for <paramref name="workerId"/> at <paramref name="now"/>, in one
     /// transaction as the project's user, from the fragments each gate is kept in:
-    /// <see cref="Pauses.PauseSql"/>, the schedules by <see cref="Schedules.ScheduleStore.StateIn"/>, <see cref="Workers.WorkerStore.RebuildSql"/> with <paramref name="image"/>,
+    /// <see cref="Pauses.PauseSql"/>, the daily budget by <see cref="Usage.DailyBudget.ReachedIn"/>, the schedules by <see cref="Schedules.ScheduleStore.StateIn"/>, <see cref="Workers.WorkerStore.RebuildSql"/> with <paramref name="image"/>,
     /// <see cref="WatchStore.HoldSql"/>, the project's wait, the worker's setup version by
     /// <see cref="Setup.SetupStore"/>'s checks, the setup's and the cards' next kind, the user's
     /// Claude login and whether any worker was seen within <see cref="RunStore.Silence"/>. Null when
@@ -385,7 +409,7 @@ public static class RunDecision
     private static async Task<ProjectSituation?> Read(UserDb database, Guid userId, Guid projectId, Guid? workerId, string image, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
-        var (row, schedule) = await database.InUserTransaction(userId, async transaction =>
+        var (row, schedule, budget) = await database.InUserTransaction(userId, async transaction =>
         {
             // The dispatcher ends every override with nothing left to run before it reads anything,
             // so one that ended never covers a card added or sent back later; the page only reads.
@@ -424,7 +448,9 @@ public static class RunDecision
                 new { projectId, workerId, image, watchedSince = WatchStore.WatchedSince(now), seenSince = now - RunStore.Silence },
                 transaction,
                 cancellationToken: cancellationToken));
-            return (row, row is null ? null : await Schedules.ScheduleStore.StateIn(transaction, projectId, now, cancellationToken));
+            return row is null
+                ? (row, null, null)
+                : (row, await Schedules.ScheduleStore.StateIn(transaction, projectId, now, cancellationToken), await Usage.DailyBudget.ReachedIn(transaction, projectId, now, cancellationToken));
         }, cancellationToken);
         if (row is null)
         {
@@ -441,7 +467,7 @@ public static class RunDecision
             ? new ProjectWait(failures, row.Reason!, Utc(row.Since!.Value), Utc(row.WaitUntil!.Value), row.UntilReset ?? false)
             : null;
         return new ProjectSituation(row.Project, row.Rebuild is not null, WatchStore.Read(row.Hold), wait, setup, row.SetupKind, login, row.WorkerSeen, row.NextKind, row.Version, now, Pauses.Read(row.Pause),
-            schedule is null ? null : Schedules.Schedule.Reason(schedule), row.RunNow, row.RunNowKind);
+            schedule is null ? null : Schedules.Schedule.Reason(schedule), row.RunNow, row.RunNowKind, budget);
     }
 
     private static DateTimeOffset Utc(DateTime at) => new(DateTime.SpecifyKind(at, DateTimeKind.Utc));

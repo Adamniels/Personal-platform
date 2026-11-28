@@ -737,6 +737,82 @@ describe("an item's detail, by kind", () => {
 		).toBe(`/devflow/projects/${OTHER}`);
 		expect(within(run).queryAllByRole("button")).toEqual([]);
 	});
+
+	test("a budget reached shows under Stopped with Raise the budget", async () => {
+		const landed = `ab12cd34${"0".repeat(32)}`;
+		openWith(
+			answering(
+				list({
+					count: 3,
+					own_items: [
+						{
+							kind: "project_stopped",
+							project_id: OTHER,
+							project_name: "habits",
+							owner: "Adamniels",
+							branch: "main",
+							activity_type: "push",
+							actor: "someone",
+							commit: landed,
+							commit_url: `https://github.com/Adamniels/habits/commit/${landed}`,
+							landed_at: minutesAgo(30),
+							stopped_at: minutesAgo(29),
+						},
+						{
+							kind: "budget_reached",
+							project_id: PROJECT,
+							project_name: "fodr",
+							owner: "Adamniels",
+							used: 1_234_000,
+							budget: 1_000_000,
+							lifts_at: "2026-11-17T00:00:00+01:00",
+							time_zone: "Europe/Stockholm",
+						},
+					],
+					failing_projects: [
+						{
+							project_id: OTHER,
+							project_name: "habits",
+							owner: "Adamniels",
+							message:
+								"Dev flow cannot run habits's cards: The network was away",
+							reason: "The network was away",
+							failures: 6,
+							since: minutesAgo(60),
+							wait_until: minutesAgo(-10),
+						},
+					],
+				}),
+			),
+		);
+
+		// Under Stopped, after the stopped and the failing projects, with what it
+		// used of what as its meta line.
+		const stopped = await panel().findByRole("region", { name: "Stopped" });
+		const listed = rows(stopped);
+		expect(listed).toHaveLength(3);
+		expect(listed[0]).toContain("Something landed on main");
+		expect(listed[1]).toContain("cannot run");
+		expect(listed[2]).toContain("Adamniels/fodr reached its daily budget");
+		expect(listed[2]).toContain("1.2 M of 1 M tokens");
+
+		// Its detail says until when, as wall clock in the owner's zone, and that
+		// the run that went over finished; Raise the budget opens the settings
+		// page at the field. It acts nowhere in the inbox.
+		const reached = await choose("Adamniels/fodr reached its daily budget");
+		expect(
+			within(reached).getByText(
+				"Nothing new starts until Tue 00:00, midnight in Europe/Stockholm. The run that went over finished.",
+			),
+		).toBeTruthy();
+		expect(
+			within(reached)
+				.getByRole("link", { name: "Raise the budget" })
+				.getAttribute("href"),
+		).toBe(`/devflow/projects/${PROJECT}/settings#usage`);
+		expect(within(reached).queryAllByRole("button")).toEqual([]);
+		expect(window.location.search).toBe(`?item=budget/${PROJECT}`);
+	});
 });
 
 describe("the age of the picture, Refresh and the empty states", () => {

@@ -1039,6 +1039,21 @@ owner's wall clock without the record holding a zone. The workers list's `held` 
 summary, which are SQL, do not carry it; the project's page says it in its own card, where the
 windows are.
 
+**The daily budget comes between the pauses and the schedule.** Reached, a project waits as a
+paused one does, for every kind of job, with the run under way finishing. It comes after the pauses,
+since a pause is the owner's word now and a budget his cap set ahead, and before the schedule, so
+"Run now anyway", which narrows only the schedule, never spends past a cap he set: an override says
+when, the budget says how much. Like the schedule it cannot be an SQL fragment alone, since its day
+is wall clock in the user's zone, so `DailyBudget` reads the zone, works out the day's bounds in C#
+through `DevFlowTime`, and sums the runs that finished inside them with `Tokens.Sql`, the one
+definition, never a second sum; the dispatcher reads it again under the project's row lock, after
+the pauses took it, so a run that finished or a budget lowered while GitHub was asked still holds
+the work back. Two workers handed jobs at once under the budget may both finish over it; the
+overshoot is bounded by the runs under way, one per worker, which the slice accepted as "one run at
+most" for the usual single worker. The workers list carries it apart from `held`, as `budget`, with
+the rule's own sentence, so the project's page says it in the rule's order without an SQL fragment
+or a second wording.
+
 **"Run now anyway" narrows the schedule, it does not lift it.** An override for a feature or a card
 on its own, a row of `run_now`, lets the rule pass the schedule for what it covers and for nothing
 else of the project: outside its schedule with one that holds, the rule goes on through its later
@@ -2285,6 +2300,15 @@ limit. A misreading then costs at most a wait that is too short, which the doubl
 week's wait the owner sees on the page; and a message the worker cannot read leaves the doubling,
 which is never wrong for long. When Claude Code's version in the base image changes, a real run at
 the limit is the check that the form still holds.
+
+**The daily budget's hold is worked out, never stored.** Storing a "budget reached" mark would need
+something to clear it at midnight, in each user's zone, and again whenever the budget is raised or
+switched off, and a clearing that failed would hold a project with nothing to say why. Worked out
+from the runs each time it is asked for, it lifts by itself at midnight and at once when the budget
+changes, and the page, the rule and "Waiting for you" can never disagree, since they read the same
+sum. The cost is one indexed range sum over the day's runs each time a worker asks, which
+`runs_finished` keeps small. A run under way counts once it finishes, since only then are its
+figures known; it is never stopped for the budget, so a day overshoots by what was already running.
 
 ## Watching the default branch
 

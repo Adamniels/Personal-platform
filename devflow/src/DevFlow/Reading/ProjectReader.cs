@@ -203,7 +203,9 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         var settings = new ProjectSettings(
             target.PickupLabel, target.HoldLabel, target.AttentionLabel, target.ReviewLabel, target.WaitsForOwner, target.WaitWhenMarked,
             target.WaitWhenPaths, target.WaitWhenDecision, target.WaitPaths, trusted.Listed, target.ModelReading, target.ModelBuilding,
-            target.ModelReviewing, target.RunMinutes, target.RunTurns, target.FixRoundsCard, target.FixRoundsFeature, target.Questions);
+            target.ModelReviewing, target.RunMinutes, target.RunTurns, target.FixRoundsCard, target.FixRoundsFeature, target.Questions,
+            // Picking cards never reads the budget, which only handing out work does.
+            DailyTokenBudget: null);
         var repository = new Repository(target.Installation, target.RepositoryId, target.Owner, target.Name);
         PickedProject cards;
         switch (await CardPicker.Pick(host, userId, repository, settings, trusted, cancellationToken))

@@ -11,14 +11,19 @@ import type { ActionsApi } from "./actions";
 import { ApiError } from "./api/client";
 import { App } from "./app";
 import type { Status } from "./status";
-import type { OwnItem, WaitingApi, WaitingList } from "./waiting";
+import type {
+	OwnItem,
+	StoppedProjectItem,
+	WaitingApi,
+	WaitingList,
+} from "./waiting";
 
 const NOW = Date.parse("2026-11-17T12:00:00Z");
 const PROJECT = "11111111-1111-1111-1111-111111111111";
 const LANDED = `ab12cd34${"0".repeat(32)}`;
 const TITLE = "Something landed on main that Dev flow did not put there";
 
-function stop(overrides: Partial<OwnItem> = {}): OwnItem {
+function stop(overrides: Partial<StoppedProjectItem> = {}): StoppedProjectItem {
 	return {
 		kind: "project_stopped",
 		project_id: PROJECT,

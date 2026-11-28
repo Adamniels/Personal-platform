@@ -63,21 +63,21 @@ public sealed record ScreenshotSource(Repository Repository, int Number, IReadOn
 /// <param name="Failing">Whether its last read failed.</param>
 public sealed record ProjectFreshness(Guid Id, string Owner, string Name, DateTimeOffset? LastSuccessAt, bool Stale, bool Failing);
 
-/// <summary>What kind of thing of Dev flow's own waits for the owner.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<OwnItemKind>))]
-public enum OwnItemKind
-{
-    /// <summary>Something landed on a project's default branch that Dev flow did not put there,
-    /// and the project is stopped until he looks and resumes it.</summary>
-    [JsonStringEnumMemberName("project_stopped")]
-    ProjectStopped,
-}
-
 /// <summary>Something of Dev flow's own that waits for the owner, read from its own tables rather
-/// than a pull request: in this part only a stopped project. Every text the code host gave, the
-/// actor among them, is shown as text.</summary>
+/// than a pull request, one of its kinds, named by <c>kind</c> on the wire: a stopped project,
+/// <see cref="ProjectStoppedItem"/>, or one that reached its daily budget,
+/// <see cref="BudgetReachedItem"/>.</summary>
+/// <param name="ProjectId">The project.</param>
 /// <param name="ProjectName">The repository's name, as connected.</param>
 /// <param name="Owner">The repository's owner, as connected.</param>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(ProjectStoppedItem), "project_stopped")]
+[JsonDerivedType(typeof(BudgetReachedItem), "budget_reached")]
+public abstract record OwnItem(Guid ProjectId, string ProjectName, string Owner);
+
+/// <summary>Something landed on a project's default branch that Dev flow did not put there, and
+/// the project is stopped until he looks and resumes it. Every text the code host gave, the actor
+/// among them, is shown as text.</summary>
 /// <param name="Branch">The default branch something landed on.</param>
 /// <param name="ActivityType">What landed: <c>push</c>, <c>force_push</c>,
 /// <c>branch_creation</c>, <c>branch_deletion</c>, <c>pull_request_merge</c> or
@@ -88,8 +88,7 @@ public enum OwnItemKind
 /// <param name="CommitUrl">Where the commit is on the code host.</param>
 /// <param name="LandedAt">When it landed.</param>
 /// <param name="StoppedAt">When the project stopped.</param>
-public sealed record OwnItem(
-    OwnItemKind Kind,
+public sealed record ProjectStoppedItem(
     Guid ProjectId,
     string ProjectName,
     string Owner,
@@ -99,7 +98,23 @@ public sealed record OwnItem(
     string Commit,
     Uri CommitUrl,
     DateTimeOffset LandedAt,
-    DateTimeOffset StoppedAt);
+    DateTimeOffset StoppedAt) : OwnItem(ProjectId, ProjectName, Owner);
+
+/// <summary>A project whose runs that finished today, in the owner's zone, used its daily budget:
+/// it starts nothing new until midnight there, or until he raises the budget. Worked out as the
+/// list is read, never stored, by <see cref="Usage.DailyBudget"/>.</summary>
+/// <param name="Used">The tokens its runs used today, by the one definition.</param>
+/// <param name="Budget">Its daily budget, in tokens.</param>
+/// <param name="LiftsAt">The next midnight in the owner's zone, in its own offset.</param>
+/// <param name="TimeZone">The IANA id of the owner's zone, which the page says midnight in.</param>
+public sealed record BudgetReachedItem(
+    Guid ProjectId,
+    string ProjectName,
+    string Owner,
+    long Used,
+    long Budget,
+    DateTimeOffset LiftsAt,
+    string TimeZone) : OwnItem(ProjectId, ProjectName, Owner);
 
 /// <summary>The check Dev flow ran on a card's commit, as its run recorded it.</summary>
 /// <param name="Command">The check, from the project's <c>.devflow/project.json</c>; null for a
@@ -385,7 +400,8 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
     /// name, and whether their link needs renewing, read in one transaction.</summary>
     public async Task<WaitingList> For(Guid userId, CancellationToken cancellationToken)
     {
-        var (items, projects, relink, stops, cardRows, stoppedRows, stoppedFeatureRows, refusedRows, failingRows, decisionRows, features, cardDecisions, askedRows, setupRows, setupRunRows) = await database.InUserTransaction(userId, async transaction =>
+        var now = time.GetUtcNow();
+        var (items, projects, relink, stops, budgets, cardRows, stoppedRows, stoppedFeatureRows, refusedRows, failingRows, decisionRows, features, cardDecisions, askedRows, setupRows, setupRunRows) = await database.InUserTransaction(userId, async transaction =>
         {
             var items = await transaction.Connection!.QueryAsync<ItemRow>(new CommandDefinition(
                 """
@@ -595,13 +611,14 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                 features.Add(Feature(row, story?.Cards.Sum(card => card.Decisions.Count(decision => decision.Answer is null)) ?? 0));
             }
 
-            return (items.ToList(), projects.ToList(), relink, stops.ToList(), cards.ToList(), stopped.ToList(), stoppedFeatures.ToList(), refused.ToList(), failing.ToList(), decisions.ToList(), features, marked.ToList(), asked.ToList(), setup.ToList(), setupRuns.ToList());
+            var budgets = await Usage.DailyBudget.AllReachedIn(transaction, now, cancellationToken);
+            return (items.ToList(), projects.ToList(), relink, stops.ToList(), budgets, cards.ToList(), stopped.ToList(), stoppedFeatures.ToList(), refused.ToList(), failing.ToList(), decisions.ToList(), features, marked.ToList(), asked.ToList(), setup.ToList(), setupRuns.ToList());
         }, cancellationToken);
 
-        var now = time.GetUtcNow();
         var waiting = items.Select(Item).ToList();
-        var own = stops.Select(stop => new OwnItem(
-            OwnItemKind.ProjectStopped,
+
+        // The stopped projects first, then those that reached their budget, each by project.
+        List<OwnItem> own = [.. stops.Select(stop => new ProjectStoppedItem(
             stop.ProjectId,
             stop.Name,
             stop.Owner,
@@ -611,7 +628,15 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             stop.Commit,
             CommitUrl(stop.Owner, stop.Name, stop.Commit),
             GitHubLink.Utc(stop.LandedAt),
-            GitHubLink.Utc(stop.StoppedAt))).ToList();
+            GitHubLink.Utc(stop.StoppedAt)))];
+        own.AddRange(budgets.Select(budget => new BudgetReachedItem(
+            budget.ProjectId,
+            budget.ProjectName,
+            budget.Owner,
+            budget.Reached.Used,
+            budget.Reached.Budget,
+            budget.Reached.LiftsAt,
+            budget.TimeZone)));
         var cards = cardRows.Select(row => Card(row, cardDecisions.Where(decision => decision.ProjectId == row.ProjectId && decision.Number == row.Number))).ToList();
         var decided = decisionRows.Select(row => new DecisionItem(
             row.Id,

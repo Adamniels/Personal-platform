@@ -196,6 +196,7 @@ function renderPage(
 				fix_rounds_card: 3,
 				fix_rounds_feature: 3,
 				questions: true,
+				daily_token_budget: null,
 				preset: "custom" as const,
 			}),
 		),
@@ -1144,6 +1145,7 @@ describe("a project's page", () => {
 			fix_rounds_card: 3,
 			fix_rounds_feature: 3,
 			questions: true,
+			daily_token_budget: null,
 			preset: "only_i_merge" as const,
 		};
 		// The settings as saved where the page reads them, changed by a save on
@@ -1395,6 +1397,32 @@ describe("a project that hands out no work", () => {
 		const workers = await panel();
 		await within(workers).findByText(said);
 		expect(within(workers).getByText("Cannot run")).toBeTruthy();
+	});
+
+	test("says its daily budget is reached, with Raise the budget, ahead of a later hold and after a pause", async () => {
+		const budget = {
+			used: 1_200_000,
+			budget: 1_000_000,
+			lifts_at: "2026-11-18T00:00:00+01:00",
+			sentence: "Daily budget reached, runs again at Wed 00:00",
+		};
+		renderPage({ list: { held: "stopped", budget } });
+
+		const workers = within(await panel());
+		await workers.findByText(budget.sentence);
+		expect(workers.queryByText(heldNotice("stopped"))).toBeNull();
+		expect(
+			workers
+				.getByRole("link", { name: "Raise the budget" })
+				.getAttribute("href"),
+		).toBe(`/devflow/projects/${ID}/settings#usage`);
+		cleanup();
+
+		// Paused, the pause is said, as the one rule puts it first.
+		renderPage({ list: { held: "paused", budget } });
+		const paused = within(await panel());
+		await paused.findByText(heldNotice("paused"));
+		expect(paused.queryByText(budget.sentence)).toBeNull();
 	});
 
 	test("says when its default branch could not be read", async () => {
@@ -2001,6 +2029,7 @@ describe("a project's page, cards first", () => {
 			fix_rounds_card: 3,
 			fix_rounds_feature: 3,
 			questions: true,
+			daily_token_budget: null,
 			preset: "only_i_merge",
 		};
 		const saveSettings = vi.fn((_id: string, request: SettingsRequest) =>
@@ -2035,6 +2064,7 @@ describe("a project's page, cards first", () => {
 			Preset: "Only I merge",
 			"Questions before starting": "On",
 			"Pull requests wait for you": "Always",
+			"Daily budget": "Off",
 			"Pick-up label": "devflow",
 			"Hold label": "devflow-hold",
 			"Attention label": "devflow-attention",

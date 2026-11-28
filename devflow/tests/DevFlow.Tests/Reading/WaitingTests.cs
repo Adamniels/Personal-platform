@@ -257,6 +257,57 @@ public sealed class WaitingTests
     }
 
     [Fact]
+    public async Task ABudgetReachedIsAnItem()
+    {
+        await using var jobs = await Jobs.Jobs.Start();
+        var routes = jobs.Routes;
+        var before = await Waited(routes);
+        Assert.Empty(before["own_items"]!.AsArray());
+        var count = (int)before["count"]!;
+
+        // The project's runs used 1.2 million of its million today: it is an own item, counted.
+        await Jobs.BudgetTests.SetBudget(jobs, 1_000_000);
+        var now = routes.Time.GetUtcNow();
+        await Jobs.BudgetTests.Spent(jobs, now - TimeSpan.FromHours(1), input: 700_000, cacheCreation: 100_000, cacheRead: 3_000_000, output: 400_000);
+        var reached = await Waited(routes);
+        var item = Assert.Single(reached["own_items"]!.AsArray())!.AsObject();
+        var midnight = Jobs.BudgetTests.NextMidnight(now);
+        var expected = new JsonObject
+        {
+            ["kind"] = "budget_reached",
+            ["project_id"] = jobs.Project,
+            ["project_name"] = "Personal-platform",
+            ["owner"] = "Adamniels",
+            ["used"] = 1_200_000,
+            ["budget"] = 1_000_000,
+            ["lifts_at"] = midnight.ToString("yyyy-MM-ddTHH:mm:sszzz", CultureInfo.InvariantCulture),
+            ["time_zone"] = "Europe/Stockholm",
+        };
+        Assert.True(JsonNode.DeepEquals(expected, item), $"{item.ToJsonString()} is {expected.ToJsonString()}");
+        Assert.Equal(count + 1, (int)reached["count"]!);
+
+        // Raised above what was used, it is gone at once.
+        await Jobs.BudgetTests.SetBudget(jobs, 2_000_000);
+        var raised = await Waited(routes);
+        Assert.Empty(raised["own_items"]!.AsArray());
+        Assert.Equal(count, (int)raised["count"]!);
+
+        // Lowered again it is back; and once the day's runs are yesterday's, past midnight, it is
+        // gone with nothing stored to clear.
+        await Jobs.BudgetTests.SetBudget(jobs, 1_000_000);
+        Assert.Single((await Waited(routes))["own_items"]!.AsArray());
+        await using (var admin = await routes.Database.OpenAdmin(Ct))
+        {
+            await TestDatabaseExtensions.Execute(admin,
+                $"UPDATE runs SET started_at = started_at - interval '1 day', finished_at = finished_at - interval '1 day' WHERE project_id = '{jobs.Project}'");
+        }
+
+        var lifted = await Waited(routes);
+        Assert.Empty(lifted["own_items"]!.AsArray());
+        Assert.Equal(count, (int)lifted["count"]!);
+    }
+
+    [Fact]
     public async Task WithoutATokenItIs401()
     {
         await using var routes = await Routes.Start();
