@@ -27,7 +27,7 @@ public sealed class PauseTests
     /// <summary>The second project's repository, fodr.</summary>
     private const long Fodr = 2002;
 
-    private static readonly Guid FodrWorker = Guid.Parse("0190a8f0-0000-7000-8000-00000000f0d0");
+    internal static readonly Guid FodrWorker = Guid.Parse("0190a8f0-0000-7000-8000-00000000f0d0");
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -377,7 +377,7 @@ public sealed class PauseTests
 
     /// <summary>The rule's decision for the project as <paramref name="worker"/> finds it, the first
     /// worker in the jobs' project unless given.</summary>
-    private static async Task<Decision> Rule(Jobs jobs, Guid? project = null, Guid? worker = null)
+    internal static async Task<Decision> Rule(Jobs jobs, Guid? project = null, Guid? worker = null)
     {
         var situation = await RunDecision.Read(jobs.Routes.Door, Jobs.User, project ?? jobs.Project, worker ?? Jobs.FirstWorker, Jobs.Image, jobs.Routes.Time.GetUtcNow(), Ct);
         Assert.NotNull(situation);
@@ -389,7 +389,7 @@ public sealed class PauseTests
     /// project.json, read once so its card is picked, and a worker of its own said hello with its
     /// own key. The project and that key.
     /// </summary>
-    private static async Task<(Guid Project, string Key)> SecondProject(Jobs jobs)
+    internal static async Task<(Guid Project, string Key)> SecondProject(Jobs jobs)
     {
         var world = jobs.Fake.World(Jobs.User);
         var installation = world.Installations[0];

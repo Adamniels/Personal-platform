@@ -77,7 +77,7 @@ public static class ProjectWaits
             new { projectId, userId, reason, now },
             transaction,
             cancellationToken: cancellationToken));
-        var untilReset = resetsAt is { } reset && reset > now && reset - now <= FurthestReset;
+        var untilReset = Believed(resetsAt, now);
         var until = untilReset ? resetsAt!.Value : now + Wait(failures);
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             "UPDATE project_waits SET wait_until = @until, until_reset = @untilReset WHERE project_id = @projectId",
@@ -85,6 +85,12 @@ public static class ProjectWaits
             transaction,
             cancellationToken: cancellationToken));
     }
+
+    /// <summary>Whether <paramref name="resetsAt"/>, a usage limit's reset as a run's answer named
+    /// it, is believed at <paramref name="now"/>: after now and no further than
+    /// <see cref="FurthestReset"/>.</summary>
+    public static bool Believed([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] DateTimeOffset? resetsAt, DateTimeOffset now) =>
+        resetsAt is { } reset && reset > now && reset - now <= FurthestReset;
 
     /// <summary>A run of the project succeeded, inside the transaction that records it: the count
     /// ends, and so does the wait.</summary>
