@@ -233,7 +233,7 @@ setup() {
   git -C "$AGENT_REPO" remote add origin "$tmp/t$t/origin.git"
   git -C "$AGENT_REPO" branch 41-x
   git -C "$AGENT_REPO" push -q origin main 41-x 2>/dev/null
-  export D AGENT_HOME AGENT_REPO AGENT_POLL_SECONDS=0 AGENT_TIMEOUT_SECONDS=5400 AGENT_REMOTE="$tmp/t$t/origin.git"
+  export D AGENT_HOME AGENT_REPO AGENT_POLL_SECONDS=0 AGENT_TIMEOUT_SECONDS=7200 AGENT_REMOTE="$tmp/t$t/origin.git"
   unset FAKE_STOP_AT FAKE_RATE_EXIT FAKE_COMMENT_EXIT FAKE_LABEL_EXIT FAKE_HEAD FAKE_DOCKER_EXIT FAKE_DF_KB \
         FAKE_GATE_OUT FAKE_GATE_EXIT FAKE_BOARD_EXIT FAKE_VERDICT FAKE_DOCKER_HANG AGENT_CALL_TIMEOUT_SECONDS \
         AGENT_DOCKER_START_WAIT FAKE_PR_LABELS FAKE_STATUS_EXIT FAKE_PR_STATE
@@ -364,6 +364,9 @@ setup; pending "new 41" "new 41"; claude_plays "1 200 tests fail" "1 200 tests f
 check "two slow failing runs set Blocked and mention the owner once" \
   $([ "$(cat "$D/board.log")" = "status 41 Blocked" ] && [ "$(lines "$D/comments.log")" = 1 ] \
     && grep -q ' 41 @Adamniels slice #41 is Blocked' "$D/comments.log"; echo $?)
+check "a Blocked notice with no PR names the board move that runs it again, never a PR" \
+  $(! grep -q 'PR' "$D/comments.log" \
+    && grep -q 'Set the slice In progress if its branch has commits, or Ready if not, to run it again\.$' "$D/comments.log"; echo $?)
 
 setup; pending "new 41" "new 41"; claude_plays "1 200 tests fail" "0 300 done"; runner
 check "one slow failure then a success does not set Blocked and resets the count" \

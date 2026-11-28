@@ -329,7 +329,7 @@ turn never waits for it. Last of all comes an approved pull request that carries
 `owner-blocked`: it is looked at every turn, since the gate's reasons say whether it has become
 ready, and for that reason only when there is nothing else to do. A slice blocked by a slice still
 waiting for the owner is not picked; the runner takes other work. Implementer and reviewer each run in a fresh `claude -p` session under a
-timeout of 90 minutes, so no run carries another's context. With nothing to do it waits 10 minutes
+timeout of two hours, so no run carries another's context. With nothing to do it waits 10 minutes
 and looks again. The script's header is the exact behaviour.
 
 **Each turn begins by making the labels and `review-ok` true** for every open pull request by the
