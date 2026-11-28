@@ -240,6 +240,37 @@ public sealed class RunNowTests
         Assert.Equal(StatusCodes.Status403Forbidden, elsewhere.Response.StatusCode);
     }
 
+    [Fact]
+    public async Task TheQueueOffersRunNowAnywayOutsideTheSchedule()
+    {
+        await using var jobs = await Jobs.Start([
+            Jobs.Card(20),
+            FeatureJobs.Parent(10, "Dev flow: features", [11, 12]),
+            FeatureJobs.Sub(11),
+            FeatureJobs.Sub(12),
+        ]);
+
+        // Inside the schedule nothing offers it, and each card names its feature.
+        var inside = await NextUp(jobs);
+        Assert.All(inside.Values, card => Assert.False((bool)card["run_now"]!));
+        Assert.Null((int?)inside[20]["feature"]);
+        Assert.Equal(10, (int?)inside[11]["feature"]);
+
+        // Outside it, every card held only by the schedule offers it: its feature, or itself.
+        await Outside(jobs);
+        var outside = await NextUp(jobs);
+        Assert.True((bool)outside[20]["run_now"]!);
+        Assert.True((bool)outside[11]["run_now"]!);
+        Assert.Equal(10, (int?)outside[11]["feature"]);
+
+        // Once the feature runs now, its cards no longer offer it, and 20 still does.
+        Assert.Equal(StatusCodes.Status204NoContent, (await RunNow(jobs, Feature, 10)).Response.StatusCode);
+        var after = await NextUp(jobs);
+        Assert.False((bool)after[11]["run_now"]!);
+        Assert.False((bool)after[12]["run_now"]!);
+        Assert.True((bool)after[20]["run_now"]!);
+    }
+
     private const string Feature = "features";
 
     private const string Card = "cards";

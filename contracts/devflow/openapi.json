@@ -2601,6 +2601,13 @@
       },
       "NextCard": {
         "properties": {
+          "feature": {
+            "format": "int32",
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
           "job": {
             "type": [
               "null",
@@ -2637,6 +2644,9 @@
               "string"
             ]
           },
+          "run_now": {
+            "type": "boolean"
+          },
           "state": {
             "type": "string"
           },
@@ -2653,7 +2663,9 @@
           "job",
           "reason",
           "link",
-          "link_card"
+          "link_card",
+          "feature",
+          "run_now"
         ],
         "type": "object"
       },
@@ -8604,7 +8616,7 @@
     },
     "/devflow/api/running": {
       "get": {
-        "description": "Every run under way of the caller's projects, oldest first, as Running now shows each: its project, its worker by the name it said hello with, its kind, state, running or checking once its check runs, stopping when the caller marked it to stop and its worker has not ended it yet, its card's or its feature's number and title, null for a setup's run or a check, a fix's round, the model its job was handed out with, null for a check, when it started, its tokens so far, input_tokens + cache_creation_input_tokens + output_tokens, and its cache reads so far beside them; busy_workers, how many workers hold them; and next, the cards that come next, Next up: every card of the caller's projects queued, waiting to be read, or waiting for its review or its fix round, with no run under way, in each project's queue order and across projects by priority label and then age, at most 50, each with its project, number, title, state, the job due for it, the sentence of the reason the one rule gives it, null for one that runs as soon as a worker asks, and where that reason is acted on, link, card with link_card, waiting_for_you, project_page, settings, or schedules, the card \"When it runs\" on its project's settings page, null where it has no place; and next_more, how many come after those 50. Without a valid token, 401 with an empty body.",
+        "description": "Every run under way of the caller's projects, oldest first, as Running now shows each: its project, its worker by the name it said hello with, its kind, state, running or checking once its check runs, stopping when the caller marked it to stop and its worker has not ended it yet, its card's or its feature's number and title, null for a setup's run or a check, a fix's round, the model its job was handed out with, null for a check, when it started, its tokens so far, input_tokens + cache_creation_input_tokens + output_tokens, and its cache reads so far beside them; busy_workers, how many workers hold them; and next, the cards that come next, Next up: every card of the caller's projects queued, waiting to be read, or waiting for its review or its fix round, with no run under way, in each project's queue order and across projects by priority label and then age, at most 50, each with its project, number, title, state, the job due for it, the sentence of the reason the one rule gives it, null for one that runs as soon as a worker asks, and where that reason is acted on, link, card with link_card, waiting_for_you, project_page, settings, or schedules, the card \"When it runs\" on its project's settings page, null where it has no place, feature, the number of the feature it is a card of, null for a card on its own, and run_now, whether the one rule holds it only for its project's schedules, so runFeatureNow on its feature, or runCardNow on a card on its own, would run it; and next_more, how many come after those 50. Without a valid token, 401 with an empty body.",
         "operationId": "listRunning",
         "responses": {
           "200": {

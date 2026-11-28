@@ -444,11 +444,12 @@ A card's page, `src/card.tsx`, is at `/devflow/projects/<id>/cards/<number>`, un
 tab, which stays selected there, read from `GET /devflow/api/projects/{id}/cards/{number}` as it
 loads; a card the caller does not have is the `EmptyState` "There is no such card", and one that
 cannot be read an alert. It tells the card's story in order and holds no action: every action on a
-card is on Waiting for you. Top to bottom:
+card is on Waiting for you, but for "Run now anyway" under its title. Top to bottom:
 
 - **The header**: the link "Back to the project"; the card's state as the project's cards show it,
   as a status, beside a mono line in capitals, `OWNER/NAME · CARD #N · FEATURE #M`, or
-  `NO FEATURE` for a card on its own; the title as the page title, at most 18ch wide; and the
+  `NO FEATURE` for a card on its own; the title as the page title, at most 18ch wide; "Run now
+  anyway" as a feature's header has it, below, for a card on its own; and the
   links "Issue #<number>" and "Pull request #<number>", each in a new tab with `rel="noreferrer"`
   when its address is https and plain text otherwise, and for a card of a feature "Feature
   #<number>: <title>", to the feature's page.
@@ -671,7 +672,10 @@ the card, see "Jobs", as a link where the reason has a place to act: the card it
 is a card of the project, "Waiting for you", the project's page, or the Projects tab, whose
 Connections hold the Claude login. Outside its project's schedule the sentence, "Outside its
 schedule, runs again <day time>" or "No schedule is on", is said and not linked, since it says when
-rather than what to do, and "Edit schedules" after it links the settings page's card. A card that runs as soon as a worker asks has no reason and says
+rather than what to do; after it a secondary "Run now anyway", on a line of its own, runs the card's
+feature, or the card when it is on its own, outside the schedule, see "Schedules" under "Jobs", with
+the toast "Running #<n> outside the schedule" and the list read again, or the refusal in an error
+toast; and "Edit schedules" after that links the settings page's card. A card that runs as soon as a worker asks has no reason and says
 "Next to start". On a phone it is a list: the last three columns are priority 3, and the Card cell
 holds the project and the state on a mono line under the title, "fodr · To read", and the reason
 under that. Past 50 cards, "and 7 more" under the table; with none, "Nothing waits to run." in its
@@ -1869,7 +1873,8 @@ for every project before it.
 ### Schedules
 
 A project runs always, the default, or by schedule: inside any of its windows that is on, and with
-none on, never. Outside, nothing new of it starts, see "Schedules" under "Jobs". Every window is
+none on, never. Outside, nothing new of it starts but what "Run now anyway" covers, see
+"Schedules" and "Run now anyway" under "Jobs". Every window is
 wall clock in its user's time zone, one per user. It is `src/DevFlow/Schedules/`, `ScheduleRules`,
 `Schedule`, `ScheduleStore` and `ScheduleEndpoints`, and `DevFlowTime` in `src/DevFlow/`, the one
 place a zone is read; why the zone is the user's and why a window is wall clock is "Projects" in
@@ -3197,6 +3202,8 @@ first that holds deciding, each with the sentence the page shows:
    see "Schedules" under "Cards": "Outside its schedule, runs again <day time>", such as "Mon
    09:00", wall clock in the user's zone, the next start of a window that is on within 8 days, or
    "No schedule is on" with none on, acted on in the card "When it runs" on the settings page.
+   With "Run now anyway" on a feature or a card, the rule goes on past it for what that covers
+   alone, see "Run now anyway" below.
 4. `NeedsRebuild`, the worker needs a rebuild, see "Starting a worker": "Its worker needs building
    again".
 5. `ProjectStopped`, see "Watching branches": "The project is stopped: resume it", on the project's
@@ -3604,7 +3611,10 @@ another card with none due, `reason`, the sentence of its `WaitReason`, null for
 soon as a worker asks, and `link`, where that reason is acted on: `card` with `link_card` the card
 it waits for, when that is an issue of the project's own repository that is a card,
 `waiting_for_you`, `project_page`, `settings`, or `schedules`, the card "When it runs" on its
-project's settings page, from the reason's `ActedOn`; null where it has no place to act.
+project's settings page, from the reason's `ActedOn`; null where it has no place to act; `feature`,
+the number of the feature it is a card of, null for a card on its own; and `run_now`, true when its
+reason is `OutsideSchedule`, so "Run now anyway" on its feature, or on it when it is on its own, is
+what to do.
 
 No worker asks when the page reads, so a project's decision is `RunDecision.ReadForPage`: the same
 query and gates as for a worker, read for the worker likeliest to take its next job, one seen lately
@@ -3732,6 +3742,46 @@ what follows it waits for a window. Reading GitHub, opening pull requests, marki
 and a feature's end go on, as under a pause. The workers list's `held` and the Projects tab's
 summary do not say it; the project's page says it in its card "When it runs", and Running now's
 queue in each card's reason.
+
+**Run now anyway.** The owner overrides the schedules for one feature, or one card on its own, until
+it has nothing left to run. The override is `run_now`, `(project_id, user_id, feature_number,
+card_number, created_at)`, guarded like every scoped table, exactly one of the two numbers set, one
+per feature and one per card. It covers every job of the feature, its cards' builds, reviews, fixes
+and readings, its conflicts, its review and its fix, or every job of the card. It skips
+`OutsideSchedule` and nothing else: the pauses still hold it, so a paused project, or everything
+paused, hands out nothing for it. `RunNowStore` and `RunNowEndpoints` in `src/DevFlow/Jobs/`; why it
+is built so is "Handing out work" in `docs/devflow-architecture.md`.
+
+- **What runs.** Outside its schedules with an override that holds, `RunDecision` goes on past
+  `OutsideSchedule` with the next kind among covered jobs alone, `JobStore.RunNowKindSql`, in the
+  same order as every other; a setup's job or a check is never covered and still waits. Each card
+  it lists answers `OutsideSchedule` unless an override covers it, its own or its feature's. The
+  dispatcher reads the schedules again under the project's lock, and outside them every claim, and
+  the feature branch and the conflict read for a job before it, takes only covered work, by
+  `RunNowStore.OnlyCards` and `OnlyFeatures`. Inside its schedules, or for a project that runs
+  always, an override changes nothing.
+- **Its end.** It holds while what it covers has something left to run: a card on its own in
+  `queued`, `reading`, `building`, `checking`, `reviewing` or `fixing`; a feature not stopped by
+  the owner, held, ignored, merged or closed, that is bringing in, resolving, reviewing or fixing,
+  has a card in one of those states, or is building with every card done, its end next. Waiting for
+  the owner, ready, needing answers, done, stopped, refused, held or ignored, it has nothing left.
+  The dispatcher deletes every override with nothing left in the transaction that reads the
+  project's situation for a worker, the first time it finds it, so a card added or sent back later
+  keeps to the schedules again. Until then it covers nothing, since coverage reads the same end.
+- **The routes**, under the `Api` policy and the origin check, through the door as the caller:
+  `POST /devflow/api/projects/{id}/features/{number}/run-now` and
+  `POST /devflow/api/projects/{id}/cards/{number}/run-now` set it, `204`, setting it again changing
+  nothing; `404` "No such feature" or "No such card" for a project, feature or card the caller does
+  not have; `409` "This card runs with its feature" for a card of a feature, whose order is its
+  feature's, so its feature is run now instead; and `409` "This has nothing left to run" for one
+  with nothing left. `DELETE` on each takes it back, `204`, after taking the project's row `FOR NO
+  KEY UPDATE`, which the dispatcher's `FOR SHARE` waits for, so once it answers no job is handed out
+  by it; `404` as for setting it.
+- **What the pages read.** A feature's page and a card's page answer `run_now`,
+  `{"outside_schedule", "something_to_run", "on"}`: whether the project is outside its schedules
+  now, whether the thing has something left to run, false for a card of a feature, and whether its
+  override holds, stored with something left. Running now's queue gives each card `feature` and
+  `run_now`, see "Running now" above.
 
 **A lost run.** Each read of a project, before it asks the code host anything, ends every run of it
 under way whose worker has sent nothing for 2 minutes: whose `last_heard_at`, the last post to its
@@ -4081,7 +4131,10 @@ recommendation until then, and whether it is the recommendation, `commented`, wh
 for the reading, Dev flow's of its questions or of its refusal or his answers, is on the card yet,
 and `answered`, whether he answered its questions; or null before a reading came back, see "Reading
 a card"; and `earlier_readings`, the readings before the newest, newest first, each in the same
-shape with the answers given to it, empty for a card read once. A project or
+shape with the answers given to it, empty for a card read once; and `run_now`,
+`{"outside_schedule", "something_to_run", "on"}`, see "Run now anyway" under "Jobs", read in the
+same transaction, `something_to_run` false for a card of a feature, whose feature is run now
+instead. A project or
 card the caller does not have is `404` "No such card". It is `CardStory` and `CardEndpoints` in
 `src/DevFlow/Cards/`. The page is "A card's page" under "The pages".
 
@@ -4118,7 +4171,9 @@ answers `runs`, the feature's own runs, none of its cards', a conflict's among t
 each as "A card's page" answers a run, a whole feature's review among them, and `tokens` and
 `cache_reads`, summed over them by the same definition, 0 before any; `reviews`, the reviews of the whole feature,
 newest first, each as "A card's page" answers a review, see "Reviewing a feature"; and
-`fix_rounds` and `rounds`, its fix rounds, see "Fixing a feature" under "Reviewing a feature".
+`fix_rounds` and `rounds`, its fix rounds, see "Fixing a feature" under "Reviewing a feature"; and
+`run_now`, `{"outside_schedule", "something_to_run", "on"}`, see "Run now anyway" under "Jobs",
+read in the same transaction by `FeatureStory.ForPage`.
 
 **Answering.** `POST /devflow/api/projects/{id}/features/{number}/decisions/{run}/{position}/fine`
 keeps the answer `fine`, "Fine as it is", to that decision, in one transaction with what it checks,
@@ -4147,9 +4202,16 @@ read an alert. Top to bottom:
 
 - **The header**: a link "Back to the project"; the state's status label, as the project's cards
   say a state, "Merged" and "Closed" among them, beside `OWNER/NAME · FEATURE #N · N CARDS` in mono
-  capitals; the title as the page title; its reason in body large; and the links "Issue #<number>"
-  and, once there is one, "Pull request #<number>", in a new tab with `rel="noreferrer"` when their
-  address is https and plain text otherwise.
+  capitals; the title as the page title; its reason in body large; "Run now anyway"; and the links
+  "Issue #<number>" and, once there is one, "Pull request #<number>", in a new tab with
+  `rel="noreferrer"` when their address is https and plain text otherwise. "Run now anyway" is
+  `RunNowAnyway` of `src/run-now.tsx`, from the route's `run_now`, see "Run now anyway" under
+  "Jobs": only while the project is outside its schedules and the feature has something left to
+  run, a secondary "Run now anyway" with "Runs this outside the schedule until it has nothing left
+  to run." beside it; once on, the line "Running outside the schedule, until it has nothing left to
+  run" with a ghost "Back to the schedule"; otherwise nothing. Either reads the page again after,
+  with the toast "Running #<n> outside the schedule" once on, and a refusal above in words, as an
+  alert.
 - **The merge card**, the `Card` "Merging into <default>", or "Merged into <default>" once it is,
   the default branch the route answers, "the default branch" before it is watched, with "head
   <commit>" in mono on its right, the head the merge would name while it is offered and otherwise

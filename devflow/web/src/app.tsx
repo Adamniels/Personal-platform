@@ -26,6 +26,7 @@ import { type Project, Projects, type ProjectsApi } from "./projects";
 import { GitHubLink } from "./projects-link";
 import type { RunAgainApi } from "./run-again";
 import type { LoadRunLog } from "./run-log";
+import type { RunNowApi } from "./run-now";
 import { RUNNING, Running, type RunningApi, useRunning } from "./running";
 import type { ProjectSchedules } from "./schedules";
 import {
@@ -236,9 +237,27 @@ const loadRunLog: LoadRunLog = (project, run, after) =>
 		`/projects/${encodeURIComponent(project)}/runs/${encodeURIComponent(run)}/log?after=${after}` as "/projects/{id}/runs/{run}/log",
 	);
 
+/** Running a feature or a card on its own outside its project's schedules,
+ * and taking that back, as the caller. */
+const runNowApi: RunNowApi = {
+	runNow: async (projectId, kind, number) => {
+		await client.send(
+			"POST",
+			`/projects/${encodeURIComponent(projectId)}/${kind}/${number}/run-now`,
+		);
+	},
+	backToSchedule: async (projectId, kind, number) => {
+		await client.send(
+			"DELETE",
+			`/projects/${encodeURIComponent(projectId)}/${kind}/${number}/run-now`,
+		);
+	},
+};
+
 /** A card's story, through Dev flow's API; a card the caller does not have
  * answers 404, which the page shows as none. */
 const cardApi: CardApi = {
+	...runNowApi,
 	loadRunLog,
 	loadCard: async (project, number) => {
 		try {
@@ -295,6 +314,7 @@ const runAgainApi: RunAgainApi = {
  * caller does not have answers 404, which the page shows as none. */
 const featureApi: FeatureApi = {
 	...featureMergeApi,
+	...runNowApi,
 	loadRunLog,
 	runFeatureAgain: runAgainApi.runFeatureAgain,
 	loadFeature: async (project, number) => {
@@ -372,6 +392,7 @@ const usageApi: UsageApi = {
 /** Running now, through Dev flow's API and its streams. */
 const runningApi: RunningApi = {
 	loadRunning: () => client.get("/running"),
+	runNow: runNowApi.runNow,
 	stopRun: async (projectId, runId) => {
 		await client.send(
 			"POST",

@@ -141,6 +141,7 @@ function open(path: string, loadUsage: UsageApi["loadUsage"]) {
 			running={{
 				loadRunning: () => new Promise(() => {}),
 				stopRun: () => Promise.resolve(),
+				runNow: () => Promise.resolve(),
 				openEvents: fakeEvents().open,
 			}}
 			usage={{ loadUsage }}

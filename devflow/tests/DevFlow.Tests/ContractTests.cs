@@ -214,7 +214,7 @@ public sealed class ContractTests
         var schemas = document["components"]!["schemas"]!;
         Assert.Equal(["busy_workers", "next", "next_more", "runs"], schemas["RunningList"]!["properties"]!.AsObject().Select(pair => pair.Key).Order(StringComparer.Ordinal));
         Assert.Equal(
-            ["job", "link", "link_card", "number", "project_id", "project_name", "reason", "state", "title"],
+            ["feature", "job", "link", "link_card", "number", "project_id", "project_name", "reason", "run_now", "state", "title"],
             schemas["NextCard"]!["properties"]!.AsObject().Select(pair => pair.Key).Order(StringComparer.Ordinal));
         Assert.Equal(
             ["cache_reads", "card_number", "feature_number", "fix_round", "kind", "model", "project_id", "project_name", "run_id", "started_at", "state", "stopping", "title", "tokens", "worker_id", "worker_name"],

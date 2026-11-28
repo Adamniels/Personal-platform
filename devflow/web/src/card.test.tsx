@@ -10,6 +10,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { App } from "./app";
 import { type CardStory, took } from "./card";
 import type { LoadRunLog } from "./run-log";
+import type { RunNowApi } from "./run-now";
 import { cardAt, cardPath } from "./sections";
 import type { Status } from "./status";
 
@@ -101,6 +102,7 @@ function story(overrides: Partial<CardStory> = {}): CardStory {
 		most_rounds: 3,
 		reading: null,
 		earlier_readings: [],
+		run_now: { outside_schedule: false, something_to_run: true, on: false },
 		...overrides,
 	};
 }
@@ -195,6 +197,7 @@ function status(): Status {
 function open(
 	loadCard: (project: string, number: number) => Promise<CardStory | null>,
 	loadRunLog: LoadRunLog = () => new Promise(() => {}),
+	api: Partial<RunNowApi> = {},
 ) {
 	window.history.pushState(null, "", cardPath(PROJECT, 4));
 	const loads = vi.fn(loadCard);
@@ -205,7 +208,13 @@ function open(
 				loadWaiting: () => new Promise(() => {}),
 				refresh: () => Promise.resolve(),
 			}}
-			card={{ loadCard: loads, loadRunLog }}
+			card={{
+				loadCard: loads,
+				loadRunLog,
+				runNow: () => Promise.resolve(),
+				backToSchedule: () => Promise.resolve(),
+				...api,
+			}}
 		/>,
 	);
 	return loads;
@@ -1120,6 +1129,84 @@ function titles(items: HTMLElement[]): (string | undefined)[] {
 		(item) => item.querySelector("h3")?.textContent ?? undefined,
 	);
 }
+
+describe("running a card outside its schedule", () => {
+	test("run now anyway shows outside the schedule and says it is on", async () => {
+		const outside = story({
+			state: "queued",
+			reason: null,
+			pull_request: null,
+			run_now: { outside_schedule: true, something_to_run: true, on: false },
+		});
+		const runNow = vi.fn<RunNowApi["runNow"]>(() => Promise.resolve());
+		const backToSchedule = vi.fn<RunNowApi["backToSchedule"]>(() =>
+			Promise.resolve(),
+		);
+		const loads = vi
+			.fn<(project: string, number: number) => Promise<CardStory | null>>()
+			.mockResolvedValueOnce(outside)
+			.mockResolvedValueOnce({
+				...outside,
+				run_now: { outside_schedule: true, something_to_run: true, on: true },
+			})
+			.mockResolvedValue(outside);
+		open(loads, undefined, { runNow, backToSchedule });
+
+		expect(
+			await screen.findByText(
+				"Runs this outside the schedule until it has nothing left to run.",
+			),
+		).toBeTruthy();
+		const run = screen.getByRole("button", { name: "Run now anyway" });
+		expect(run.className).toMatch(/secondary/);
+		fireEvent.click(run);
+
+		await waitFor(() =>
+			expect(runNow).toHaveBeenCalledWith(PROJECT, "cards", 4),
+		);
+		expect(
+			await screen.findByText(
+				"Running outside the schedule, until it has nothing left to run",
+			),
+		).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Run now anyway" })).toBeNull();
+
+		const back = screen.getByRole("button", { name: "Back to the schedule" });
+		expect(back.className).toMatch(/ghost/);
+		fireEvent.click(back);
+		await waitFor(() =>
+			expect(backToSchedule).toHaveBeenCalledWith(PROJECT, "cards", 4),
+		);
+		expect(
+			await screen.findByRole("button", { name: "Run now anyway" }),
+		).toBeTruthy();
+	});
+
+	test("inside the schedule, or with nothing left to run, offers nothing", async () => {
+		open(() => Promise.resolve(story({ state: "queued" })));
+		expect(
+			(await screen.findAllByText("Add the empty state")).length,
+		).toBeGreaterThan(0);
+		expect(screen.queryByRole("button", { name: "Run now anyway" })).toBeNull();
+		cleanup();
+
+		open(() =>
+			Promise.resolve(
+				story({
+					run_now: {
+						outside_schedule: true,
+						something_to_run: false,
+						on: false,
+					},
+				}),
+			),
+		);
+		expect(
+			(await screen.findAllByText("Add the empty state")).length,
+		).toBeGreaterThan(0);
+		expect(screen.queryByRole("button", { name: "Run now anyway" })).toBeNull();
+	});
+});
 
 describe("a card's page tells its story in order", () => {
 	test("runs, reviews and rounds are one timeline, oldest first, ending in now", async () => {

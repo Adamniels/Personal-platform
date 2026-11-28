@@ -38,7 +38,12 @@ public static class NextLink
 /// <param name="Link">Where that reason is acted on, one of <see cref="NextLink"/>'s, or null where
 /// it has no place to act.</param>
 /// <param name="LinkCard">The card it waits for, with <see cref="NextLink.Card"/>.</param>
-public sealed record NextCard(Guid ProjectId, string ProjectName, int Number, string Title, string State, string? Job, string? Reason, string? Link, int? LinkCard);
+/// <param name="Feature">The feature it is a card of, by its parent's number, null for a card on
+/// its own.</param>
+/// <param name="RunNow">Whether "Run now anyway" is what to do about it: it waits only for its
+/// project's schedules, <see cref="WaitReason.OutsideSchedule"/>, so running its feature, or it
+/// when it is on its own, outside them would run it.</param>
+public sealed record NextCard(Guid ProjectId, string ProjectName, int Number, string Title, string State, string? Job, string? Reason, string? Link, int? LinkCard, int? Feature, bool RunNow);
 
 /// <summary>The cards that come next, the first <see cref="NextUp.Most"/>, and how many more.</summary>
 public sealed record NextUpList(IReadOnlyList<NextCard> Cards, int More);
@@ -108,8 +113,10 @@ public static class NextUp
         int[] numbers = [.. decisions.Select(each => each.Number), .. decisions.Select(each => WaitedFor(each.Decision)).OfType<int>()];
         var rows = (await database.InUserTransaction(userId, transaction => transaction.Connection!.QueryAsync<Row>(new CommandDefinition(
             """
-            SELECT number AS Number, title AS Title, state AS State, priority AS Priority, issue_created_at AS IssueCreatedAt
-            FROM cards WHERE project_id = @projectId AND number = ANY(@numbers)
+            SELECT cards.number AS Number, cards.title AS Title, cards.state AS State, cards.priority AS Priority,
+                   cards.issue_created_at AS IssueCreatedAt, f.number AS Feature
+            FROM cards LEFT JOIN features f ON f.project_id = cards.project_id AND f.id = cards.feature_id
+            WHERE cards.project_id = @projectId AND cards.number = ANY(@numbers)
             """,
             new { projectId, numbers },
             transaction,
@@ -124,7 +131,8 @@ public static class NextUp
 
             var (reason, link, linkCard) = Shown(decision.Decision, rows);
             queue.Enqueue(new Entry(
-                new NextCard(projectId, projectName, row.Number, row.Title, row.State, decision.Kind, reason, link, linkCard),
+                new NextCard(projectId, projectName, row.Number, row.Title, row.State, decision.Kind, reason, link, linkCard, row.Feature,
+                    decision.Decision is Decision.Wait { Reason: WaitReason.OutsideSchedule }),
                 Rank(row.Priority),
                 row.IssueCreatedAt));
         }
@@ -167,5 +175,5 @@ public static class NextUp
 
     private sealed record Entry(NextCard Card, int Rank, DateTime Written);
 
-    private sealed record Row(int Number, string Title, string State, string Priority, DateTime IssueCreatedAt);
+    private sealed record Row(int Number, string Title, string State, string Priority, DateTime IssueCreatedAt, int? Feature);
 }
