@@ -10,7 +10,9 @@ trap 'rm -rf "$tmp"' EXIT
 mkdir "$tmp/bin" "$tmp/scripts" "$tmp/data"
 
 # prs.json is what `gh pr list` prints; comments-, inline- and reviews-<pr>.json are the three owner-input
-# endpoints (default []); FAKE_FAILS_ON=<text> fails any call containing it.
+# endpoints (default []); checks-<sha> holds the "<status> <conclusion> <completed_at>" lines of that commit's
+# ci-ok runs (default none: pending); prcommits-<pr> holds the PR's commit shas, one per line (default its head);
+# FAKE_FAILS_ON=<text> fails any call containing it.
 # FAKE_FAILS=1 makes the fake fail.
 cat > "$tmp/bin/gh" <<'FAKE'
 #!/usr/bin/env bash
@@ -20,6 +22,12 @@ if [ -n "${FAKE_FAILS_ON:-}" ] && [[ "$*" == *"$FAKE_FAILS_ON"* ]]; then echo "H
 canned() { if [ -f "$FAKE_DATA/$1" ]; then cat "$FAKE_DATA/$1"; else echo '[]'; fi; }
 case "$*" in
   "pr list "*) jq -c 'map(del(.commits))' "$FAKE_DATA/prs.json" 2>/dev/null || cat "$FAKE_DATA/prs.json" ;;
+  "api repos/Adamniels/Personal-platform/commits/"*"/check-runs"*)
+    sha="${2#repos/Adamniels/Personal-platform/commits/}"; sha="${sha%%/*}"
+    [ -f "$FAKE_DATA/checks-$sha" ] && cat "$FAKE_DATA/checks-$sha"; true ;;
+  "api repos/Adamniels/Personal-platform/pulls/"*"/commits"*)
+    n="${2#repos/Adamniels/Personal-platform/pulls/}"; n="${n%%/*}"
+    if [ -f "$FAKE_DATA/prcommits-$n" ]; then cat "$FAKE_DATA/prcommits-$n"; else echo "sha$n"; fi ;;
   "api repos/Adamniels/Personal-platform/commits/"*)
     sha="${2#repos/Adamniels/Personal-platform/commits/}"
     jq -r --arg s "$sha" '.[] | select(.headRefOid == $s) | .commits[-1].committedDate // ""' "$FAKE_DATA/prs.json" ;;
@@ -85,7 +93,7 @@ pr() {
 }
 # setprs <number>...: the PRs gh lists, in the order given.
 setprs() {
-  rm -f "$FAKE_DATA"/verdict-* "$FAKE_DATA"/comments-* "$FAKE_DATA"/inline-* "$FAKE_DATA"/reviews-* "$FAKE_DATA"/nextfail "$FAKE_DATA"/inflight "$FAKE_DATA"/next \
+  rm -f "$FAKE_DATA"/checks-* "$FAKE_DATA"/prcommits-* "$FAKE_DATA"/verdict-* "$FAKE_DATA"/comments-* "$FAKE_DATA"/inline-* "$FAKE_DATA"/reviews-* "$FAKE_DATA"/nextfail "$FAKE_DATA"/inflight "$FAKE_DATA"/next \
         "$FAKE_DATA"/status-* "$FAKE_DATA"/boardfail
   local files=() n
   for n in "$@"; do files+=("$FAKE_DATA/pr-$n.json"); done
@@ -456,6 +464,45 @@ run; [ "$code" = 1 ] && [ -z "$out" ] && [ -n "$err" ]
 check "a verdict error exits 1 with the error on stderr and prints nothing" $?
 FAKE_FAILS=1 run; [ "$code" = 1 ] && [ -z "$out" ] && [ -n "$err" ]
 check "a failing GitHub read exits 1 and prints nothing" $?
+
+# A failed ci-ok on the head is fix work for the implementer, so it never sits on a PR until the gate refuses it.
+# ci_failed <sha> <completed_at>: one failed ci-ok run on that commit.
+ci_failed() { echo "completed failure $2" > "$FAKE_DATA/checks-$1"; }
+setprs 1; ci_failed sha1 "$late"; echo 16 > "$FAKE_DATA/next"
+run; [ "$code" = 0 ] && [ "$out" = "fix 1 11" ]
+check "a failed ci-ok on the head gives fix, ahead of review and new" $?
+setprs 1; verdict 1 approve 0; ci_failed sha1 "$late"
+run; [ "$code" = 0 ] && [ "$out" = "fix 1 11" ]
+check "a failed ci-ok on an approved head gives fix, not merge" $?
+setprs 1; echo "completed success $late" > "$FAKE_DATA/checks-sha1"
+run; [ "$code" = 0 ] && [ "$out" = "review 1 11" ]
+check "a passing ci-ok gives no fix" $?
+setprs 1; echo "in_progress null null" > "$FAKE_DATA/checks-sha1"
+run; [ "$code" = 0 ] && [ "$out" = "review 1 11" ]
+check "a pending ci-ok gives no fix" $?
+setprs 1; ci_failed sha1 "$late"; comment 1 mac-mini-agent "$later"
+run; [ "$code" = 0 ] && [ "$out" = "review 1 11" ]
+check "a failed ci-ok the implementer answered after is not offered again" $?
+setprs 1; ci_failed sha1 "$late"; comment 1 mac-mini-agent "$mid"
+run; [ "$code" = 0 ] && [ "$out" = "fix 1 11" ]
+check "a bot reply older than the failure does not hide it" $?
+setprs 1; verdict 1 approve 0; printf 'shaA\nshaB\nshaC\nsha1\n' > "$FAKE_DATA/prcommits-1"
+ci_failed shaA "$early"; ci_failed shaB "$early"; ci_failed shaC "$early"; ci_failed sha1 "$late"
+run; [ "$code" = 0 ] && [ "$out" = "merge 1 11" ]
+check "a fourth failed head gives no fix: the gate refuses it and the runner hands it to the owner" $?
+setprs 1; verdict 1 approve 0; printf 'shaA\nshaB\nsha1\n' > "$FAKE_DATA/prcommits-1"
+ci_failed shaA "$early"; ci_failed shaB "$early"; ci_failed sha1 "$late"
+run; [ "$code" = 0 ] && [ "$out" = "fix 1 11" ]
+check "a third failed head still gives fix" $?
+setprs 1; ci_failed sha1 "$late"; echo Blocked > "$FAKE_DATA/status-11"; echo 16 > "$FAKE_DATA/next"
+run; [ "$code" = 0 ] && [ "$out" = "new 16" ]
+check "a failed ci-ok on a Blocked slice's PR yields nothing" $?
+setprs 1; ci_failed sha1 "$late"
+FAKE_FAILS_ON=check-runs run; [ "$code" = 1 ] && [ -z "$out" ] && [ -n "$err" ]
+check "a failing check-runs read exits 1 and prints nothing" $?
+setprs 1; ci_failed sha1 "$late"
+FAKE_FAILS_ON=/commits\? run; [ "$code" = 1 ] && [ -z "$out" ] && [ -n "$err" ]
+check "a failing read of the PR's commits exits 1 and prints nothing" $?
 
 echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]

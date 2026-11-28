@@ -79,7 +79,9 @@
 #                        never a count against the slice. One difference: the turn never waits the poll interval.
 #                        With `ci-ok is pending` among the reasons it records nothing, labels nothing and
 #                        returns, and the pull request's merge or owner item settles it once CI has reported;
-#                        and when the mention for this head was made before, it sets the label and goes on.
+#                        with `ci-ok failed` among them it does the same, and the next pending.sh offers the CI
+#                        fix round or, past it, the item that hands the pull request over; and when the mention
+#                        for this head was made before, it sets the label and goes on.
 #                        Nothing is settled when the run's own accounting paused or set the slice Blocked, or
 #                        when the pull request was merged or closed meanwhile.
 #   merge <pr> <slice>   merge-gate.sh <pr>, only for a head this loop found approved; any other head (it moved
@@ -868,6 +870,13 @@ merge_item() { # pr slice [turn]; head $cur_sha, labels $cur_labels
           log "#$pr is approved and waits for ci-ok ($(tr '\n' ',' <<<"$reasons")); its item settles it"; return
         fi
         log "#$pr waits for ci-ok ($(tr '\n' ',' <<<"$reasons"))"; ci_wait "$pr" "$cur_sha" "$slice"; nap "$poll"; return
+      fi
+      # ci-ok failed while the review ran. A mention now would read as the implementer's answer to the failure, and
+      # pending.sh would never offer its fix round; the next pending.sh offers that round, or, past the CI round cap
+      # or once the failure is answered, the merge or owner item that hands the pull request over.
+      if [ "$turn" = turn ] && grep -qxF "ci-ok failed" <<<"$reasons"; then
+        log "#$pr is approved but ci-ok failed ($(tr '\n' ',' <<<"$reasons")); pending.sh decides between a fix round and the owner"
+        ci_clear "$pr"; return
       fi
       ci_clear "$pr"
       [ -n "$reasons" ] || owner_only=0

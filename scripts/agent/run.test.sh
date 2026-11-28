@@ -993,10 +993,18 @@ check "an approve while ci-ok is pending goes back to the picker without waiting
     && [ "$(lines "$D/comments.log")" = 1 ] && grep -q 'PR #50 is approved and waits for your decision' "$D/comments.log" \
     && [ "$(lines "$D/claude.log")" = 1 ]; echo $?)
 
+# ci-ok can fail while the review runs. The same turn then hands nothing over: a mention on the pull request would
+# read as the implementer's answer to the failure, and pending.sh would never offer the fix round for it. The next
+# pending.sh decides between that round and the owner (its merge or owner item, past the CI round cap).
 setup; same_turn 2; export FAKE_GATE_EXIT=3 FAKE_GATE_OUT='ci-ok failed\nrisk is not low\n' FAKE_PR_LABELS=in-review; approves; runner
+check "an approve whose ci-ok failed meanwhile goes back to the picker in the same turn, with no label or mention" \
+  $([ "$(cat "$D/gate-at-pick-2")" = 50 ] && no_file "$D/labels.log" && no_file "$D/comments.log" && no_file "$D/sleep.log" \
+    && [ "$(fails 41)" = 0 ] && [ -z "$(waits transient)" ]; echo $?)
+
+setup; same_turn 2; export FAKE_GATE_EXIT=3 FAKE_GATE_OUT='slice is not open\nrisk is not low\n' FAKE_PR_LABELS=in-review; approves; runner
 check "an approve the gate refuses for another reason is blocked in the same turn" \
   $([ "$(cat "$D/labels-50-at-pick-2" 2>/dev/null)" = owner-blocked ] && [ "$(lines "$D/comments-at-pick-2")" = 1 ] \
-    && grep -q ' 41 @Adamniels PR #50 needs you, do not merge it as it is: .*ci-ok failed, risk is not low' "$D/comments-at-pick-2" \
+    && grep -q ' 41 @Adamniels PR #50 needs you, do not merge it as it is: .*slice is not open, risk is not low' "$D/comments-at-pick-2" \
     && ! grep -q 'ready' "$D/comments.log" && [ "$(cat "$D/gate-at-pick-2")" = 50 ] \
     && [ "$(cat "$D/labels.log")" = "50 +owner-blocked -in-review" ]; echo $?)
 

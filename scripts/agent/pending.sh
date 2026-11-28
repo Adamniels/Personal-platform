@@ -7,7 +7,11 @@
 #   fix <pr> <slice>     the reviewer asked for changes on the head commit (at most 3 changes verdicts so far)
 #                        and the bot has not answered since, or the owner commented after the PR was last
 #                        handled (the latest of head commit, verdict and bot reply, a non-verdict comment by
-#                        the bot)
+#                        the bot), or ci-ok failed on the head commit after the implementer last handled it (the
+#                        later of head commit and bot reply) and at most 3 of the PR's commits have a failed
+#                        ci-ok. The implementer ends its run when the PR is open, so CI is read here, not
+#                        watched by it. Past the third failed commit no fix is offered: the merge gate refuses
+#                        `ci-ok failed` and the runner hands the PR to the owner
 #   cap <pr> <slice>     the reviewer asked for changes a fourth time or more: the round cap is reached. Not
 #                        offered for a PR already labelled owner-blocked, which has been handed over. No other
 #                        label hides it: has-decision is the implementer's, set long before
@@ -46,6 +50,9 @@ OWNER="Adamniels"
 REPO_NAME="Personal-platform"
 BOT="mac-mini-agent"
 MAX_CHANGES=3   # a PR with more changes verdicts than this has used up its rounds
+MAX_CI_FIXES=3  # a PR with more commits whose ci-ok failed than this gets no more fix rounds for CI
+CHECK="ci-ok"   # read as merge-gate.sh reads it: the GitHub Actions check run of that name
+CHECK_APP="github-actions"
 OWNER_LABELS='["owner-merge","owner-decision","owner-blocked","has-decision"]'   # the merge gate's list
 HANDED_LABELS='["owner-merge","owner-decision"]'   # an approved head carrying one was handed to the owner
 BLOCKED_LABEL="owner-blocked"
@@ -72,6 +79,33 @@ jq --slurpfile d "$tmp/dates.json" \
   'map(. + {commits: (($d[0][.headRefOid] // "") as $c | if $c == "" then [] else [{committedDate: $c}] end)})' \
   "$tmp/prs-list.json" > "$tmp/prs.json" \
   || { echo "could not read the pull request list" >&2; exit 1; }
+
+# ci_failed_at <sha>: prints when ci-ok failed on the commit, in epoch seconds, or nothing when it has not (passed,
+# pending or absent). A failed run is a completed one that concluded other than success, as merge-gate.sh reads it.
+# Exits non zero when the read fails.
+ci_failed_at() {
+  gh api "repos/$OWNER/$REPO_NAME/commits/$1/check-runs?check_name=$CHECK&per_page=100" --paginate \
+    --jq ".check_runs[] | select(.name == \"$CHECK\" and .app.slug == \"$CHECK_APP\") | \"\(.status) \(.conclusion) \(.completed_at)\"" \
+    > "$tmp/runs" || { echo "could not read the check runs of $1" >&2; return 2; }
+  awk '$1 == "completed" && $2 != "success" { print $3 }' "$tmp/runs" | sort | tail -n1 > "$tmp/failed_at"
+  [ -s "$tmp/failed_at" ] || return 0
+  jq -R -r 'fromdateiso8601' "$tmp/failed_at" || { echo "unreadable completed_at on $1" >&2; return 2; }
+}
+# ci_fix <pr> <head sha> <implementer handled at>: true when ci-ok failed on the head after the implementer last
+# handled the PR, and at most MAX_CI_FIXES of its commits have a failed ci-ok. A failed read stops the run.
+ci_fix() {
+  local at failed=0 c
+  at="$(ci_failed_at "$2")" || exit 1
+  [ -n "$at" ] && [ "$at" -gt "$3" ] || return 1
+  gh api "repos/$OWNER/$REPO_NAME/pulls/$1/commits?per_page=100" --paginate --jq '.[].sha' > "$tmp/pr-commits" \
+    || { echo "pr #$1: could not read its commits" >&2; exit 1; }
+  while read -r c; do
+    [ -n "$c" ] || continue
+    at="$(ci_failed_at "$c")" || exit 1
+    [ -z "$at" ] || failed=$((failed + 1))
+  done < "$tmp/pr-commits"
+  [ "$failed" -le "$MAX_CI_FIXES" ]
+}
 
 # One candidate per line: "<priority> <pr> <kind> <slice>"; the smallest sorts first.
 : > "$tmp/candidates"
@@ -103,7 +137,8 @@ while IFS=$'\t' read -r pr sha slice labelled blocked handed committed; do
   done
   # R30: the PR was last handled at the latest of the head commit, the latest verdict and the latest bot reply (a
   # comment by the bot that is not a verdict, by verdict.sh's rule). Prints "<owner input newer than that>
-  # <1 if a bot reply is newer than the verdict>".
+  # <1 if a bot reply is newer than the verdict> <when the implementer last handled it: the later of head commit
+  # and latest bot reply, in epoch seconds>".
   handled="$(jq -n -r --slurpfile issue "$tmp/issue.json" --slurpfile other "$tmp/other.json" \
     --arg owner "$OWNER" --arg bot "$BOT" --arg vtime "$vtime" --arg committed "$committed" '
     def secs: fromdateiso8601;
@@ -117,9 +152,10 @@ while IFS=$'\t' read -r pr sha slice labelled blocked handed committed; do
     | ([$c, $v] | map(select(. != null)) + $replies | max) as $handled
     | [($issue[][], $other[][]) | select(.user.login == $owner and (.state // "") != "PENDING")
         | (.submitted_at // .created_at) | select(. != null) | secs | select(. > $handled)] as $new
-    | "\($new | length) \([$replies[] | select($v != null and . > $v)] | length | if . > 0 then 1 else 0 end)"')" \
+    | ([$c] + $replies | max) as $implementer
+    | "\($new | length) \([$replies[] | select($v != null and . > $v)] | length | if . > 0 then 1 else 0 end) \($implementer | floor)"')" \
     || { echo "pr #$pr: could not compare timestamps" >&2; exit 1; }
-  read -r owner_new reply_after <<<"$handled"
+  read -r owner_new reply_after implementer_at <<<"$handled"
 
   # R51: a PR whose slice is Blocked waits for the owner, so the queue moves past it; owner input newer than the
   # last handling is how the owner wakes it (fix). Not `$(...)` inside an `if`: a failed board read stops the run.
@@ -130,6 +166,8 @@ while IFS=$'\t' read -r pr sha slice labelled blocked handed committed; do
   fi
 
   if [ "$owner_new" -gt 0 ]; then
+    echo "1 $pr fix $slice" >> "$tmp/candidates"
+  elif ci_fix "$pr" "$sha" "$implementer_at"; then
     echo "1 $pr fix $slice" >> "$tmp/candidates"
   elif [ "$vsha" != "$sha" ] || [ "$kind" = none ]; then
     echo "3 $pr review $slice" >> "$tmp/candidates"

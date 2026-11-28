@@ -180,6 +180,14 @@ earlier findings and the replies. Only blocking findings start another round. Af
 a fourth `changes` verdict ends the loop: the pull request gets `owner-blocked` and the owner a
 mention.
 
+**CI comes back as a fix round.** The implementer opens the pull request and ends its run without
+waiting for CI, since CI takes about as long as the e2e suite and nothing is done meanwhile. When
+`ci-ok` fails on the head, `pending.sh` offers a fix item, and `/pick-up-slice` reads the failed
+jobs as its round: what the branch broke is fixed, and a failure from outside the branch is
+answered in the reply, which ends the round. At most three of a pull request's commits get such a
+round; after that, and after a failure answered as outside the branch, the merge gate refuses
+`ci-ok failed` and the owner is told, as before.
+
 **An approve is settled in the same turn.** When a review ends in `approve` for the head commit,
 the runner sets `review-ok` and asks the merge gate straight away, before it looks for any other
 work: review, then gate, then merged or handed over, as one unit. The pull request is merged, or
