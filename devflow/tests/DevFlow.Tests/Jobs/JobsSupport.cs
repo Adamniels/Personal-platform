@@ -294,15 +294,16 @@ internal sealed class Jobs : IAsyncDisposable
     /// <summary>The API key the harness gives, shaped like one and never real.</summary>
     public const string ApiKey = "sk-ant-api03-alice-test-key";
 
-    /// <summary>Gives the user's API key and sets the project to run on it, as the superuser past
-    /// the settings route, so the route's own check is SettingsTests'.</summary>
-    public async Task RunOnTheKey(Guid? project = null)
+    /// <summary>Gives the user's API key and sets the project to run on it, or on
+    /// <paramref name="runsOn"/>, as the superuser past the settings route, so the route's own
+    /// check is SettingsTests'.</summary>
+    public async Task RunOnTheKey(Guid? project = null, string runsOn = "api_key")
     {
         await Routes.App.Services.GetRequiredService<ApiKeys>().Set(User, ApiKey, Ct);
         await using var admin = await Routes.Database.OpenAdmin(Ct);
         await admin.ExecuteAsync(new CommandDefinition(
-            "UPDATE project_settings SET runs_on = 'api_key' WHERE project_id = @project",
-            new { project = project ?? Project },
+            "UPDATE project_settings SET runs_on = @runsOn WHERE project_id = @project",
+            new { project = project ?? Project, runsOn },
             cancellationToken: Ct));
     }
 

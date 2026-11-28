@@ -13,6 +13,8 @@ using DevFlow.Setup;
 using DevFlow.Watching;
 using DevFlow.Workers;
 
+using Npgsql;
+
 using PlatformData;
 
 namespace DevFlow.Jobs;
@@ -59,9 +61,10 @@ public abstract record FreshKey
 /// everything that job needs from the code host is read, as the app, with a key for that kind, a
 /// feature's branch made for its first card, and only then is a card, or for a conflict a feature,
 /// of that kind taken, in one short transaction as the project's user, so no lock is held while
-/// GitHub is asked. That transaction reads the watch's hold, the pauses, the daily budget and the schedules again under
-/// the project's lock, so a stop, a pause or a schedule saved while GitHub was asked, or a window that
-/// ended meanwhile, still holds the card back. Anything the code host does not
+/// GitHub is asked. That transaction reads the watch's hold, the pauses, the daily budget, the schedules and the
+/// credential again under the project's lock, so a stop, a pause or a schedule saved while GitHub was
+/// asked, or a window that ended meanwhile, still holds the card back, and a job never carries the key
+/// once the subscription's limit has reset. Anything the code host does not
 /// answer is no work now, and the worker asks again. See "Jobs" in devflow/README.md and "Handing
 /// out work" in devflow/docs/devflow-architecture.md.
 /// </summary>
@@ -98,14 +101,15 @@ public sealed partial class Dispatcher(
     /// <summary>
     /// Why a user's project on <paramref name="runsOn"/> hands out no work for their Claude login,
     /// as the project's page says it: <c>no_claude_login</c> without one, <c>claude_login_expired</c>
-    /// past its renewal, or null. A login due soon still works, and a project on the API key needs
-    /// none. <see cref="RunDecision.LoginReason"/> words, as the project's page and the workers list
-    /// name them.
+    /// past its renewal, or null. A login due soon still works, and a project whose jobs carry the
+    /// API key needs none: one on the key alone, and one continuing on it while the user's
+    /// subscription is <paramref name="limited"/>. <see cref="RunDecision.LoginReason"/> words, as
+    /// the project's page and the workers list name them.
     /// </summary>
-    public static string? HeldFor(ClaudeLoginStatus login, string runsOn)
+    public static string? HeldFor(ClaudeLoginStatus login, string runsOn, bool limited)
     {
         ArgumentNullException.ThrowIfNull(login);
-        if (!RunsOn.NeedsClaudeLogin(runsOn))
+        if (!RunsOn.NeedsClaudeLogin(runsOn, limited))
         {
             return null;
         }
@@ -202,13 +206,14 @@ public sealed partial class Dispatcher(
         {
             // The project's models and limits are read in the transaction that takes the work, so
             // the job carries them as they are now and the run keeps them whatever changes after.
-            // The daily budget is read again too, after the pauses took the project's row, so a run
-            // that finished or a budget lowered meanwhile is seen.
+            // The daily budget and the credential are read again too, after the pauses took the
+            // project's row, so a run that finished, a budget lowered, or the subscription's limit
+            // reset meanwhile is seen.
             if (await watch.HoldUnderLock(transaction, projectId, cancellationToken) != ProjectHold.None
                 || await Pauses.HeldUnderLock(transaction, projectId, cancellationToken) != PauseHold.None
                 || await Usage.DailyBudget.ReachedIn(transaction, projectId, now, cancellationToken) is not null
                 || await RunSettings.Read(transaction, projectId, cancellationToken) is not { } run
-                || !Carries(run, credential))
+                || !await Carries(transaction, run, credential, now, cancellationToken))
             {
                 return null;
             }
@@ -350,7 +355,7 @@ public sealed partial class Dispatcher(
                 || await Usage.DailyBudget.ReachedIn(transaction, projectId, now, cancellationToken) is not null
                 || await Schedules.ScheduleStore.OutsideUnderLock(transaction, projectId, now, cancellationToken)
                 || await RunSettings.Read(transaction, projectId, cancellationToken) is not { } run
-                || !Carries(run, credential))
+                || !await Carries(transaction, run, credential, now, cancellationToken))
             {
                 return null;
             }
@@ -434,46 +439,49 @@ public sealed partial class Dispatcher(
     }
 
     /// <summary>
-    /// The credential a job of the project carries, for what it runs on now: its user's Claude
-    /// token on the subscription, or their API key, each opened by its one method; null when the one
-    /// it runs on is not given, which is no work now. The project's setting is read again under its
-    /// lock, by <see cref="Carries"/>, so a job never carries a credential the project was moved off
-    /// meanwhile.
+    /// The credential a job of the project carries, for what it runs on now and whether the user's
+    /// subscription is limited, by <see cref="RunsOn.Carried"/>: its user's Claude token, or their
+    /// API key, each opened by its one method; null when the one it carries is not given, which is
+    /// no work now. The project's setting and the limit are read again under its lock, by
+    /// <see cref="Carries"/>, so a job never carries a credential the project was moved off, or the
+    /// key once the limit has reset, meanwhile.
     /// </summary>
     private async Task<JobCredential?> Credential(Guid userId, Guid projectId, CancellationToken cancellationToken)
     {
-        var runsOn = await database.InUserTransaction(userId, transaction => transaction.Connection!.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
-            "SELECT runs_on FROM project_settings WHERE project_id = @projectId",
-            new { projectId },
-            transaction,
-            cancellationToken: cancellationToken)), cancellationToken);
-        switch (runsOn)
+        var now = Now();
+        var (runsOn, limited) = await database.InUserTransaction(userId, async transaction => (
+            await transaction.Connection!.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
+                "SELECT runs_on FROM project_settings WHERE project_id = @projectId",
+                new { projectId },
+                transaction,
+                cancellationToken: cancellationToken)),
+            await Stops.SubscriptionLimits.UntilIn(transaction, now, cancellationToken)), cancellationToken);
+        if (runsOn is null || !RunsOn.Values.Contains(runsOn, StringComparer.Ordinal))
         {
-            case RunsOn.Subscription:
-                return await logins.ForRun(userId, cancellationToken) is { } token
-                    ? new JobCredential(JobCredential.Subscription, token.Value)
-                    : null;
-            case RunsOn.ApiKey:
-                if (await apiKeys.ForRun(userId, cancellationToken) is { } apiKey)
-                {
-                    return new JobCredential(JobCredential.ApiKey, apiKey.Value);
-                }
-
-                LogNoApiKey(log, projectId);
-                return null;
-            default:
-                return null;
+            return null;
         }
+
+        if (RunsOn.Carried(runsOn, limited is not null) == JobCredential.Subscription)
+        {
+            return await logins.ForRun(userId, cancellationToken) is { } token
+                ? new JobCredential(JobCredential.Subscription, token.Value)
+                : null;
+        }
+
+        if (await apiKeys.ForRun(userId, cancellationToken) is { } apiKey)
+        {
+            return new JobCredential(JobCredential.ApiKey, apiKey.Value);
+        }
+
+        LogNoApiKey(log, projectId);
+        return null;
     }
 
-    /// <summary>Whether <paramref name="credential"/>, opened before the lock, is still the one the
-    /// project runs on, as <paramref name="run"/> read it under the lock.</summary>
-    private static bool Carries(RunSettings run, JobCredential credential) => (run.RunsOn, credential.Kind) switch
-    {
-        (RunsOn.Subscription, JobCredential.Subscription) => true,
-        (RunsOn.ApiKey, JobCredential.ApiKey) => true,
-        _ => false,
-    };
+    /// <summary>Whether <paramref name="credential"/>, opened before the lock, is still the one a
+    /// job of the project carries, as <paramref name="run"/> and the user's subscription's limit
+    /// read it under the lock at <paramref name="now"/>.</summary>
+    private static async Task<bool> Carries(NpgsqlTransaction transaction, RunSettings run, JobCredential credential, DateTimeOffset now, CancellationToken cancellationToken) =>
+        RunsOn.Carried(run.RunsOn, await Stops.SubscriptionLimits.UntilIn(transaction, now, cancellationToken) is not null) == credential.Kind;
 
     /// <summary>The commit <paramref name="branch"/> is at, read as the app, or null when the code
     /// host did not answer it now.</summary>

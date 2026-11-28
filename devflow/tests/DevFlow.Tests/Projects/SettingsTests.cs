@@ -300,10 +300,10 @@ public sealed class SettingsTests
         Assert.Equal("api_key", await RunsOn(routes, project));
         Assert.Equal("api_key", (string)(await Get(routes, project))["runs_on"]!);
 
-        // Anything but the two, left out among them, is refused naming the field alone, and it
+        // Anything but the three, left out among them, is refused naming the field alone, and it
         // stays as it was.
         var wrongs = new List<JsonObject>();
-        foreach (var wrong in new JsonNode?[] { "Subscription", "api-key", "", "subscription_then_api_key", 1, null })
+        foreach (var wrong in new JsonNode?[] { "Subscription", "api-key", "", "subscription_then_api_keys", "subscription_then", 1, null })
         {
             var body = Settings();
             body["runs_on"] = wrong;

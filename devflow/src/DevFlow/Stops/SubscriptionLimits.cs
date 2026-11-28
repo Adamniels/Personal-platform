@@ -36,6 +36,14 @@ public static class SubscriptionLimits
             cancellationToken: cancellationToken));
     }
 
+    /// <summary>Until when <paramref name="userId"/>'s subscription is limited at
+    /// <paramref name="now"/>, read through the door as them, or null when it is not.</summary>
+    public static async Task<DateTimeOffset?> Of(PlatformData.UserDb database, Guid userId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        return await database.InUserTransaction(userId, transaction => UntilIn(transaction, now, cancellationToken), cancellationToken);
+    }
+
     /// <summary>Until when the subscription of the user <paramref name="transaction"/> runs as is
     /// limited at <paramref name="now"/>, or null when it is not: none recorded, or its reset
     /// passed.</summary>

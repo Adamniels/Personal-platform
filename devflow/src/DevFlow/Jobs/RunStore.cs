@@ -615,15 +615,21 @@ public static class RunStore
             // A failure outside the card, or a feature's job, never counts against it, but makes its
             // project wait; a success ends the wait. One on the subscription at its usage limit, with
             // a reset believed, limits the user's subscription, so every project of theirs on it
-            // waits for that reset, not only this one; a check runs no model and finds no limit.
+            // waits for that reset, not only this one; a check runs no model and finds no limit. A
+            // project that continues on the API key counts no wait for it, so its next job goes at
+            // once, on the key.
             if (ending.Result == "failed_outside_card")
             {
-                if (!check && run.Credential == JobCredential.Subscription && ProjectWaits.Believed(result.ResetsAt, now))
+                var limit = !check && run.Credential == JobCredential.Subscription && ProjectWaits.Believed(result.ResetsAt, now);
+                if (limit)
                 {
-                    await SubscriptionLimits.Record(transaction, userId, result.ResetsAt.Value, now, cancellationToken);
+                    await SubscriptionLimits.Record(transaction, userId, result.ResetsAt!.Value, now, cancellationToken);
                 }
 
-                await ProjectWaits.Failed(transaction, projectId, userId, ending.Reason ?? "", result.ResetsAt, now, cancellationToken);
+                if (!limit || settings.RunsOn != RunsOn.SubscriptionThenApiKey)
+                {
+                    await ProjectWaits.Failed(transaction, projectId, userId, ending.Reason ?? "", result.ResetsAt, now, cancellationToken);
+                }
             }
             else if (ending.Result == "succeeded" || (check && ending.Result == "check_failed"))
             {

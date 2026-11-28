@@ -220,7 +220,7 @@ public sealed record SettingsRequest(
 
         if (RunsOn is null || !Projects.RunsOn.Values.Contains(RunsOn, StringComparer.Ordinal))
         {
-            errors["runs_on"] = [$"must be {string.Join(" or ", Projects.RunsOn.Values)}"];
+            errors["runs_on"] = [$"must be {string.Join(", ", Projects.RunsOn.Values.SkipLast(1))} or {Projects.RunsOn.Values[^1]}"];
         }
 
         if (errors.Count > 0)

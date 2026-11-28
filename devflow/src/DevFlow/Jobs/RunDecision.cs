@@ -286,7 +286,7 @@ public static class RunDecision
     /// lately; it waits after failures outside its cards, other than a usage limit; the worker's
     /// setup version has no check that passed, when a check due is what runs, since it runs no agent
     /// and needs no Claude login, once a worker of the project was seen lately; no Claude login, or
-    /// one past its renewal, for a project on the subscription; Claude's usage limit; no worker of the project seen lately. Past them a worker built from no recipe runs the setup's
+    /// one past its renewal, for a project whose jobs carry the subscription; Claude's usage limit, for one on the subscription alone; no worker of the project seen lately. Past them a worker built from no recipe runs the setup's
     /// next job, and any other the cards' next, or nothing when there is none.
     /// </summary>
     public static Decision Of(ProjectSituation situation)
@@ -361,7 +361,7 @@ public static class RunDecision
                     : new Decision.Wait(new WaitReason.NoWorker(situation.Project));
         }
 
-        if (Projects.RunsOn.NeedsClaudeLogin(situation.RunsOn) && LoginReason(situation.Login) is { } login)
+        if (Projects.RunsOn.NeedsClaudeLogin(situation.RunsOn, situation.Limited is not null) && LoginReason(situation.Login) is { } login)
         {
             return new Decision.Wait(login);
         }
