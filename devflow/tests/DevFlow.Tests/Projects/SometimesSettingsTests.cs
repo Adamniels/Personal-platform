@@ -64,6 +64,8 @@ public sealed class SometimesSettingsTests
     private static JsonObject Answer(JsonObject body, string preset)
     {
         var answer = body.DeepClone().AsObject();
+        // Answered by the settings route, never taken by it: a new project's 2 GB.
+        answer["worker_memory_gb"] = 2;
         answer["preset"] = preset;
         return answer;
     }

@@ -839,12 +839,12 @@ export interface paths {
         };
         /**
          * A project's settings
-         * @description The labels that pick and hold its cards, mark what needs the caller and mark a card for their review; whether a card's pull request waits for them, never, sometimes or always, with the three conditions of sometimes and the paths it watches; its trusted accounts, the GitHub logins whose cards, edits and comments count, the caller's linked login first and marked as theirs; the model that reads, builds and reviews its cards and the limits of its runs, run_budget_usd among them, the most a run may cost in whole US dollars; and questions, whether a card its reading found questions in waits for the caller's answers rather than going on the reader's recommendations; daily_token_budget, the tokens its runs may use in a day in the caller's time zone before it starts nothing new until midnight, null for off; runs_on, what its runs log in with, subscription, the default, subscription_then_api_key, the subscription and the caller's API key while their subscription is at its usage limit, or api_key, the caller's API key alone; api_daily_usd, its daily cap on the API key in whole US dollars, the cost of its runs on the key that finished today in the caller's time zone by Claude Code's estimate before it starts nothing new on the key, null on the subscription alone; and preset, the preset the settings match, fully_automatic, guided or only_i_merge, or custom, computed and never stored. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description The labels that pick and hold its cards, mark what needs the caller and mark a card for their review; whether a card's pull request waits for them, never, sometimes or always, with the three conditions of sometimes and the paths it watches; its trusted accounts, the GitHub logins whose cards, edits and comments count, the caller's linked login first and marked as theirs; the model that reads, builds and reviews its cards and the limits of its runs, run_budget_usd among them, the most a run may cost in whole US dollars; and questions, whether a card its reading found questions in waits for the caller's answers rather than going on the reader's recommendations; daily_token_budget, the tokens its runs may use in a day in the caller's time zone before it starts nothing new until midnight, null for off; runs_on, what its runs log in with, subscription, the default, subscription_then_api_key, the subscription and the caller's API key while their subscription is at its usage limit, or api_key, the caller's API key alone; api_daily_usd, its daily cap on the API key in whole US dollars, the cost of its runs on the key that finished today in the caller's time zone by Claude Code's estimate before it starts nothing new on the key, null on the subscription alone; worker_memory_gb, the memory each of its workers is given in whole gigabytes, 2 by default, which saveWorkerMemory changes; and preset, the preset the settings match, fully_automatic, guided or only_i_merge, or custom, computed and never stored. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         get: operations["getProjectSettings"];
         /**
          * Change a project's settings
-         * @description Takes all twenty-two, never a preset, and answers them as saved with the preset they match. A label is written, at most 50 characters, with no space at either end and no comma, and the four are different names whatever their case; waits_for_owner is never, sometimes or always, and sometimes has at least one of wait_when_marked, wait_when_paths and wait_when_decision; wait_paths is at most 100 glob patterns of at most 200 characters, none starting with ! or /, and a pattern given twice is kept once; trusted_logins is a list of GitHub logins that holds the caller's linked login, and a login given twice whatever its case is kept once; each model is opus, sonnet or haiku, and each limit within its range, run_budget_usd a whole number of US dollars from 1 to 100; questions is true or false; daily_token_budget is null for off or a whole number of millions of tokens from 1 000 000 to 10 000 000 000, and is never left out, which is refused with 400 rather than read as off; runs_on is subscription, subscription_then_api_key or api_key, and either of the last two only while the caller has given an API key, else 422 naming runs_on, "Give an API key on the Projects tab first"; api_daily_usd is null on subscription and on either of the other two a whole number of US dollars from 1 to 1000, else 422 naming it. The first save also does the project's setup step settings, as accepting a setup run's proposal does. 422 naming each field that breaks a rule, 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description Takes all twenty-two, never a preset, and answers them as saved with the preset they match. A label is written, at most 50 characters, with no space at either end and no comma, and the four are different names whatever their case; waits_for_owner is never, sometimes or always, and sometimes has at least one of wait_when_marked, wait_when_paths and wait_when_decision; wait_paths is at most 100 glob patterns of at most 200 characters, none starting with ! or /, and a pattern given twice is kept once; trusted_logins is a list of GitHub logins that holds the caller's linked login, and a login given twice whatever its case is kept once; each model is opus, sonnet or haiku, and each limit within its range, run_budget_usd a whole number of US dollars from 1 to 100; questions is true or false; daily_token_budget is null for off or a whole number of millions of tokens from 1 000 000 to 10 000 000 000, and is never left out, which is refused with 400 rather than read as off; runs_on is subscription, subscription_then_api_key or api_key, and either of the last two only while the caller has given an API key, else 422 naming runs_on, "Give an API key on the Projects tab first"; api_daily_usd is null on subscription and on either of the other two a whole number of US dollars from 1 to 1000, else 422 naming it. worker_memory_gb is not among them: it is left as it is, whatever the body holds, and answered as stored. The first save also does the project's setup step settings, as accepting a setup run's proposal does. 422 naming each field that breaks a rule, 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         put: operations["saveProjectSettings"];
         post?: never;
@@ -1052,6 +1052,26 @@ export interface paths {
          * @description A new key for the project's workers, answered this once with save_command, the command that saves it in ~/.devflow/<project>.env for the start command to read: Dev flow keeps only its SHA-256 and never shows it again. It replaces the project's last key at once, so a worker holding that one is refused from then on. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         post: operations["makeWorkerKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/projects/{id}/worker-memory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Change a project's memory per worker
+         * @description Takes worker_memory_gb, the memory each of the project's workers is given, its setup worker's too, a whole number of gigabytes from 1 to 16, else 422 naming it, and answers it as saved. A new project's is 2. getProjectSettings answers it, and saveProjectSettings never changes it. Does not do the project's setup step settings. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        put: operations["saveWorkerMemory"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2281,6 +2301,11 @@ export interface components {
             wait_when_marked: boolean;
             wait_when_paths: boolean;
             waits_for_owner: string;
+            /**
+             * Format: int32
+             * @default 2
+             */
+            worker_memory_gb: number;
         };
         ProjectSetup: {
             can_send_back: boolean;
@@ -2893,6 +2918,14 @@ export interface components {
             recipe_version: null | string;
             start_command: string;
             workers: components["schemas"]["Worker"][];
+        };
+        WorkerMemoryAnswer: {
+            /** Format: int32 */
+            worker_memory_gb: number;
+        };
+        WorkerMemoryRequest: {
+            /** Format: double */
+            worker_memory_gb: null | number;
         };
         WorkersHealth: {
             cannot_run: null | string;
@@ -5703,6 +5736,57 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    saveWorkerMemory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["WorkerMemoryRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkerMemoryAnswer"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
                 };
             };
         };

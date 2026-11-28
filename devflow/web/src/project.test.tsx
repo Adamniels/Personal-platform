@@ -200,6 +200,7 @@ function renderPage(
 				daily_token_budget: null,
 				runs_on: "subscription",
 				api_daily_usd: null,
+				worker_memory_gb: 2,
 				preset: "custom" as const,
 			}),
 		),
@@ -1152,6 +1153,7 @@ describe("a project's page", () => {
 			daily_token_budget: null,
 			runs_on: "subscription",
 			api_daily_usd: null,
+			worker_memory_gb: 2,
 			preset: "only_i_merge" as const,
 		};
 		// The settings as saved where the page reads them, changed by a save on
@@ -2065,6 +2067,7 @@ describe("a project's page, cards first", () => {
 			daily_token_budget: null,
 			runs_on: "subscription",
 			api_daily_usd: null,
+			worker_memory_gb: 2,
 			preset: "only_i_merge",
 		};
 		const saveSettings = vi.fn((_id: string, request: SettingsRequest) =>

@@ -186,9 +186,11 @@ export const PRESET_FILLS: Record<
 ) as Record<Exclude<Preset, "custom">, Partial<Covered>>;
 
 /** What saving takes, from the settings as read: everything but the preset,
- * which is never stored, the trusted accounts as plain logins. */
+ * which is never stored, and the memory per worker, which the Workers card
+ * saves on its own route; the trusted accounts as plain logins. */
 export const requestOf = ({
 	preset: _,
+	worker_memory_gb: _memory,
 	...settings
 }: ProjectSettings): SettingsRequest => ({
 	...settings,
