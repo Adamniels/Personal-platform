@@ -532,9 +532,9 @@ const RUNS_ON: Record<string, string> = {
 };
 
 /** The settings in the side column: the preset, questions before starting,
- * whether pull requests wait, the daily budget and the four labels, as label
- * and value rows,
- * and "Edit settings", which opens the project's settings page. */
+ * whether pull requests wait, the daily budget, what it runs on and the four
+ * labels, as label and value rows, and "Edit settings", which opens the
+ * project's settings page. */
 function SettingsSummary({
 	id,
 	settings,

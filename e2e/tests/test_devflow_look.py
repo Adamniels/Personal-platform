@@ -675,7 +675,8 @@ def test_a_project_page_follows_the_look(
         workers.get_by_role("list", name="Workers").get_by_role("listitem")
     ).to_have_count(1)
     settings = page.get_by_role("article", name="Settings", exact=True)
-    expect(settings.get_by_role("term")).to_have_count(8)
+    # The preset, questions, waiting, the daily budget, runs on and four labels.
+    expect(settings.get_by_role("term")).to_have_count(9)
     expect(page.get_by_text("8 cards: 8 queued.")).to_be_visible()
 
     # The cards column first; on desktop the side column beside it, on phone

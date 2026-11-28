@@ -173,8 +173,9 @@ switch on Running now reads too; before the answer, or when it cannot be read, i
 Paused is not an item on "Waiting for you": the owner did it himself.
 
 The Projects tab is a dashboard: Connections, then the projects. Connections is a region named
-"Connections", a wrapping row of three items, each `flex: 1 1 360px`, so on phone they stack at the
-full width. An item, `src/connection.tsx`, is an `article` named by its name, a `--surface` card
+"Connections", a wrapping row of three items, each `flex: 1 1 480px`, so on desktop GitHub and the
+Claude login share a line and the API key takes one of its own, since three to a line leave no item
+room for its one mono line, and on phone they stack at the full width. An item, `src/connection.tsx`, is an `article` named by its name, a `--surface` card
 64px high on desktop: an icon, the name over a mono line, a status label and its one action. On
 phone the status and the action take a line of their own under the name. An item that needs the
 owner takes `--accent-border`, with "Needs you" for assistive technology.
@@ -330,8 +331,8 @@ The settings summary, the package's `Card` titled "Settings", read from
 `GET /devflow/api/projects/{id}/settings` as the page loads, is plain label and value rows 36px
 high, each with a 1px `--border` under it, the label in `--text-2` and the value in the mono font:
 "Preset", "Questions before starting", "On" or "Off", "Pull requests wait for you", "Never",
-"Sometimes" or "Always", "Daily budget", "Off" or "<n> M tokens", and "Pick-up label", "Hold
-label", "Attention label" and "Review label".
+"Sometimes" or "Always", "Daily budget", "Off" or "<n> M tokens", "Runs on", "Your subscription"
+or "The API key only", and "Pick-up label", "Hold label", "Attention label" and "Review label".
 "Edit settings", `EditSettings` in `src/project.tsx`, a link drawn as a secondary button, opens the
 project's settings page in place on a plain click; the setup's settings step shows it too. The page
 reads the settings each time it opens, so a save on the settings page shows in the summary and the
@@ -389,7 +390,10 @@ bar:
   spend among them.
 - **"Usage"**: its id `usage`, which "Raise the budget" on "Waiting for you", the project's page
   and Running now opens, `/devflow/projects/<id>/settings#usage`, scrolled to once the form is
-  drawn. The package's `Switch` "Daily budget", off for a budget of null, and, on, the number field
+  drawn. First the select "Runs on", "Your subscription" and "The API key only", the second
+  disabled with "Give an API key on the Projects tab first" as help while no API key is given, as
+  `GET /devflow/api/api-key` answers when the page opens, see "The API key". Then the package's
+  `Switch` "Daily budget", off for a budget of null, and, on, the number field
   "Million tokens a day" in the mono font, with "Counts input, cache writes and output. When
   reached, nothing new starts until midnight." as help. Saved with the rest, in tokens, null while
   it is off; the switch is one change on the Save bar, and so is a changed number while it is on.
@@ -423,11 +427,11 @@ bar:
 
 The Save bar, the region "Save the settings", is one bar at the foot of the form: a mono count of
 unsaved changes, "No unsaved changes", "1 unsaved change" or "<n> unsaved changes", counting each
-of the twenty settings that differs from the settings as last read or saved; then "Undo changes",
+of the twenty-one settings that differs from the settings as last read or saved; then "Undo changes",
 a ghost, disabled with nothing changed, which puts the form back to the settings as last read or
 saved; and "Save", the page's one primary. Save stays enabled with nothing changed, since saving
 the settings once does the setup's settings step. Lines of "Paths" are trimmed and blank ones
-dropped as it is saved. "Save" puts all twenty in one `PUT`, never the preset, and then says
+dropped as it is saved. "Save" puts all twenty-one in one `PUT`, never the preset, and then says
 "Saved."; a limit that is not a whole number is named under its field and nothing is sent; a value
 Dev flow refuses is shown under its field as the field's error, from the problem's `errors`; any
 other failure is the alert "The settings were not saved. Try again.", and what was typed is kept.
@@ -1776,7 +1780,7 @@ in `src/DevFlow/Cards/`.
 
 ### Settings
 
-Twenty, and only the twenty something reads, with the preset they match, see "Presets" below:
+Twenty-one, and only the twenty-one something reads, with the preset they match, see "Presets" below:
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -1917,7 +1921,7 @@ The mode is `project_settings.runs_by`, `always` or `schedule`, and the windows 
 `project_schedules`, `(project_id, user_id, id, name, days, from_time, to_time, active, position)`,
 guarded like every scoped table, a name unique in its project whatever its case. The zone is
 `user_settings`, `(user_id, time_zone)`, guarded the same way, a user without a row in
-`Europe/Stockholm`. Neither is one of the twenty settings: each saves at once through its own
+`Europe/Stockholm`. Neither is one of the twenty-one settings: each saves at once through its own
 route, never through the settings page's "Save".
 
 **The rules**, which the route checks and the table's checks repeat:

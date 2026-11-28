@@ -3,9 +3,9 @@
 // whether a card's questions wait for the owner's answers, and whether a card's pull request waits
 // for him, with what "sometimes" waits for; how cards are picked, the four labels and the trusted
 // accounts whose cards, edits and comments count; the models and limits its runs get; its usage,
-// the daily budget in millions of tokens; when it runs, always or by its schedules; and its
+// what its runs run on and the daily budget in millions of tokens; when it runs, always or by its schedules; and its
 // values. A preset fills in the settings it covers in the form, and the side column names the
-// preset the form matches, or Custom. All nineteen settings are saved together with one Save,
+// preset the form matches, or Custom. All twenty-one settings are saved together with one Save,
 // never the preset, and a value Dev flow refuses is named under its field; when it runs, its
 // schedules and the time zone, and its values are saved at once through their own routes. See
 // "Settings" and "Schedules" in devflow/README.md.
@@ -402,7 +402,7 @@ const PLAIN: (
 	"runs_on",
 ];
 
-/** How many of the twenty settings the form changes from the settings as
+/** How many of the twenty-one settings the form changes from the settings as
  * last read or saved. */
 export const unsaved = (form: Form, base: ProjectSettings): number => {
 	let count = PLAIN.filter(
