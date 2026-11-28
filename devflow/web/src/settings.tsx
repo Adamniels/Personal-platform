@@ -1,10 +1,11 @@
 // A project's settings page, /devflow/projects/<id>/settings, opened by "Edit settings" on its
-// page and in its setup's settings step: in five sections, how much happens alone, the presets,
+// page and in its setup's settings step: in six sections, how much happens alone, the presets,
 // whether a card's questions wait for the owner's answers, and whether a card's pull request waits
 // for him, with what "sometimes" waits for; how cards are picked, the four labels and the trusted
-// accounts whose cards, edits and comments count; the models and limits its runs get; when it
-// runs, always or by its schedules; and its values. A preset fills in the settings it covers in the form, and the side column names the
-// preset the form matches, or Custom. All eighteen settings are saved together with one Save,
+// accounts whose cards, edits and comments count; the models and limits its runs get; its usage,
+// the daily budget in millions of tokens; when it runs, always or by its schedules; and its
+// values. A preset fills in the settings it covers in the form, and the side column names the
+// preset the form matches, or Custom. All nineteen settings are saved together with one Save,
 // never the preset, and a value Dev flow refuses is named under its field; when it runs, its
 // schedules and the time zone, and its values are saved at once through their own routes. See
 // "Settings" and "Schedules" in devflow/README.md.
@@ -29,6 +30,7 @@ import {
 import { plainClick } from "./address";
 import { ApiError } from "./api/client";
 import type { components } from "./api/schema";
+import { USAGE_ANCHOR } from "./budget";
 import type { Project } from "./projects";
 import { type SchedulesApi, SchedulesCard } from "./schedules";
 import { projectPath } from "./sections";
@@ -278,6 +280,28 @@ const asNumber = (text: string): number | undefined => {
 	return /^-?\d+$/.test(trimmed) ? Number(trimmed) : undefined;
 };
 
+/** The daily budget as the card shows it: whether it is on, and the millions
+ * as their field shows them, as text, kept while it is off so switching it
+ * back on shows them again. */
+type BudgetForm = { on: boolean; millions: string };
+
+/** A million tokens: the page takes and shows the budget in millions, and
+ * Dev flow takes it in tokens. */
+const MILLION = 1_000_000;
+
+/** Why a budget Dev flow refused is named in the field's own unit, millions,
+ * rather than in the tokens the route speaks. */
+export const BUDGET_RANGE = "must be a whole number from 1 to 10 000";
+
+/** What the field's help says counts, and what reaching it does. */
+export const BUDGET_HELP =
+	"Counts input, cache writes and output. When reached, nothing new starts until midnight.";
+
+const asBudget = (budget: number | null): BudgetForm => ({
+	on: budget !== null,
+	millions: budget === null ? "" : String(budget / MILLION),
+});
+
 /** The list of paths as the box shows it, one pattern a line. */
 const asLines = (paths: string[]) => paths.join("\n");
 
@@ -323,18 +347,20 @@ export type SettingsPageProps = SettingsPageApi & {
 	disconnected: () => void;
 };
 
-/** The form as it is edited: the settings, with the paths and the limits as
- * their fields show them, as text. */
+/** The form as it is edited: the settings, with the paths, the limits and
+ * the daily budget as their fields show them, as text. */
 type Form = {
 	values: ProjectSettings;
 	lines: string;
 	limits: LimitTexts;
+	budget: BudgetForm;
 };
 
 const formOf = (settings: ProjectSettings): Form => ({
 	values: settings,
 	lines: asLines(settings.wait_paths),
 	limits: asTexts(settings),
+	budget: asBudget(settings.daily_token_budget),
 });
 
 /** The settings compared one by one, each counted once. */
@@ -359,7 +385,7 @@ const PLAIN: (
 	"wait_when_decision",
 ];
 
-/** How many of the eighteen settings the form changes from the settings as
+/** How many of the nineteen settings the form changes from the settings as
  * last read or saved. */
 export const unsaved = (form: Form, base: ProjectSettings): number => {
 	let count = PLAIN.filter(
@@ -371,6 +397,12 @@ export const unsaved = (form: Form, base: ProjectSettings): number => {
 	if (asPaths(form.lines).join("\n") !== base.wait_paths.join("\n")) count += 1;
 	for (const { field } of LIMITS)
 		if (form.limits[field].trim() !== String(base[field])) count += 1;
+	const was = asBudget(base.daily_token_budget);
+	if (
+		form.budget.on !== was.on ||
+		(form.budget.on && form.budget.millions.trim() !== was.millions)
+	)
+		count += 1;
 	return count;
 };
 
@@ -382,20 +414,25 @@ export const unsavedLine = (count: number): string =>
 			? "1 unsaved change"
 			: `${count} unsaved changes`;
 
-/** The anchors of the five sections, which the side column links to. */
-const SECTION_LINKS: { anchor: string; label: string }[] = [
-	{ anchor: "alone", label: "How much happens alone" },
-	{ anchor: "picked", label: "How cards are picked" },
-	{ anchor: "runs", label: "Runs" },
-	{ anchor: "schedules", label: "When it runs" },
-	{ anchor: "values", label: "Values" },
+/** The id a section's card has on the page, by its name. */
+const anchor = (name: string) => `settings-${name}`;
+
+/** The ids of the six sections, which the side column links to; Usage's is
+ * its own, which "Raise the budget" links to. */
+const SECTION_LINKS: { id: string; label: string }[] = [
+	{ id: anchor("alone"), label: "How much happens alone" },
+	{ id: anchor("picked"), label: "How cards are picked" },
+	{ id: anchor("runs"), label: "Runs" },
+	{ id: USAGE_ANCHOR, label: "Usage" },
+	{ id: anchor("schedules"), label: "When it runs" },
+	{ id: anchor("values"), label: "Values" },
 ];
 
 /** A project's settings page, /devflow/projects/<id>/settings: the header
  * with the way back to the project; the form, how much happens alone, how
- * cards are picked and runs, with the cards "When it runs" and Values and one
- * Save bar under it;
- * and the side column with the preset the form matches, links to the five
+ * cards are picked, runs and usage, with the cards "When it runs" and Values
+ * and one Save bar under it;
+ * and the side column with the preset the form matches, links to the six
  * sections and Disconnect. Nothing before the project is read. */
 export function SettingsPage({
 	id,
@@ -427,7 +464,14 @@ export function SettingsPage({
 	const [leaveError, setLeaveError] = useState<string | null>(null);
 	const formId = useId();
 	const presetLabel = useId();
-	const anchor = (name: string) => `settings-${name}`;
+	// The card "Usage" is drawn only once the project and its settings are
+	// read, after the browser looked for the address's #usage, so it is
+	// scrolled to then.
+	const drawn = Boolean(project) && base !== undefined;
+	useEffect(() => {
+		if (drawn && window.location.hash === `#${USAGE_ANCHOR}`)
+			document.getElementById(USAGE_ANCHOR)?.scrollIntoView?.();
+	}, [drawn]);
 
 	useEffect(() => {
 		let current = true;
@@ -540,12 +584,15 @@ export function SettingsPage({
 		// A limit that is not a whole number is named under its field, and
 		// nothing is sent.
 		const numbers: Partial<Record<LimitField, number>> = {};
-		const wrong: LimitField[] = [];
+		const wrong: (LimitField | "daily_token_budget")[] = [];
 		for (const { field } of LIMITS) {
 			const number = asNumber(form.limits[field]);
 			if (number === undefined) wrong.push(field);
 			else numbers[field] = number;
 		}
+		// The budget is sent in tokens, null while it is off.
+		const millions = form.budget.on ? asNumber(form.budget.millions) : null;
+		if (millions === undefined) wrong.push("daily_token_budget");
 		if (wrong.length > 0) {
 			setInvalid(
 				Object.fromEntries(wrong.map((field) => [field, NOT_A_NUMBER])),
@@ -560,6 +607,10 @@ export function SettingsPage({
 				...requestOf(form.values),
 				...(numbers as Record<LimitField, number>),
 				wait_paths: asPaths(form.lines),
+				daily_token_budget:
+					millions === null || millions === undefined
+						? null
+						: millions * MILLION,
 			});
 			setBase(answer);
 			setForm(formOf(answer));
@@ -575,7 +626,9 @@ export function SettingsPage({
 				Object.fromEntries(
 					Object.entries(errors ?? {}).map(([field, messages]) => [
 						field,
-						messages[0] ?? "is not valid",
+						field === "daily_token_budget"
+							? BUDGET_RANGE
+							: (messages[0] ?? "is not valid"),
 					]),
 				),
 			);
@@ -895,6 +948,44 @@ export function SettingsPage({
 									</div>
 								</div>
 							</Card>
+							<Card title="Usage" id={USAGE_ANCHOR} className={styles.section}>
+								<div className={styles.group}>
+									<Switch
+										label="Daily budget"
+										checked={form.budget.on}
+										onChange={(event) => {
+											const on = event.target.checked;
+											edit((before) => ({
+												...before,
+												budget: { ...before.budget, on },
+											}));
+										}}
+									/>
+									{form.budget.on ? (
+										<div className={styles.limits}>
+											<TextField
+												label="Million tokens a day"
+												help={BUDGET_HELP}
+												className={styles.mono}
+												type="number"
+												inputMode="numeric"
+												min={1}
+												max={10_000}
+												step={1}
+												value={form.budget.millions}
+												error={invalid.daily_token_budget}
+												onChange={(event) => {
+													const text = event.target.value;
+													edit((before) => ({
+														...before,
+														budget: { ...before.budget, millions: text },
+													}));
+												}}
+											/>
+										</div>
+									) : null}
+								</div>
+							</Card>
 						</form>
 					)}
 					<SchedulesCard
@@ -946,11 +1037,8 @@ export function SettingsPage({
 					<nav className={styles.jump} aria-label="Sections">
 						<ul className={styles.jumpList}>
 							{SECTION_LINKS.map((link) => (
-								<li key={link.anchor}>
-									<a
-										className={styles.jumpLink}
-										href={`#${anchor(link.anchor)}`}
-									>
+								<li key={link.id}>
+									<a className={styles.jumpLink} href={`#${link.id}`}>
 										{link.label}
 									</a>
 								</li>

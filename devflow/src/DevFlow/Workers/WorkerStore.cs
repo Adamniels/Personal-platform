@@ -40,7 +40,24 @@ public sealed record Worker(Guid Id, string Name, string RecipeVersion, string B
 /// cards six times in a row, "Dev flow cannot run &lt;project&gt;'s cards: &lt;the last
 /// reason&gt;", from <see cref="Stops.ProjectWaits.CannotRunOf"/>, which the list route adds; null
 /// otherwise.</param>
-public sealed record WorkerList(DateTimeOffset? KeyMadeAt, string? RecipeVersion, string StartCommand, IReadOnlyList<Worker> Workers, string? Held, string? CannotRun = null);
+/// <param name="Budget">The project's daily budget once its runs reached it today, worked out by
+/// <see cref="Usage.DailyBudget"/>, which holds it after a pause in <paramref name="Held"/> and
+/// before every other hold there; null when it has none or used less.</param>
+public sealed record WorkerList(DateTimeOffset? KeyMadeAt, string? RecipeVersion, string StartCommand, IReadOnlyList<Worker> Workers, string? Held, string? CannotRun = null, BudgetHold? Budget = null);
+
+/// <summary>A project's daily budget reached, as the project's page says it.</summary>
+/// <param name="Used">The tokens its runs that finished today used, by the one definition.</param>
+/// <param name="Budget">Its daily budget, in tokens.</param>
+/// <param name="LiftsAt">The next midnight in the user's zone, in its own offset.</param>
+/// <param name="Sentence">What the page says, the one rule's own sentence,
+/// <see cref="Jobs.WaitReason.BudgetReached"/>'s: "Daily budget reached, runs again at &lt;day
+/// time&gt;".</param>
+public sealed record BudgetHold(long Used, long Budget, DateTimeOffset LiftsAt, string Sentence)
+{
+    /// <summary>The hold of <paramref name="reached"/>, or null without one.</summary>
+    public static BudgetHold? Of(Jobs.WaitReason.BudgetReached? reached) =>
+        reached is { } hold ? new BudgetHold(hold.Used, hold.Budget, hold.LiftsAt, hold.Sentence) : null;
+}
 
 /// <summary>Where a worker stands when it asks for work.</summary>
 public enum WorkerState
@@ -196,6 +213,7 @@ public sealed class WorkerStore(UserDb database, TimeProvider time)
                 return null;
             }
 
+            var budget = await Usage.DailyBudget.ReachedIn(transaction, projectId, time.GetUtcNow(), cancellationToken);
             var made = await transaction.Connection!.QuerySingleOrDefaultAsync<DateTime?>(new CommandDefinition(
                 "SELECT created_at FROM worker_keys WHERE project_id = @projectId",
                 new { projectId },
@@ -217,7 +235,8 @@ public sealed class WorkerStore(UserDb database, TimeProvider time)
                 project.RecipeVersion,
                 start.StartCommand(project.Name),
                 [.. rows.Select(row => new Worker(row.Id, row.Name, row.RecipeVersion, row.BaseImage, GitHubLink.Utc(row.FirstSeenAt), GitHubLink.Utc(row.LastSeenAt), row.Rebuild))],
-                project.Held);
+                project.Held,
+                Budget: BudgetHold.Of(budget));
         }, cancellationToken);
 
     /// <summary>Now, as Postgres keeps it, to the microsecond.</summary>

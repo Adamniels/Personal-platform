@@ -22,7 +22,6 @@ import {
 } from "@tanstack/react-query";
 import {
 	type MouseEvent,
-	type ReactNode,
 	useEffect,
 	useId,
 	useLayoutEffect,
@@ -32,12 +31,15 @@ import {
 import { describe } from "./actions";
 import { navigate, plainClick } from "./address";
 import type { GetAnswer } from "./api/client";
+import { budgetPath, RAISE_THE_BUDGET } from "./budget";
+import { PageLink } from "./detail";
 import { AGAIN, CLOSED, dataOf, type EventStream } from "./events";
 import { type LogLine, LogLines, logStyles } from "./run-log";
 import { RUN_NOW, type RunNowApi, runningOutside } from "./run-now";
 import styles from "./running.module.css";
 import { schedulesPath } from "./schedules";
 import { cardPath, featurePath, projectPath, SECTIONS } from "./sections";
+import { amount } from "./tokens";
 
 export type RunningList = GetAnswer<"/running">;
 export type RunningRun = RunningList["runs"][number];
@@ -312,8 +314,9 @@ export function nextState(card: NextCard): string {
 
 /** Where a card's reason is acted on, or null where it has no place: the
  * card it waits for, "Waiting for you", its project's page, the Projects
- * tab, whose Connections hold the Claude login, or its project's schedules,
- * the card "When it runs" on its settings page. */
+ * tab, whose Connections hold the Claude login, its project's schedules,
+ * the card "When it runs" on its settings page, or its daily budget, the
+ * card "Usage" there. */
 export function reasonPath(card: NextCard): string | null {
 	switch (card.link) {
 		case "card":
@@ -328,6 +331,8 @@ export function reasonPath(card: NextCard): string | null {
 			return sectionPath("projects");
 		case "schedules":
 			return schedulesPath(card.project_id);
+		case "budget":
+			return budgetPath(card.project_id);
 		default:
 			return null;
 	}
@@ -342,8 +347,9 @@ function sectionPath(key: string): string {
 /** Why a card is not running yet, the rule's own sentence, linked to where it
  * is acted on; outside its schedule, the sentence said, "Run now anyway" for
  * its feature or itself, and "Edit schedules" the link, since the sentence is
- * when, not what to do; for a card that runs as soon as a worker asks, so it
- * says. */
+ * when, not what to do; its daily budget reached, the sentence said and
+ * "Raise the budget" the link, for the same reason; for a card that runs as
+ * soon as a worker asks, so it says. */
 function Reason({ card, acts }: { card: NextCard; acts: NextActs }) {
 	if (card.reason === null)
 		return <span className={styles.starts}>Next to start</span>;
@@ -355,6 +361,15 @@ function Reason({ card, acts }: { card: NextCard; acts: NextActs }) {
 				{card.run_now ? <RunNowButton card={card} acts={acts} /> : null}{" "}
 				<PageLink className={styles.reasonLink} href={href}>
 					Edit schedules
+				</PageLink>
+			</span>
+		);
+	if (card.link === "budget" && href !== null)
+		return (
+			<span className={styles.reason}>
+				{card.reason}{" "}
+				<PageLink className={styles.reasonLink} href={href}>
+					{RAISE_THE_BUDGET}
 				</PageLink>
 			</span>
 		);
@@ -399,32 +414,6 @@ function RunNowButton({ card, acts }: { card: NextCard; acts: NextActs }) {
 		>
 			{RUN_NOW}
 		</Button>
-	);
-}
-
-/** A link to a page of Dev flow's own, followed without a reload. */
-export function PageLink({
-	href,
-	className,
-	children,
-}: {
-	href: string;
-	className?: string;
-	children: ReactNode;
-}) {
-	return (
-		<a
-			className={className}
-			href={href}
-			onClick={(event: MouseEvent<HTMLAnchorElement>) => {
-				if (plainClick(event)) {
-					event.preventDefault();
-					navigate(href);
-				}
-			}}
-		>
-			{children}
-		</a>
 	);
 }
 
@@ -514,16 +503,6 @@ export function elapsed(ms: number): string {
 	if (hours > 0) return `${hours} h ${minutes} min ${seconds} s`;
 	if (minutes > 0) return `${minutes} min ${seconds} s`;
 	return `${seconds} s`;
-}
-
-/** A count of tokens, short: "950", "1.5 k", "120 k", "2.1 M". */
-export function amount(n: number): string {
-	const one = (value: number) => value.toFixed(1).replace(/\.0$/, "");
-	if (n < 1000) return String(n);
-	if (n < 10_000) return `${one(n / 1000)} k`;
-	// Below 999,500, so a count that rounds to 1000 k reads "1 M".
-	if (n < 999_500) return `${Math.round(n / 1000)} k`;
-	return `${one(n / 1_000_000)} M`;
 }
 
 type RunPanelProps = Pick<RunningApi, "stopRun" | "openEvents"> & {

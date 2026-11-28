@@ -216,6 +216,33 @@ public sealed class BudgetTests
         Assert.Equal(reached, await Rule(jobs));
     }
 
+    [Fact]
+    public async Task TheProjectsWorkersSayIt()
+    {
+        await using var jobs = await Jobs.Start();
+        await SetBudget(jobs, 1_000_000);
+        var now = jobs.Routes.Time.GetUtcNow();
+
+        // Under it, the workers list has no budget.
+        Assert.Null((await WorkerList(jobs))["budget"]);
+
+        // Reached, it says what was used of what, until when, and the rule's own sentence.
+        await Spent(jobs, now, input: 1_500_000);
+        var midnight = NextMidnight(now);
+        var budget = (await WorkerList(jobs))["budget"]!.AsObject();
+        Assert.Equal(1_500_000, (long)budget["used"]!);
+        Assert.Equal(1_000_000, (long)budget["budget"]!);
+        Assert.Equal(midnight, (DateTimeOffset)budget["lifts_at"]!);
+        Assert.Equal(new WaitReason.BudgetReached(1_500_000, 1_000_000, midnight).Sentence, (string)budget["sentence"]!);
+    }
+
+    private static async Task<JsonObject> WorkerList(Jobs jobs)
+    {
+        var answer = await jobs.Routes.App.Get(Workers.Workers.ListPath(jobs.Project), Contract.Token);
+        Assert.Equal(StatusCodes.Status200OK, answer.Response.StatusCode);
+        return JsonNode.Parse(await Harness.Body(answer))!.AsObject();
+    }
+
     /// <summary>The owner saves the project's settings with <paramref name="budget"/>, as the
     /// settings page does, every other setting as it is.</summary>
     internal static async Task SetBudget(Jobs jobs, long? budget)

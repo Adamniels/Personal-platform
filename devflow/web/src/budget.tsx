@@ -4,10 +4,10 @@
 // Dev flow as the list is read and never stored, so it goes at midnight in the owner's zone or once
 // he raises the budget. See "Settings" under "Cards" and "Stops" in devflow/README.md.
 import { Status } from "@platform/ui";
-import { Detail } from "./detail";
-import { amount, PageLink } from "./running";
+import { Detail, PageLink } from "./detail";
 import { dayTime } from "./schedules";
 import { settingsPath } from "./sections";
+import { amount } from "./tokens";
 import type { BudgetReachedItem } from "./waiting";
 import styles from "./waiting.module.css";
 

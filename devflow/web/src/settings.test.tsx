@@ -200,6 +200,77 @@ describe("the settings page's form", () => {
 		expect(settings.queryByText(SAVED)).toBeNull();
 	});
 
+	test("the daily budget is off, switched on with a number, and saved", async () => {
+		const { saveSettings } = renderPage();
+		const settings = await page();
+		const usage = settings.getByRole("article", { name: "Usage" });
+		expect(usage.id).toBe("usage");
+		const card = within(usage);
+
+		// Off by default, with no field.
+		const daily = card.getByRole("switch", { name: "Daily budget" });
+		expect((daily as HTMLInputElement).checked).toBe(false);
+		expect(card.queryByLabelText("Million tokens a day")).toBeNull();
+
+		// Switched on, the field shows, mono, with what counts as its help; the
+		// switch alone is one change, and an empty field is named, not sent.
+		fireEvent.click(daily);
+		const millions = card.getByLabelText(
+			"Million tokens a day",
+		) as HTMLInputElement;
+		expect(millions.className).toContain("mono");
+		expect(
+			card.getByText(
+				"Counts input, cache writes and output. When reached, nothing new starts until midnight.",
+			),
+		).toBeTruthy();
+		expect(settings.getByText("1 unsaved change")).toBeTruthy();
+		fireEvent.click(settings.getByRole("button", { name: "Save" }));
+		expect(await card.findByText(`Error: ${NOT_A_NUMBER}`)).toBeTruthy();
+		expect(saveSettings).not.toHaveBeenCalled();
+
+		// A number of millions is saved as tokens.
+		fireEvent.change(millions, { target: { value: "25" } });
+		fireEvent.click(settings.getByRole("button", { name: "Save" }));
+		expect(await settings.findByText(SAVED)).toBeTruthy();
+		expect(saveSettings).toHaveBeenCalledWith(ID, {
+			...REQUEST,
+			daily_token_budget: 25_000_000,
+			trusted_logins: ["octo-owner"],
+		});
+		expect(millions.value).toBe("25");
+		expect(settings.getByText("No unsaved changes")).toBeTruthy();
+
+		// One Dev flow refuses is named in the field's own unit.
+		saveSettings.mockImplementationOnce(() =>
+			Promise.reject(
+				new ApiError({
+					status: 422,
+					title: "The settings break a rule",
+					detail: "daily_token_budget must be null for off",
+					errors: { daily_token_budget: ["must be null for off"] },
+				}),
+			),
+		);
+		fireEvent.change(millions, { target: { value: "20000" } });
+		fireEvent.click(settings.getByRole("button", { name: "Save" }));
+		expect(
+			await card.findByText("Error: must be a whole number from 1 to 10 000"),
+		).toBeTruthy();
+
+		// Switched off, it is saved as null.
+		fireEvent.click(daily);
+		expect(card.queryByLabelText("Million tokens a day")).toBeNull();
+		fireEvent.click(settings.getByRole("button", { name: "Save" }));
+		await waitFor(() =>
+			expect(saveSettings).toHaveBeenLastCalledWith(ID, {
+				...REQUEST,
+				daily_token_budget: null,
+				trusted_logins: ["octo-owner"],
+			}),
+		);
+	});
+
 	test("sometimes shows its three conditions, the review label and the paths", async () => {
 		const { saveSettings } = renderPage({
 			loadSettings: () =>
