@@ -21,6 +21,9 @@ public sealed class ClaudeAgentTests
     /// <summary>Shaped like a subscription token, and found nowhere it must not be.</summary>
     private const string Token = "sk-ant-oat01-TESTtokenVALUEthatMUSTneverLEAVEtheRUN_0123456789abcdef";
 
+    /// <summary>Shaped like an API key, and found nowhere it must not be.</summary>
+    private const string ApiKey = "sk-ant-api03-TESTkeyVALUEthatMUSTneverLEAVEtheRUN_0123456789abcdef";
+
     private const string Schema = """{"type": "object", "required": ["summary"], "properties": {"summary": {"type": "string"}}}""";
 
     /// <summary>The morning the usage limit's cases are read on.</summary>
@@ -399,11 +402,99 @@ public sealed class ClaudeAgentTests
         NoToken(failed, failedLog);
     }
 
+    [Fact]
+    public async Task AnApiKeyRunHasTheKeyAndNoToken()
+    {
+        var (result, starter, _) = await Run(login: Login("auth-api-key.json"), credential: new AgentCredential(ApiKey, DevFlow.Protocol.JobCredential.ApiKey));
+
+        Assert.True(result.Succeeded, result.Failure?.Reason);
+        Assert.Equal(2, starter.Started.Count);
+        foreach (var (spec, _) in starter.Started)
+        {
+            Assert.Equal(ApiKey, spec.Environment["ANTHROPIC_API_KEY"]);
+            Assert.DoesNotContain("CLAUDE_CODE_OAUTH_TOKEN", spec.Environment.Keys);
+            Assert.DoesNotContain("--bare", spec.Arguments);
+        }
+
+        // And a subscription run the other way round.
+        var (subscription, started, _) = await Run();
+        Assert.True(subscription.Succeeded, subscription.Failure?.Reason);
+        foreach (var (spec, _) in started.Started)
+        {
+            Assert.Equal(Token, spec.Environment["CLAUDE_CODE_OAUTH_TOKEN"]);
+            Assert.DoesNotContain("ANTHROPIC_API_KEY", spec.Environment.Keys);
+        }
+    }
+
+    [Theory]
+    [InlineData("api_key", "auth-api-key.json", true)]
+    [InlineData("api_key", "auth-oauth-token.json", false)]
+    [InlineData("api_key", "auth-not-logged-in.json", false)]
+    [InlineData("subscription", "auth-oauth-token.json", true)]
+    [InlineData("subscription", "auth-api-key.json", false)]
+    public async Task TheLoginCheckWantsTheJobsMethod(string kind, string file, bool runs)
+    {
+        var secret = kind == "api_key" ? ApiKey : Token;
+        var (result, starter, log) = await Run(login: Login(file), credential: new AgentCredential(secret, kind));
+
+        Assert.Equal(runs, result.Succeeded);
+        Assert.Equal(runs ? 2 : 1, starter.Started.Count);
+        if (!runs)
+        {
+            // Refused before the run starts, outside the card, naming the method it wanted.
+            Assert.Equal(FailureSide.OutsideCard, result.Failure!.Side);
+            Assert.Contains(kind == "api_key" ? "not logged in with the API key" : "not logged in with the token", result.Failure.Reason, StringComparison.Ordinal);
+        }
+
+        Assert.DoesNotContain(secret, log.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TheKeyIsScrubbed()
+    {
+        // Claude Code, or the agent inside it, writing the key into everything it answers.
+        var stream = Recorded.Stream("success", result =>
+        {
+            result["structured_output"]!["summary"] = $"the key is {ApiKey}";
+            result["result"] = ApiKey;
+        });
+        var runLog = new MemoryRunLog(TimeProvider.System);
+        var (result, _, log) = await Run(
+            new ProcessOutcome(0, stream, $"debug: ANTHROPIC_API_KEY={ApiKey}\n", false),
+            login: new ProcessOutcome(0, $$"""{"loggedIn": true, "authMethod": "api_key", "key": "{{ApiKey}}"}""", ApiKey, false),
+            runLog: runLog,
+            credential: new AgentCredential(ApiKey, DevFlow.Protocol.JobCredential.ApiKey));
+
+        Assert.True(result.Succeeded, result.Failure?.Reason);
+        Assert.Contains("[redacted]", (string)result.Report!["summary"]!, StringComparison.Ordinal);
+        Assert.Contains("[redacted]", result.Stderr, StringComparison.Ordinal);
+        NoSecret(ApiKey, result, log, runLog);
+
+        // A refused login, and a failed run, keep none either, in every reason.
+        var (refused, _, refusedLog) = await Run(
+            login: new ProcessOutcome(0, $$"""{"loggedIn": true, "authMethod": "{{ApiKey}}"}""", ApiKey, false),
+            credential: new AgentCredential(ApiKey, DevFlow.Protocol.JobCredential.ApiKey));
+        Assert.False(refused.Succeeded);
+        NoSecret(ApiKey, refused, refusedLog);
+        var (failed, _, failedLog) = await Run(
+            new ProcessOutcome(1, $"crashed with {ApiKey}", ApiKey, false),
+            login: Login("auth-api-key.json"),
+            credential: new AgentCredential(ApiKey, DevFlow.Protocol.JobCredential.ApiKey));
+        Assert.False(failed.Succeeded);
+        NoSecret(ApiKey, failed, failedLog);
+        Assert.DoesNotContain(ApiKey, new AgentCredential(ApiKey, DevFlow.Protocol.JobCredential.ApiKey).ToString(), StringComparison.Ordinal);
+    }
+
+    private static ProcessOutcome Login(string file) => new(0, Recorded.Text(file), "", false);
+
     /// <summary>The token's value in nothing the run answers or logs: the report, the reason, the
     /// usage, the stderr kept and the method, as the result is sent back, and the worker's log.</summary>
-    private static void NoToken(AgentResult result, StringBuilder log, MemoryRunLog? runLog = null)
+    private static void NoToken(AgentResult result, StringBuilder log, MemoryRunLog? runLog = null) => NoSecret(Token, result, log, runLog);
+
+    /// <summary><paramref name="secret"/>'s value in nothing the run answers or logs.</summary>
+    private static void NoSecret(string secret, AgentResult result, StringBuilder log, MemoryRunLog? runLog = null)
     {
-        Assert.All(runLog?.Lines ?? [], line => Assert.DoesNotContain(Token, line.Text, StringComparison.Ordinal));
+        Assert.All(runLog?.Lines ?? [], line => Assert.DoesNotContain(secret, line.Text, StringComparison.Ordinal));
         var sent = JsonSerializer.Serialize(new
         {
             report = result.Report,
@@ -412,9 +503,9 @@ public sealed class ClaudeAgentTests
             stderr = result.Stderr,
             method = result.AuthMethod,
         });
-        Assert.DoesNotContain(Token, sent, StringComparison.Ordinal);
-        Assert.DoesNotContain(Token, result.ToString(), StringComparison.Ordinal);
-        Assert.DoesNotContain(Token, log.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, sent, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, result.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, log.ToString(), StringComparison.Ordinal);
     }
 
     /// <summary>A usage limit's run of <paramref name="case"/> with <paramref name="events"/> just
@@ -429,13 +520,13 @@ public sealed class ClaudeAgentTests
     /// <summary>Runs the agent on a brief in <c>/work/fodr</c>, with <paramref name="login"/>
     /// answering the login check, logged in with the token unless a test says otherwise, and
     /// <paramref name="run"/> the run.</summary>
-    private static async Task<(AgentResult Result, FakeStarter Starter, StringBuilder Log)> Run(ProcessOutcome? run = null, ProcessOutcome? login = null, AgentAccess access = AgentAccess.Write, string model = "opus", AgentLimits? limits = null, TimeProvider? time = null, IRunLog? runLog = null)
+    private static async Task<(AgentResult Result, FakeStarter Starter, StringBuilder Log)> Run(ProcessOutcome? run = null, ProcessOutcome? login = null, AgentAccess access = AgentAccess.Write, string model = "opus", AgentLimits? limits = null, TimeProvider? time = null, IRunLog? runLog = null, AgentCredential? credential = null)
     {
         var starter = new FakeStarter(login ?? new ProcessOutcome(0, Recorded.Text("auth-oauth-token.json"), "", false), run ?? Recorded.Run("success", 0));
         var output = Writer(out var log);
         var agent = new ClaudeCodeAgent(starter, ClaudeCodeOptions.Default, new WorkerLog(output, new WatchedClock()), time);
         var result = await agent.Run(
-            new AgentRun("/work/fodr", "Add an empty state to the habits list.", Schema, model, limits ?? Limits, new AgentCredential(Token), access, Log: runLog),
+            new AgentRun("/work/fodr", "Add an empty state to the habits list.", Schema, model, limits ?? Limits, credential ?? new AgentCredential(Token), access, Log: runLog),
             Ct);
         return (result, starter, log);
     }

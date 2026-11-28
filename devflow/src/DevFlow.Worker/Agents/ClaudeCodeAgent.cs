@@ -19,20 +19,22 @@ internal sealed record ClaudeCodeOptions(string Executable, string Home, string 
 /// interface" in devflow/README.md, and "Workers" in devflow/docs/devflow-architecture.md for why.
 /// <list type="bullet">
 /// <item>The environment is built from nothing: <c>HOME</c>, <c>PATH</c>, <c>LANG</c>,
-/// <c>CLAUDE_CONFIG_DIR</c> in that home, <c>CLAUDE_CODE_OAUTH_TOKEN</c>, and
+/// <c>CLAUDE_CONFIG_DIR</c> in that home, the job's one credential, <c>CLAUDE_CODE_OAUTH_TOKEN</c>
+/// for the subscription or <c>ANTHROPIC_API_KEY</c> for the API key and never both, and
 /// <c>PLAYWRIGHT_BROWSERS_PATH</c>, the image's Chromium, for the developer's own pictures; the run,
 /// not the login check, gets the project's values its job carried too, beneath these. An
-/// <c>ANTHROPIC_API_KEY</c> would silently win over the token and bill the API, so none is ever
-/// passed; nor is <c>--bare</c>, which refuses the token.</item>
+/// <c>ANTHROPIC_API_KEY</c> beside the token would silently win over it and bill the API, which is
+/// why only one is ever passed; <c>--bare</c> is not, which refuses the token.</item>
 /// <item>The login is checked first, with <c>claude auth status --json</c>, which must answer
-/// <c>loggedIn</c> true and <c>authMethod</c> <c>oauth_token</c>; the method is recorded.</item>
+/// <c>loggedIn</c> true and the <c>authMethod</c> of the job's credential, <c>oauth_token</c> or
+/// <c>api_key</c>; the method is recorded.</item>
 /// <item>It streams, <c>--output-format stream-json --verbose</c>, one JSON event per line as it
 /// works, and its answer is the last <c>result</c> event, which carries what
 /// <c>--output-format json</c> printed.</item>
 /// <item>A run succeeds only when every condition of <see cref="JudgeAnswer"/> holds; <c>subtype</c>
 /// is never read, since it says <c>success</c> on some failures.</item>
-/// <item>The token's value is replaced in everything read back, so neither the report, stderr nor
-/// a reason can carry it out.</item>
+/// <item>The credential's value, the token or the key, is replaced in everything read back, so
+/// neither the report, stderr nor a reason can carry it out.</item>
 /// </list>
 /// </summary>
 internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions options, WorkerLog log, TimeProvider? time = null) : IAgent
@@ -42,22 +44,26 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
     /// <summary>The token's environment variable.</summary>
     public const string TokenVariable = "CLAUDE_CODE_OAUTH_TOKEN";
 
+    /// <summary>The API key's environment variable.</summary>
+    public const string ApiKeyVariable = "ANTHROPIC_API_KEY";
+
     /// <summary>The longest the login check may take.</summary>
     public static readonly TimeSpan LoginCheckLimit = TimeSpan.FromMinutes(1);
 
-    /// <summary>What stands in for the token wherever it was written.</summary>
+    /// <summary>What stands in for the token or the key wherever it was written.</summary>
     public const string Redacted = "[redacted]";
 
     public async Task<AgentResult> Run(AgentRun run, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(run);
-        var token = run.Credential.Reveal();
-        var environment = Environment(token, null);
+        var credential = run.Credential;
+        var secret = credential.Reveal();
+        var environment = Environment(credential, null);
 
         var login = Scrubbed(await starter.Run(
             new ProcessSpec(options.Executable, ["auth", "status", "--json"], run.WorkingDirectory, environment, Stop: run.Stop),
             LoginCheckLimit,
-            cancellationToken), token);
+            cancellationToken), secret);
         if (login.Stopped)
         {
             log.Write("The owner stopped the run before it started.");
@@ -65,12 +71,12 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
         }
 
         var (loggedIn, method) = ReadLogin(login.Stdout);
-        if (login.TimedOut || login.ExitCode != 0 || !loggedIn || method != "oauth_token")
+        if (login.TimedOut || login.ExitCode != 0 || !loggedIn || method != credential.Method)
         {
-            log.Write($"Claude Code is not logged in with the token (exit {login.ExitCode}, method {method ?? "unknown"}); the run did not start.");
+            log.Write($"Claude Code is not logged in with {credential.Name} (exit {login.ExitCode}, method {method ?? "unknown"}); the run did not start.");
             return AgentResult.Failed(
                 FailureSide.OutsideCard,
-                $"Claude Code is not logged in with the token: auth status exited {login.ExitCode}, loggedIn {(loggedIn ? "true" : "false")}, authMethod {method ?? "unknown"}",
+                $"Claude Code is not logged in with {credential.Name}: auth status exited {login.ExitCode}, loggedIn {(loggedIn ? "true" : "false")}, authMethod {method ?? "unknown"}",
                 [],
                 login.Stderr,
                 method);
@@ -79,13 +85,13 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
         log.Write($"Claude Code is logged in by {method}; starting the run.");
         // Each line of the stream becomes its log line as it is written; standard error is kept
         // for the result, as before, and makes none.
-        var lines = run.Log is null ? null : new StreamLines(run.Log, token, new DevFlow.Protocol.ValueScrub(run.Values ?? []));
+        var lines = run.Log is null ? null : new StreamLines(run.Log, secret, new DevFlow.Protocol.ValueScrub(run.Values ?? []));
         var answer = Scrubbed(await starter.Run(
             new ProcessSpec(
                 options.Executable,
                 Arguments(run),
                 run.WorkingDirectory,
-                Environment(token, run.Values),
+                Environment(credential, run.Values),
                 Lines: lines is null ? null : (stream, line) =>
                 {
                     if (stream == ProcessStream.Stdout)
@@ -95,7 +101,7 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
                 },
                 Stop: run.Stop),
             run.Limits.Time,
-            cancellationToken), token);
+            cancellationToken), secret);
         var result = answer.Stopped
             ? AgentResult.Stopped(UsageOf(lines?.UsageSoFar), answer.Stderr, method)
             : Judge(answer, run.Limits, method, run.Access, _time.GetUtcNow());
@@ -123,7 +129,7 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
     /// <summary>The environment of a Claude Code process: the project's <paramref name="values"/>,
     /// for the run that works on its code, then Claude Code's own, which win over a value of the
     /// same name; the login check gets none.</summary>
-    private Dictionary<string, string> Environment(string token, IReadOnlyList<DevFlow.Protocol.JobValue>? values)
+    private Dictionary<string, string> Environment(AgentCredential credential, IReadOnlyList<DevFlow.Protocol.JobValue>? values)
     {
         var environment = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var value in values ?? [])
@@ -135,7 +141,7 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
         environment["PATH"] = options.Path;
         environment["LANG"] = options.Lang;
         environment["CLAUDE_CONFIG_DIR"] = $"{options.Home.TrimEnd('/')}/.claude";
-        environment[TokenVariable] = token;
+        environment[credential.Variable] = credential.Reveal();
         environment["PLAYWRIGHT_BROWSERS_PATH"] = options.BrowsersPath;
         return environment;
     }
@@ -332,14 +338,14 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
     private static string? Text(JsonObject json, string field) =>
         json[field] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
 
-    /// <summary>The outcome with the token replaced wherever it was written, before anything reads
+    /// <summary>The outcome with the credential's secret replaced wherever it was written, before anything reads
     /// it.</summary>
-    private static ProcessOutcome Scrubbed(ProcessOutcome outcome, string token) =>
-        token.Length == 0
+    private static ProcessOutcome Scrubbed(ProcessOutcome outcome, string secret) =>
+        secret.Length == 0
             ? outcome
             : outcome with
             {
-                Stdout = outcome.Stdout.Replace(token, Redacted, StringComparison.Ordinal),
-                Stderr = outcome.Stderr.Replace(token, Redacted, StringComparison.Ordinal),
+                Stdout = outcome.Stdout.Replace(secret, Redacted, StringComparison.Ordinal),
+                Stderr = outcome.Stderr.Replace(secret, Redacted, StringComparison.Ordinal),
             };
 }

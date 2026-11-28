@@ -1,5 +1,7 @@
 using System.Text.Json.Nodes;
 
+using DevFlow.Protocol;
+
 namespace DevFlow.Worker.Agents;
 
 /// <summary>
@@ -49,14 +51,35 @@ internal enum AgentAccess
 internal sealed record AgentLimits(int MaxTurns, decimal MaxBudgetUsd, TimeSpan Time);
 
 /// <summary>
-/// The secret an agent logs in with, Claude Code's subscription token. It is handed to the run in
-/// the environment only, never written to a file, logged or sent back, so it says nothing of its
-/// value when printed, and is read only by <see cref="Reveal"/>.
+/// The secret an agent logs in with, the one its job's credential names: the subscription's token,
+/// or the API key. It is handed to the run in the environment only, as <see cref="Variable"/>, never
+/// written to a file, logged or sent back, so it says nothing of its value when printed, and is read
+/// only by <see cref="Reveal"/>.
 /// </summary>
-internal sealed class AgentCredential(string token)
+/// <param name="secret">The token or the key.</param>
+/// <param name="kind"><see cref="JobCredential.Subscription"/>, the default, or
+/// <see cref="JobCredential.ApiKey"/>.</param>
+internal sealed class AgentCredential(string secret, string kind = JobCredential.Subscription)
 {
-    /// <summary>The token itself, for the one place that hands it to the run.</summary>
-    public string Reveal() => token;
+    /// <summary>What it is, <see cref="JobCredential.Subscription"/> or
+    /// <see cref="JobCredential.ApiKey"/>.</summary>
+    public string Kind { get; } = kind;
+
+    /// <summary>Whether it is the API key.</summary>
+    public bool IsApiKey => Kind == JobCredential.ApiKey;
+
+    /// <summary>The environment variable Claude Code reads it from: <c>ANTHROPIC_API_KEY</c> for
+    /// the key, <c>CLAUDE_CODE_OAUTH_TOKEN</c> for the token, and never both.</summary>
+    public string Variable => IsApiKey ? ClaudeCodeAgent.ApiKeyVariable : ClaudeCodeAgent.TokenVariable;
+
+    /// <summary>The <c>authMethod</c> <c>claude auth status --json</c> must answer with it.</summary>
+    public string Method => IsApiKey ? "api_key" : "oauth_token";
+
+    /// <summary>How a refused login names it.</summary>
+    public string Name => IsApiKey ? "the API key" : "the token";
+
+    /// <summary>The secret itself, for the one place that hands it to the run.</summary>
+    public string Reveal() => secret;
 
     public override string ToString() => "AgentCredential(redacted)";
 }
