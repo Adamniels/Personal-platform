@@ -41,7 +41,7 @@ problems() {
       ("entry \($i)" + (if ($s | type == "object") and ($s.name | str) then " (\($s.name))" else "" end)) as $at |
       if ($s | type) != "object" then "\($at): not an object"
       else
-        (($s | keys) - ["name", "dir", "port", "health", "language", "area", "migrate", "start", "public_origin", "database", "ci"]
+        (($s | keys) - ["name", "dir", "port", "health", "language", "area", "migrate", "start", "public_origin", "database", "ci", "e2e"]
           | .[] | "\($at): unknown field \(.)"),
         (if ($s | has("language")) and ($s | has("area")) and (($s.language == "dotnet") != ($s.area == "dotnet"))
           then "\($at): a C# service, and only one, has area dotnet" else empty end),
@@ -66,6 +66,9 @@ problems() {
         (if ($s | has("area")) and ($s.area | str | not) then "\($at): area is not a string" else empty end),
         (if ($s | has("migrate")) and ($s.migrate | str | not) then "\($at): migrate is not a command" else empty end),
         (if ($s | has("start")) and ($s.start | str | not) then "\($at): start is not a command" else empty end),
+        (if ($s | has("e2e")) and (($s.e2e | type == "array") and ($s.e2e | length > 0)
+              and ($s.e2e | all(str and test("^tests/[A-Za-z0-9_*.-]+\\.py$"))) | not)
+          then "\($at): e2e is not a list of tests/<glob>.py" else empty end),
         (if ($s | has("public_origin")) and ($s.public_origin | var | not)
           then "\($at): public_origin is not a variable name" else empty end),
         (if ($s | has("database")) then
@@ -224,6 +227,8 @@ expect "an unknown language" "language is not" '.services[0].language = "go"'
 expect "an area changed-areas.sh does not print" "does not set area nowhere" '.services[0].area = "nowhere"'
 expect "an area changed-areas.sh prints but never sets for a folder" "does not set area web" '.services[0].area = "web"'
 expect "a misspelt field" "unknown field heath" '.services[2].heath = "/x"'
+expect "an e2e field that is not a list" "e2e is not a list" '.services[3].e2e = "tests/test_review.py"'
+expect "an e2e glob outside tests/" "e2e is not a list" '.services[3].e2e = ["../Core/x.py"]'
 expect "a public_origin that is not a variable" "public_origin is not a variable" '.services[0].public_origin = "core origin"'
 expect "a database without its owner's variable" "database misses owner_url" 'del(.services[0].database.owner_url)'
 expect "a database role that is not an identifier" "database owner is not" '.services[0].database.owner = "core owner; drop"'
