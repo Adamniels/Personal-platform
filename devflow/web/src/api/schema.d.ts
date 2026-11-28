@@ -222,6 +222,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/machines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's machines
+         * @description Every machine the caller enrolled, by when it did, with its name, os, arch, program_version and docker as it last said hello, both null before its first, last_seen_at, when it enrolled or last said hello, and online, whether that was less than 60 seconds ago. Never its key, and never another user's machine. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        get: operations["listMachines"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/machines/enrollment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A code that enrols a machine
+         * @description A new code, dfe_ and the base64url of 16 random bytes, answered this once with Cache-Control: no-store, with expires_at, an hour from now, and the two commands that install the machine program with it: command, at the public origin, for any machine, and local_command, at DEVFLOW_LOCAL_URL, for the machine the platform runs on, which cannot reach its own public address. Dev flow keeps only the code's SHA-256. It enrols one machine, once, within the hour; a newer code ends no older one. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["newMachineEnrollment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/machines/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a machine
+         * @description Removes the machine and its key, so the key is refused from its next request. 204. 404 for a machine the caller does not have, another user's among them. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        delete: operations["removeMachine"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/paused": {
         parameters: {
             query?: never;
@@ -2009,6 +2069,25 @@ export interface components {
             /** Format: int64 */
             output_tokens: null | number;
         };
+        Machine: {
+            arch: string;
+            docker: null | string;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            last_seen_at: string;
+            name: string;
+            online: boolean;
+            os: string;
+            program_version: null | string;
+        };
+        MachineEnrollment: {
+            code: string;
+            command: string;
+            /** Format: date-time */
+            expires_at: string;
+            local_command: string;
+        };
         MachineHelloAnswer: {
             release: string;
         };
@@ -3315,6 +3394,96 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    listMachines: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Machine"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    newMachineEnrollment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MachineEnrollment"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    removeMachine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
                 };
             };
         };

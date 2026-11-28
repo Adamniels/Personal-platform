@@ -19,6 +19,11 @@ public sealed record FakeUnavailable(bool Unavailable);
 /// <param name="Days">How many days ago the caller's Claude login is to have been given.</param>
 public sealed record FakeClaudeLoginAge(int Days);
 
+/// <summary>What <c>POST /devflow/api/fake/machine-age</c> takes.</summary>
+/// <param name="MachineId">The caller's machine.</param>
+/// <param name="Minutes">How many minutes ago it is to have been last seen.</param>
+public sealed record FakeMachineAge(Guid? MachineId, int Minutes);
+
 /// <summary>What <c>POST /devflow/api/fake/push</c> takes.</summary>
 /// <param name="Repository">The id of the caller's repository, in any of its world's
 /// installations.</param>
@@ -160,6 +165,30 @@ public static class FakeEndpoints
             return aged > 0
                 ? TypedResults.NoContent()
                 : TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No Claude login", detail: "the caller has no Claude login to age");
+        });
+
+        // Moves when the caller's machine was last seen back by a number of minutes, so a test sees
+        // it offline without waiting for it to go quiet. 404 for a machine the caller does not
+        // have. See "Machines" in devflow/README.md.
+        fake.MapPost("/machine-age", async Task<Results<NoContent, ProblemHttpResult>> (HttpContext context, [FromServices] UserDb database, [FromServices] TimeProvider time) =>
+        {
+            var (body, error) = await FakeJson.Read<FakeMachineAge>(context.Request.Body, context.RequestAborted);
+            error ??= body is { MachineId: null } ? new Malformed("machine_id", "is required") : null;
+            error ??= body is { Minutes: < 0 } ? new Malformed("minutes", "must not be negative") : null;
+            if (error is not null)
+            {
+                return Refused("The age is malformed", error);
+            }
+
+            var userId = context.UserId();
+            var aged = await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                "UPDATE machines SET last_seen_at = @seenAt, first_seen_at = least(first_seen_at, @seenAt) WHERE id = @machineId",
+                new { machineId = body!.MachineId, seenAt = time.GetUtcNow() - TimeSpan.FromMinutes(body.Minutes) },
+                transaction,
+                cancellationToken: context.RequestAborted)), context.RequestAborted);
+            return aged > 0
+                ? TypedResults.NoContent()
+                : TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No such machine", detail: "the caller has no such machine to age");
         });
 
         // Ends a project's wait after failures outside its cards now, its count kept, so a test sees

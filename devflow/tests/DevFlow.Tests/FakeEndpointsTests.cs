@@ -232,6 +232,7 @@ public sealed class FakeEndpointsTests
         { "POST", UnavailablePath, """{"unavailable": true}""" },
         { "POST", "/devflow/api/fake/expire-token", "{}" },
         { "POST", "/devflow/api/fake/claude-login-age", """{"days": 340}""" },
+        { "POST", "/devflow/api/fake/machine-age", """{"machine_id": "00000000-0000-4000-8000-000000000000", "minutes": 5}""" },
         { "POST", "/devflow/api/fake/usage-history", """{"project_id": "00000000-0000-4000-8000-000000000000", "days": []}""" },
         { "POST", "/devflow/api/fake/worker/run", "{}" },
     };

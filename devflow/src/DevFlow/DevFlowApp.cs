@@ -266,7 +266,7 @@ public static class DevFlowApp
         app.MapDisplay();
         app.MapAttention();
         app.MapWorkers();
-        app.MapMachines(settings.Release);
+        app.MapMachines(settings.Release, new MachineInstall(settings.PublicOrigin, settings.LocalUrl));
         app.MapWatch();
         app.MapJobs();
         app.MapStops();
