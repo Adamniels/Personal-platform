@@ -4542,14 +4542,15 @@ def test_i_set_the_models_and_limits(
     settings = _edit_settings(page)
     runs = settings.get_by_role("article", name="Runs", exact=True)
 
-    # A new project's: opus for each job, 90 minutes, 200 turns, and 3 fix
-    # rounds a card and 3 a feature.
+    # A new project's: opus for each job, 90 minutes, 200 turns, 25 USD, and 3
+    # fix rounds a card and 3 a feature.
     for label, value in (
         ("Reading model", "opus"),
         ("Building model", "opus"),
         ("Reviewing model", "opus"),
         ("Minutes a run may take", "90"),
         ("Turns a run may take", "200"),
+        ("Spend per run, USD", "25"),
         ("Fix rounds a card gets", "3"),
         ("Fix rounds a feature gets", "3"),
     ):
@@ -4567,6 +4568,7 @@ def test_i_set_the_models_and_limits(
     runs.get_by_label("Reviewing model").select_option("haiku")
     runs.get_by_label("Minutes a run may take").fill("45")
     runs.get_by_label("Turns a run may take").fill("300")
+    runs.get_by_label("Spend per run, USD").fill("40")
     runs.get_by_label("Fix rounds a card gets").fill("1")
     runs.get_by_label("Fix rounds a feature gets").fill("0")
     settings.get_by_role("button", name="Save").click()
@@ -4580,6 +4582,16 @@ def test_i_set_the_models_and_limits(
     assert _axe_violations(page) == []
     runs.scroll_into_view_if_needed()
     capture(page, "devflow-settings-runs")
+    if viewport == "phone":
+        # The full page at phone width puts the sticky Save bar and the nav
+        # over the card's last fields, so the spend field and its help as
+        # they are seen, scrolled clear of them.
+        runs.get_by_label("Spend per run, USD").evaluate(
+            "field => field.scrollIntoView({block: 'center'})"
+        )
+        page.screenshot(
+            path=str(SCREENSHOTS / "devflow-settings-runs-detail-phone.png")
+        )
 
     # Kept: a fresh load reads them back.
     page.reload()
@@ -4590,14 +4602,15 @@ def test_i_set_the_models_and_limits(
         ("Reviewing model", "haiku"),
         ("Minutes a run may take", "45"),
         ("Turns a run may take", "300"),
+        ("Spend per run, USD", "40"),
         ("Fix rounds a card gets", "1"),
         ("Fix rounds a feature gets", "0"),
     ):
         expect(runs.get_by_label(label)).to_have_value(value)
 
     # The next job carries them: a worker on the image released asks for work
-    # and is handed the card's build on the building model, with the time and
-    # the turns set, and the spend every run is given.
+    # and is handed the card's build on the building model, with the time, the
+    # turns and the spend set.
     _back_to_project(page)
     key = _make_key(page)
     command = (
@@ -4632,7 +4645,7 @@ def test_i_set_the_models_and_limits(
         worker.dispose()
     assert (job["kind"], job["card"]["number"]) == ("build", CARD)
     assert job["model"] == "sonnet"
-    assert job["limits"] == {"turns": 300, "budget_usd": 25, "minutes": 45}
+    assert job["limits"] == {"turns": 300, "budget_usd": 40, "minutes": 45}
 
 
 def test_i_set_sometimes(

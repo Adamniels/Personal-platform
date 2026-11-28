@@ -1210,13 +1210,17 @@ period rolls by 24 hours and a day does not; mixing the two would leave a half d
 start.
 
 **The model and the limits are the project's, carried by the job.** Which model reads, builds and
-reviews, and the minutes and turns a run takes, are settings, as the spec's round 4b has them per
+reviews, and the minutes, turns and spend a run takes, are settings, as the spec's round 4b has them per
 job per project, each starting on the strongest model; the values are Claude Code's aliases, which
 follow the newest model of each family, where a pinned id would need a release for each new model.
 They are read in the transaction that takes the work and handed to the worker in the job, so a run
 keeps what it started with and the worker holds no model of its own: one setting on the worker
 would have been a second place to change, and could disagree with the project's. A job without a
-model is a protocol error the worker refuses, outside the card, rather than guessing one.
+model is a protocol error the worker refuses, outside the card, rather than guessing one. The
+spend, a whole number of US dollars from 1 to 100 where every job was given a fixed 25 before, is
+one of these limits rather than a cap of its own: Claude Code enforces it per run as
+`--max-budget-usd`, an estimate on the subscription and real money on an API key, and a run that
+reaches it fails in the card as one out of turns does.
 
 
 **Every run is measured from the first day**, as the spec's round 3 has it: Claude's usage is kept

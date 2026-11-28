@@ -40,6 +40,7 @@ public sealed class SettingsTests
         ["model_reviewing"] = "opus",
         ["run_minutes"] = 90,
         ["run_turns"] = 200,
+        ["run_budget_usd"] = 25,
         ["fix_rounds_card"] = 3,
         ["fix_rounds_feature"] = 3,
         ["questions"] = true,
@@ -214,6 +215,68 @@ public sealed class SettingsTests
                 new { wrong, project },
                 cancellationToken: Ct)));
         }
+    }
+
+    [Fact]
+    public async Task TheSpendIsChecked()
+    {
+        await using var routes = await Routes.Start();
+        var project = await routes.Project(Routes.User);
+
+        // Every whole number of US dollars from 1 to 100 is taken, saved and answered as given; the
+        // preset is not touched by it.
+        foreach (var spend in new[] { 1, 40, 100, 25 })
+        {
+            var body = Settings();
+            body["run_budget_usd"] = spend;
+            var saved = await Put(routes, project, body);
+            Assert.Equal(StatusCodes.Status200OK, saved.Response.StatusCode);
+            Assert.Equal(Answer(body, "only_i_merge").ToJsonString(), JsonNode.Parse(await Harness.Body(saved))!.ToJsonString());
+            Assert.Equal(spend, await Spend(routes, project));
+        }
+
+        // Anything else, left out among them, is refused with 422 naming the field alone, and the
+        // spend stays as it was.
+        var kept = Settings();
+        kept["run_budget_usd"] = 60;
+        Assert.Equal(StatusCodes.Status200OK, (await Put(routes, project, kept)).Response.StatusCode);
+        var wrongs = new List<JsonObject>();
+        foreach (var wrong in new JsonNode?[] { 0, 101, -25, 1000, 2.5, 99.99, null })
+        {
+            var body = Settings();
+            body["run_budget_usd"] = wrong;
+            wrongs.Add(body);
+        }
+
+        wrongs.Add(Without(Settings(), "run_budget_usd"));
+        foreach (var body in wrongs)
+        {
+            var answer = await Put(routes, project, body);
+            Assert.True(answer.Response.StatusCode == StatusCodes.Status422UnprocessableEntity, $"{body.ToJsonString()} is refused");
+            var problem = JsonNode.Parse(await Harness.Body(answer))!.AsObject();
+            Assert.Equal(["run_budget_usd"], problem["errors"]!.AsObject().Select(error => error.Key));
+            Assert.Equal(60, await Spend(routes, project));
+        }
+
+        // The table refuses a row written around the route.
+        await using var admin = await routes.Database.OpenAdmin(Ct);
+        foreach (var wrong in new[] { 0, 101 })
+        {
+            await Assert.ThrowsAsync<Npgsql.PostgresException>(() => admin.ExecuteAsync(new CommandDefinition(
+                "UPDATE project_settings SET run_budget_usd = @wrong WHERE project_id = @project",
+                new { wrong, project },
+                cancellationToken: Ct)));
+        }
+    }
+
+    /// <summary>The project's spend per run as stored, read past row level security.</summary>
+    private static async Task<int> Spend(Routes routes, Guid project)
+    {
+        await using var admin = await routes.Database.OpenAdmin(Ct);
+        return await admin.QuerySingleAsync<int>(new CommandDefinition(
+            "SELECT run_budget_usd FROM project_settings WHERE project_id = @project",
+            new { project },
+            cancellationToken: Ct));
     }
 
     /// <summary>The project's budget as stored, read past row level security.</summary>

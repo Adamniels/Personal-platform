@@ -176,7 +176,7 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
                    s.review_label AS ReviewLabel, s.waits_for_owner AS WaitsForOwner, s.wait_when_marked AS WaitWhenMarked,
                    s.wait_when_paths AS WaitWhenPaths, s.wait_when_decision AS WaitWhenDecision, s.wait_paths AS WaitPaths,
                    s.trusted_logins AS TrustedLogins, s.model_reading AS ModelReading, s.model_building AS ModelBuilding,
-                   s.model_reviewing AS ModelReviewing, s.run_minutes AS RunMinutes, s.run_turns AS RunTurns,
+                   s.model_reviewing AS ModelReviewing, s.run_minutes AS RunMinutes, s.run_turns AS RunTurns, s.run_budget_usd AS RunBudgetUsd,
                    s.fix_rounds_card AS FixRoundsCard, s.fix_rounds_feature AS FixRoundsFeature, s.questions AS Questions
             FROM projects p
             JOIN project_settings s ON s.project_id = p.id
@@ -203,7 +203,7 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         var settings = new ProjectSettings(
             target.PickupLabel, target.HoldLabel, target.AttentionLabel, target.ReviewLabel, target.WaitsForOwner, target.WaitWhenMarked,
             target.WaitWhenPaths, target.WaitWhenDecision, target.WaitPaths, trusted.Listed, target.ModelReading, target.ModelBuilding,
-            target.ModelReviewing, target.RunMinutes, target.RunTurns, target.FixRoundsCard, target.FixRoundsFeature, target.Questions,
+            target.ModelReviewing, target.RunMinutes, target.RunTurns, target.RunBudgetUsd, target.FixRoundsCard, target.FixRoundsFeature, target.Questions,
             // Picking cards never reads the budget, which only handing out work does.
             DailyTokenBudget: null);
         var repository = new Repository(target.Installation, target.RepositoryId, target.Owner, target.Name);
@@ -767,6 +767,7 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         public int RunMinutes { get; init; }
 
         public int RunTurns { get; init; }
+        public int RunBudgetUsd { get; init; }
 
         public int FixRoundsCard { get; init; }
 
