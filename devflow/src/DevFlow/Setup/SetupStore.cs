@@ -55,7 +55,10 @@ public sealed record SetupCheck(Guid Id, string Version, string Commit, bool Pas
 /// setup's pull request merged and no sent back setup is under way,
 /// <see cref="SetupStore.SettingsDueSql"/>. Only then is it offered, and only then does a save do
 /// it.</param>
-public sealed record ProjectSetup(string State, IReadOnlyList<SetupStep> Steps, SetupCheck? Check, bool Checking, string? Problem, string SetupCommand, SetupRun? Setup, SetupProposal? Proposal, bool CanSendBack, bool SettingsWaits);
+/// <param name="Placed">Whether the project is placed on a machine with at least one worker,
+/// <see cref="Placements.WorkerSlots.PlacedSql"/>; without, it wants no setup slot, and the setup
+/// step says to choose where its workers run.</param>
+public sealed record ProjectSetup(string State, IReadOnlyList<SetupStep> Steps, SetupCheck? Check, bool Checking, string? Problem, string SetupCommand, SetupRun? Setup, SetupProposal? Proposal, bool CanSendBack, bool SettingsWaits, bool Placed);
 
 /// <summary>What asking for another check comes to.</summary>
 public enum CheckAgain
@@ -162,7 +165,8 @@ public static class SetupStore
                                AND r.recipe_version = coalesce(p.recipe_version, r.recipe_version)) AS Checking,
                        {NewestSql} AS Newest,
                        {SetupRunStore.SendBackSql} AS CanSendBack,
-                       ({SettingsDueSql} AND NOT {AcceptedSql}) AS SettingsWaits
+                       ({SettingsDueSql} AND NOT {AcceptedSql}) AS SettingsWaits,
+                       {Placements.WorkerSlots.PlacedSql} AS Placed
                 FROM projects p WHERE p.id = @projectId
                 """,
                 new { projectId },
@@ -202,7 +206,8 @@ public static class SetupStore
                 await SetupRunStore.Newest(transaction, projectId, cancellationToken),
                 await SetupRunStore.Proposal(transaction, projectId, cancellationToken),
                 row.CanSendBack,
-                row.SettingsWaits);
+                row.SettingsWaits,
+                row.Placed);
         }, cancellationToken);
     }
 
@@ -246,7 +251,7 @@ public static class SetupStore
             cancellationToken: cancellationToken)), cancellationToken);
     }
 
-    private sealed record StepsRow(string Name, string? Problem, bool Setup, bool Recipe, bool Worker, bool Passed, bool Settings, bool Registered, bool Checking, Guid? Newest, bool CanSendBack, bool SettingsWaits);
+    private sealed record StepsRow(string Name, string? Problem, bool Setup, bool Recipe, bool Worker, bool Passed, bool Settings, bool Registered, bool Checking, Guid? Newest, bool CanSendBack, bool SettingsWaits, bool Placed);
 
     /// <summary>A check's row; a class rather than a positional record, since Npgsql answers a
     /// <c>text[]</c> column as an array Dapper matches only to a property.</summary>

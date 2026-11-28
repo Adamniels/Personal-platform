@@ -140,6 +140,7 @@ const REGISTERED: ProjectSetup = {
 	proposal: null,
 	can_send_back: false,
 	settings_waits: false,
+	placed: true,
 	setup: null,
 };
 
@@ -308,6 +309,7 @@ describe("a project's setup", () => {
 		proposal: null,
 		can_send_back: false,
 		settings_waits: false,
+		placed: true,
 		setup: null,
 	};
 
@@ -331,6 +333,7 @@ describe("a project's setup", () => {
 		proposal: null,
 		can_send_back: false,
 		settings_waits: false,
+		placed: true,
 		setup: {
 			number: 1,
 			branch: "devflow/setup",
@@ -590,6 +593,7 @@ describe("a project's setup", () => {
 			paths: ["migrations/**"],
 		},
 		settings_waits: true,
+		placed: true,
 		setup: {
 			...(waiting.setup as NonNullable<ProjectSetup["setup"]>),
 			state: "done",
@@ -719,6 +723,7 @@ describe("a project's setup", () => {
 					step.step === "check" ? step : { ...step, done: true },
 				),
 				settings_waits: false,
+				placed: true,
 				checking: true,
 			},
 		});
@@ -750,6 +755,7 @@ describe("a project's setup", () => {
 			paths: ["migrations/**"],
 		},
 		settings_waits: true,
+		placed: true,
 	};
 
 	test("the settings step is not offered before the setup's pull request merged", async () => {
@@ -1830,6 +1836,7 @@ describe("a project's values", () => {
 			setup: {
 				...valuesDue,
 				settings_waits: true,
+				placed: true,
 				steps: valuesDue.steps.map((each) =>
 					each.step === "settings" ? { ...each, done: false } : each,
 				),

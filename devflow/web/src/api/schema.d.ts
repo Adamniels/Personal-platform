@@ -2311,6 +2311,7 @@ export interface components {
             can_send_back: boolean;
             check: null | components["schemas"]["SetupCheck"];
             checking: boolean;
+            placed: boolean;
             problem: null | string;
             proposal: null | components["schemas"]["SetupProposal"];
             settings_waits: boolean;

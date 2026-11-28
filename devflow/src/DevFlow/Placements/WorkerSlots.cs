@@ -5,8 +5,11 @@ using Npgsql;
 namespace DevFlow.Placements;
 
 /// <summary>
-/// A project's slots, the place of one worker each, brought up to date with what it wants: a
-/// placement of N on a machine wants worker slots 1 to N there. A slot that is not wanted is kept,
+/// A project's slots, the place of one worker each, brought up to date with what it wants. With a
+/// recipe, a placement of N on a machine wants worker slots 1 to N there. Without one, no valid
+/// <c>.devflow/</c> on its default branch and so no <c>recipe_version</c>, it wants one setup slot,
+/// number 1, on its first placed machine by when it was placed, and no worker slot; a placement of
+/// 0 is no placed machine. A project placed nowhere wants nothing. A slot that is not wanted is kept,
 /// wanted false, until its machine reports it gone, so a card under way on it is never cut off, and
 /// a slot is the same row when its number is wanted again. Every change that moves what is wanted
 /// calls <see cref="Sync"/> in its own transaction: a placement, the recipe found or lost, a
@@ -16,6 +19,13 @@ public static class WorkerSlots
 {
     /// <summary>A worker slot, one of a placement's workers.</summary>
     public const string Worker = "worker";
+
+    /// <summary>The setup slot, the one worker of a project with no recipe, which sets it up.</summary>
+    public const string Setup = "setup";
+
+    /// <summary>Whether project <c>p</c> is placed on a machine with at least one worker, as SQL;
+    /// without, its setup step and its Workers card say to choose where its workers run.</summary>
+    public const string PlacedSql = "EXISTS (SELECT 1 FROM worker_placements pl WHERE pl.project_id = p.id AND pl.workers > 0)";
 
     /// <summary>
     /// Takes the project's row for the rest of <paramref name="transaction"/>, so two changes to
@@ -34,7 +44,7 @@ public static class WorkerSlots
     }
 
     /// <summary>
-    /// Brings the project's slots up to date with its placements, inside
+    /// Brings the project's slots up to date with its placements and its recipe, inside
     /// <paramref name="transaction"/>, which runs as the project's user and holds its row from
     /// <see cref="Lock"/> or an update of it: each wanted slot made or marked wanted, and every
     /// other marked not wanted.
@@ -67,7 +77,14 @@ public static class WorkerSlots
     /// <c>project_id</c>, <c>machine_id</c>, <c>user_id</c>, <c>kind</c> and <c>number</c>.</summary>
     private const string WantedSql = $"""
         SELECT pl.project_id, pl.machine_id, pl.user_id, '{Worker}' AS kind, n AS number
-        FROM worker_placements pl CROSS JOIN LATERAL generate_series(1, pl.workers) n
-        WHERE pl.project_id = @projectId
+        FROM worker_placements pl JOIN projects p ON p.id = pl.project_id
+        CROSS JOIN LATERAL generate_series(1, pl.workers) n
+        WHERE pl.project_id = @projectId AND p.recipe_version IS NOT NULL
+        UNION ALL
+        (SELECT pl.project_id, pl.machine_id, pl.user_id, '{Setup}' AS kind, 1 AS number
+         FROM worker_placements pl JOIN projects p ON p.id = pl.project_id
+         WHERE pl.project_id = @projectId AND p.recipe_version IS NULL AND pl.workers > 0
+         ORDER BY pl.placed_at, pl.machine_id
+         LIMIT 1)
         """;
 }

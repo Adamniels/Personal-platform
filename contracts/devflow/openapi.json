@@ -3511,6 +3511,9 @@
           "checking": {
             "type": "boolean"
           },
+          "placed": {
+            "type": "boolean"
+          },
           "problem": {
             "type": [
               "null",
@@ -3563,7 +3566,8 @@
           "setup",
           "proposal",
           "can_send_back",
-          "settings_waits"
+          "settings_waits",
+          "placed"
         ],
         "type": "object"
       },
