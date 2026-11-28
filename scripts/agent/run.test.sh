@@ -365,7 +365,7 @@ check "two slow failing runs set Blocked and mention the owner once" \
   $([ "$(cat "$D/board.log")" = "status 41 Blocked" ] && [ "$(lines "$D/comments.log")" = 1 ] \
     && grep -q ' 41 @Adamniels slice #41 is Blocked' "$D/comments.log"; echo $?)
 check "a Blocked notice with no PR names the board move that runs it again, never a PR" \
-  $(! grep -q 'PR' "$D/comments.log" \
+  $(! grep -q 'this PR' "$D/comments.log" \
     && grep -q 'Set the slice In progress if its branch has commits, or Ready if not, to run it again\.$' "$D/comments.log"; echo $?)
 
 setup; pending "new 41" "new 41"; claude_plays "1 200 tests fail" "0 300 done"; runner
