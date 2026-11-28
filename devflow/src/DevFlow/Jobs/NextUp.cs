@@ -23,6 +23,9 @@ public static class NextLink
 
     /// <summary>The card's project's schedules, "When it runs" on its settings page.</summary>
     public const string Schedules = "schedules";
+
+    /// <summary>The card's project's daily budget, "Usage" on its settings page.</summary>
+    public const string Budget = "budget";
 }
 
 /// <summary>A card that comes next, as "Next up" on "Running now" shows it.</summary>
@@ -152,6 +155,7 @@ public static class NextUp
             ActedOn.Settings => NextLink.Settings,
             ActedOn.WaitingForYou => NextLink.WaitingForYou,
             ActedOn.Schedules => NextLink.Schedules,
+            ActedOn.Budget => NextLink.Budget,
             _ => null,
         }, null),
         _ => (null, null, null),

@@ -57,7 +57,7 @@ public abstract record FreshKey
 /// everything that job needs from the code host is read, as the app, with a key for that kind, a
 /// feature's branch made for its first card, and only then is a card, or for a conflict a feature,
 /// of that kind taken, in one short transaction as the project's user, so no lock is held while
-/// GitHub is asked. That transaction reads the watch's hold, the pauses and the schedules again under
+/// GitHub is asked. That transaction reads the watch's hold, the pauses, the daily budget and the schedules again under
 /// the project's lock, so a stop, a pause or a schedule saved while GitHub was asked, or a window that
 /// ended meanwhile, still holds the card back. Anything the code host does not
 /// answer is no work now, and the worker asks again. See "Jobs" in devflow/README.md and "Handing
@@ -142,7 +142,7 @@ public sealed partial class Dispatcher(
     /// everything that job needs from the code host is read first, as the app, with a key for that
     /// kind and a feature's branch made for its first card, and only then is a card, or a feature,
     /// of that kind taken, in one short transaction as the project's user that reads the watch's
-    /// hold, the pauses and the schedules again under the project's lock. Outside its schedules,
+    /// hold, the pauses, the daily budget and the schedules again under the project's lock. Outside its schedules,
     /// as <paramref name="outside"/> found it before the lock and the schedules found it under
     /// it, only what an override, "Run now anyway", covers is read for and taken. No work when any
     /// of it is not there now.
@@ -193,8 +193,11 @@ public sealed partial class Dispatcher(
         {
             // The project's models and limits are read in the transaction that takes the work, so
             // the job carries them as they are now and the run keeps them whatever changes after.
+            // The daily budget is read again too, after the pauses took the project's row, so a run
+            // that finished or a budget lowered meanwhile is seen.
             if (await watch.HoldUnderLock(transaction, projectId, cancellationToken) != ProjectHold.None
                 || await Pauses.HeldUnderLock(transaction, projectId, cancellationToken) != PauseHold.None
+                || await Usage.DailyBudget.ReachedIn(transaction, projectId, now, cancellationToken) is not null
                 || await RunSettings.Read(transaction, projectId, cancellationToken) is not { } run)
             {
                 return null;
@@ -261,6 +264,7 @@ public sealed partial class Dispatcher(
         {
             if (await watch.HoldUnderLock(transaction, projectId, cancellationToken) != ProjectHold.None
                 || await Pauses.HeldUnderLock(transaction, projectId, cancellationToken) != PauseHold.None
+                || await Usage.DailyBudget.ReachedIn(transaction, projectId, now, cancellationToken) is not null
                 || await Schedules.ScheduleStore.OutsideUnderLock(transaction, projectId, now, cancellationToken)
                 || await SetupStore.Claim(transaction, projectId, userId, workerId, version, facts.DefaultBranch, head, facts.Check, now, cancellationToken) is not { } taken)
             {
@@ -333,6 +337,7 @@ public sealed partial class Dispatcher(
         {
             if (await watch.HoldUnderLock(transaction, projectId, cancellationToken) != ProjectHold.None
                 || await Pauses.HeldUnderLock(transaction, projectId, cancellationToken) != PauseHold.None
+                || await Usage.DailyBudget.ReachedIn(transaction, projectId, now, cancellationToken) is not null
                 || await Schedules.ScheduleStore.OutsideUnderLock(transaction, projectId, now, cancellationToken)
                 || await RunSettings.Read(transaction, projectId, cancellationToken) is not { } run)
             {
