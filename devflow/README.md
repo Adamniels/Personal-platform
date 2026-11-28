@@ -173,8 +173,9 @@ switch on Running now reads too; before the answer, or when it cannot be read, i
 Paused is not an item on "Waiting for you": the owner did it himself.
 
 The Projects tab is a dashboard: Connections, then the projects. Connections is a region named
-"Connections", a wrapping row of two items, each `flex: 1 1 360px`, so on phone they stack at the
-full width. An item, `src/connection.tsx`, is an `article` named by its name, a `--surface` card
+"Connections", a wrapping row of three items, each `flex: 1 1 480px`, so on desktop GitHub and the
+Claude login share a line and the API key takes one of its own, since three to a line leave no item
+room for its one mono line, and on phone they stack at the full width. An item, `src/connection.tsx`, is an `article` named by its name, a `--surface` card
 64px high on desktop: an icon, the name over a mono line, a status label and its one action. On
 phone the status and the action take a line of their own under the name. An item that needs the
 owner takes `--accent-border`, with "Needs you" for assistive technology.
@@ -199,6 +200,17 @@ destructive `Dialog`, "Remove the Claude login?". Saving empties the field whate
 closes it once saved; a token the service refuses says "That is not a setup token. Make one with
 claude setup-token and paste all of it." on the field, which stays open, and any other failure
 says so as an alert under the line. The page never reads the token back, not even a part of it.
+
+The third is the Anthropic API key, `ApiKey` in `src/claude-login.tsx`, read from
+`GET /devflow/api/api-key` as the tab loads, drawn as the Claude login is, in two states: not set,
+"for runs billed to your Anthropic account" and "Not set"; set, "given <date>" and "Given". Its
+action is a ghost "Give a key", or "Replace" once one is set, which opens a password field
+labelled "API key", its help "Runs on the API key bill your Anthropic account. Make one in the
+Claude Console.", with "Save", "Cancel" and, once one is set, "Remove" behind a destructive
+`Dialog`, "Remove the API key?". A key the service refuses says "That is not an API key. Make one
+in the Claude Console and paste all of it." on the field; a removal refused while a project runs
+on the key shows its `409`'s detail, "These projects run on it: <names>", as an alert under the
+line. See "The API key".
 
 Under Connections are the projects, `src/projects.tsx`, a region named by its heading,
 "Projects", with a primary "Connect a repository" on its right, the view's one primary, enabled
@@ -319,8 +331,8 @@ The settings summary, the package's `Card` titled "Settings", read from
 `GET /devflow/api/projects/{id}/settings` as the page loads, is plain label and value rows 36px
 high, each with a 1px `--border` under it, the label in `--text-2` and the value in the mono font:
 "Preset", "Questions before starting", "On" or "Off", "Pull requests wait for you", "Never",
-"Sometimes" or "Always", "Daily budget", "Off" or "<n> M tokens", and "Pick-up label", "Hold
-label", "Attention label" and "Review label".
+"Sometimes" or "Always", "Daily budget", "Off" or "<n> M tokens", "Runs on", "Your subscription"
+or "The API key only", and "Pick-up label", "Hold label", "Attention label" and "Review label".
 "Edit settings", `EditSettings` in `src/project.tsx`, a link drawn as a secondary button, opens the
 project's settings page in place on a plain click; the setup's settings step shows it too. The page
 reads the settings each time it opens, so a save on the settings page shows in the summary and the
@@ -378,7 +390,10 @@ bar:
   spend among them.
 - **"Usage"**: its id `usage`, which "Raise the budget" on "Waiting for you", the project's page
   and Running now opens, `/devflow/projects/<id>/settings#usage`, scrolled to once the form is
-  drawn. The package's `Switch` "Daily budget", off for a budget of null, and, on, the number field
+  drawn. First the select "Runs on", "Your subscription" and "The API key only", the second
+  disabled with "Give an API key on the Projects tab first" as help while no API key is given, as
+  `GET /devflow/api/api-key` answers when the page opens, see "The API key". Then the package's
+  `Switch` "Daily budget", off for a budget of null, and, on, the number field
   "Million tokens a day" in the mono font, with "Counts input, cache writes and output. When
   reached, nothing new starts until midnight." as help. Saved with the rest, in tokens, null while
   it is off; the switch is one change on the Save bar, and so is a changed number while it is on.
@@ -412,11 +427,11 @@ bar:
 
 The Save bar, the region "Save the settings", is one bar at the foot of the form: a mono count of
 unsaved changes, "No unsaved changes", "1 unsaved change" or "<n> unsaved changes", counting each
-of the twenty settings that differs from the settings as last read or saved; then "Undo changes",
+of the twenty-one settings that differs from the settings as last read or saved; then "Undo changes",
 a ghost, disabled with nothing changed, which puts the form back to the settings as last read or
 saved; and "Save", the page's one primary. Save stays enabled with nothing changed, since saving
 the settings once does the setup's settings step. Lines of "Paths" are trimmed and blank ones
-dropped as it is saved. "Save" puts all twenty in one `PUT`, never the preset, and then says
+dropped as it is saved. "Save" puts all twenty-one in one `PUT`, never the preset, and then says
 "Saved."; a limit that is not a whole number is named under its field and nothing is sent; a value
 Dev flow refuses is shown under its field as the field's error, from the problem's `errors`; any
 other failure is the alert "The settings were not saved. Try again.", and what was typed is kept.
@@ -1765,7 +1780,7 @@ in `src/DevFlow/Cards/`.
 
 ### Settings
 
-Twenty, and only the twenty something reads, with the preset they match, see "Presets" below:
+Twenty-one, and only the twenty-one something reads, with the preset they match, see "Presets" below:
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -1787,6 +1802,7 @@ Twenty, and only the twenty something reads, with the preset they match, see "Pr
 | `run_budget_usd` | 25 | The most a run may cost, a whole number of US dollars from 1 to 100, which Claude Code enforces as `--max-budget-usd`, overshooting by about a turn; on the subscription it is Claude Code's estimate. Reached, the run fails in the card, "it reached its budget of <n> USD". The route takes any number and refuses one with a fraction with 422 naming it, as it does one out of range. Outside every preset |
 | `fix_rounds_card` | 3 | The fix rounds a card's reviews may start, 0 to 10; a `changes` verdict after them stops the card, see "Fixing" |
 | `fix_rounds_feature` | 3 | The fix rounds a whole feature's reviews may start, 0 to 10; a `changes` verdict after them has it wait for the owner, see "Fixing a feature" |
+| `runs_on` | `subscription` | What the project's runs log in with: `subscription`, the Claude login's token, or `api_key`, the user's API key, billed to his Anthropic account, see "The API key". The settings page's "Usage" card offers it as "Runs on", "Your subscription" and "The API key only", the second disabled with "Give an API key on the Projects tab first" while none is given, and the project page's settings summary says it. The route refuses anything else with 422 naming it, and `api_key` while no key is given with 422 naming it, "Give an API key on the Projects tab first", checked under a share lock on the key's row so a removal cannot pass it. Outside every preset. The next slice adds a third value, `subscription_then_api_key` |
 | `daily_token_budget` | null, off | The tokens the project's runs may use in a day, in the user's time zone, a whole number of millions from 1 to 10 000, which the settings page takes in millions; reached, the project starts nothing new until midnight there, see "The daily budget" under "Stops". The route refuses anything but null or such a number with 422 naming it, and a request that leaves it out, rather than reading that as off, with 400 |
 | `questions` | true | Questions before starting: on, a card its reading found questions in is `needs_answers` and waits for the owner's answers under "Questions before starting" on "Waiting for you"; off, it is built on the reader's recommendations, which the app posts on it. See "Reading a card" under "Jobs" |
 
@@ -1847,16 +1863,16 @@ not; without a link nobody is known to be him, and nothing is trusted. A login i
 letters, digits and single hyphens, with no hyphen at either end, GitHub's rule. Who changes a label
 is read by the list too, see "Cards" below.
 
-- `GET /devflow/api/projects/{id}/settings` answers the twenty and `preset`,
+- `GET /devflow/api/projects/{id}/settings` answers the twenty-one and `preset`,
   `{"pickup_label", "hold_label", "attention_label", "review_label", "waits_for_owner",
   "wait_when_marked", "wait_when_paths", "wait_when_decision", "wait_paths", "trusted_logins",
   "model_reading", "model_building", "model_reviewing", "run_minutes", "run_turns",
-  "run_budget_usd", "fix_rounds_card", "fix_rounds_feature", "questions", "daily_token_budget"}`, the three conditions and `questions` booleans, `wait_paths` a list of
+  "run_budget_usd", "fix_rounds_card", "fix_rounds_feature", "questions", "daily_token_budget", "runs_on"}`, the three conditions and `questions` booleans, `wait_paths` a list of
   patterns in their order, `trusted_logins` a list of `{"login", "mine"}`, the caller's linked login
   first with `mine` true, then the others in the order they were given, the five limits whole
   numbers, `daily_token_budget` a number of tokens or null, and `preset` one of `fully_automatic`, `guided`, `only_i_merge` and `custom`, computed
   and never stored. Another user's project, or none, is `404`.
-- `PUT /devflow/api/projects/{id}/settings` takes all twenty, `trusted_logins` as a list of logins,
+- `PUT /devflow/api/projects/{id}/settings` takes all twenty-one, `trusted_logins` as a list of logins,
   and answers them as saved, with the preset they match. A `preset` sent with them is not read. One that breaks a rule, or is missing, is `422`, a validation problem
   whose `errors` names each field, and nothing changes: a label that is another's whatever its case,
   named on the later of the two, `sometimes` with no condition ticked, under `waits_for_owner`, a
@@ -1905,7 +1921,7 @@ The mode is `project_settings.runs_by`, `always` or `schedule`, and the windows 
 `project_schedules`, `(project_id, user_id, id, name, days, from_time, to_time, active, position)`,
 guarded like every scoped table, a name unique in its project whatever its case. The zone is
 `user_settings`, `(user_id, time_zone)`, guarded the same way, a user without a row in
-`Europe/Stockholm`. Neither is one of the twenty settings: each saves at once through its own
+`Europe/Stockholm`. Neither is one of the twenty-one settings: each saves at once through its own
 route, never through the settings page's "Save".
 
 **The rules**, which the route checks and the table's checks repeat:
@@ -2353,7 +2369,8 @@ The routes, in `WorkerEndpoints`:
   null, see "Starting a worker"; and `held`, why no worker of the project is handed work, which the
   project's page says, the first that applies: `all_paused` or `paused`, from `Pauses.PauseSql`, see
   "Pausing" under "Jobs", then `stopped` or `unwatched`, see "Watching the default
-  branch", then `no_claude_login` or `claude_login_expired`, see "Jobs", or null; and
+  branch", then `no_claude_login` or `claude_login_expired`, only for a project on the
+  subscription, see "Jobs", or null; and
   `cannot_run`, once six runs in a row have failed outside their cards, "Dev flow cannot run
   <project>'s cards: <the last reason>", until a run succeeds, or null, see "Stops". Never the key.
   `404` as above.
@@ -2616,7 +2633,7 @@ since a check has no issue or pull request of its own.
 that passed, when no check of that version is running and its newest check, if any, failed and
 the owner asked for another; a worker on a version whose newest check failed gets `204` until then
 or until the version changes. It comes before the Claude login is looked at, since it runs no
-agent: its `card` is null, its `brief` and `model` empty, its `claude_token` empty and its
+agent: its `card` is null, its `brief` and `model` empty, its `credential` null and its
 `report_schema` null; `branch` and `base` are the default branch, `to_check` holds `version`, the
 worker's, and `commit`, the default branch's head as read with `BranchHead` when it was handed out,
 and `check`, `start` and `url` come from the default branch's `project.json`, with a key that only
@@ -2836,8 +2853,10 @@ standard error, and how it was logged in. Two implementations:
 - `FakeAgent` answers a prepared report and writes or removes the files it is told to, refusing a
   path outside the working copy. It spends no usage, so the worker's own tests use it.
 - `ClaudeCodeAgent` runs Claude Code headless. First `claude auth status --json`, which must answer
-  `"loggedIn": true` and `"authMethod": "oauth_token"`, or the run never starts and fails outside
-  the card; the method is recorded either way. Then, in the working copy:
+  `"loggedIn": true` and the `authMethod` of the job's credential, `"oauth_token"` for the
+  subscription or `"api_key"` for the API key, as `Claude/auth-oauth-token.json` and
+  `Claude/auth-api-key.json` recorded, or the run never starts and fails outside the card; the
+  method is recorded either way. Then, in the working copy:
 
   ```zsh
   claude -p <brief> --model <the job's model> --permission-mode bypassPermissions \
@@ -2855,7 +2874,9 @@ standard error, and how it was logged in. Two implementations:
 
   never with `--bare`, which refuses the subscription token. Both get an environment built from
   nothing: `HOME`, the agent's home, `/home/agent`; `PATH`; `LANG`; `CLAUDE_CONFIG_DIR`, `.claude`
-  in that home; `CLAUDE_CODE_OAUTH_TOKEN`; and `PLAYWRIGHT_BROWSERS_PATH`, `/ms-playwright`, the
+  in that home; the job's one credential, `CLAUDE_CODE_OAUTH_TOKEN` for the subscription or
+  `ANTHROPIC_API_KEY` for the API key, never both, since a key beside the token silently wins and
+  bills the API; and `PLAYWRIGHT_BROWSERS_PATH`, `/ms-playwright`, the
   image's Chromium, so the pictures the developer takes of its own pages find a browser, see
   "Screenshots". The run, not the login check, also gets the project's values its job carried,
   beneath these, which win over a value of the same name. The arguments are a list, never through
@@ -3195,6 +3216,57 @@ The table, from `migrations/0008_claude_logins.sql`, guarded like every scoped o
 `ON DELETE CASCADE`, so a login cannot be recorded without its sealed token, and removing the
 token removes the login.
 
+## The API key
+
+The API key is an Anthropic API key the owner makes in the Claude Console and gives Dev flow once,
+which a run of a project set to run on it, `runs_on` `api_key` in "Settings" under "Cards", is
+handed in place of the Claude login, so the run is billed to his Anthropic account rather than
+drawn from his subscription. Why it is one per user, and how it reaches a run, is "Workers" in
+`docs/devflow-architecture.md`.
+
+**As the owner does it.** On the Projects tab press "Give a key" on the Anthropic API key's line,
+paste the key, then "Save"; then, on a project's settings page, choose "The API key only" under
+"Runs on" in "Usage" and save. "Replace" gives another; "Remove", beside its field, forgets it,
+and is refused while any project runs on it.
+
+**One per user**, as the Claude login is. The key is sealed in the vault, see "The vault", under the
+purpose `anthropic-api-key`, and nowhere else. `ApiKeys`, beside `ClaudeLogins` in
+`src/DevFlow/ClaudeLogin/`, does everything with it, through the door as the user. An API key does
+not run out by itself, so nothing is due and nothing needs the owner.
+
+**The check on save** is only that it looks like an API key: `sk-ant-api` followed by at least one
+more visible ASCII character, no space or line break, at most 512 characters, once the space around
+a paste is dropped, so a setup token is refused. Dev flow does not ask Anthropic whether it works; a
+run it is refused on fails outside its card, as `Claude/invalid-api-key.json` in the worker's tests
+recorded, "Invalid API key".
+
+The routes, in `ApiKeyEndpoints`, the user's, origin checked:
+
+- `GET /devflow/api/api-key` answers `{"set": true, "given_at": "<time>"}`, or
+  `{"set": false, "given_at": null}`. Never the key.
+- `PUT /devflow/api/api-key` with `{"key": "sk-ant-api…"}` seals it, replacing any before it, given
+  now, and answers the status it leaves, `200`. Anything that does not look like an API key is
+  `422` naming `key`, never repeating what was sent, and nothing is stored.
+- `DELETE /devflow/api/api-key` forgets the key and its sealed secret, `204`, whether or not there
+  was one; or `409`, "These projects run on it: <names>", while any of the user's projects has a
+  `runs_on` other than `subscription`, and nothing is removed. It takes the key's row for update
+  before it looks, and saving settings onto the key holds that row with a share lock, so the two
+  never pass each other.
+
+**Opening it for a run** is one method, `ApiKeys.ForRun(runUserId)`, and nothing else opens it. It
+opens through the door as the run's user, and the vault's binding to the user it was sealed for
+refuses a key moved to another, with `VaultException`. It answers an `ApiKey`, which prints as
+`ApiKey { sealed }`. It is called only when a job of a project on the key is handed out, so the key
+leaves Dev flow only inside a job's answer to its own user's worker, as its `credential`, see
+"Jobs". A project on the key needs no Claude login: `no_claude_login` and `claude_login_expired`
+hold only projects on the subscription.
+
+The table, from `migrations/0059_api_keys.sql`, guarded like every scoped one: `api_keys`,
+`user_id`, its primary key, `secret_purpose`, always `anthropic-api-key`, and `given_at`.
+`(user_id, secret_purpose)` references `secrets (user_id, purpose)` with `ON DELETE CASCADE`. The
+setting `runs_on` and each run's `credential`, `subscription` or `api_key`, so spend on the key can
+be counted apart, are from `migrations/0060_runs_on.sql`.
+
 ## Jobs
 
 A job is one card, or for a conflict or a whole feature's review or fix one feature, or for a reading the cards of a feature or a card on its own, handed to one worker, with what the worker needs
@@ -3238,8 +3310,10 @@ first that holds deciding, each with the sentence the page shows:
    while one runs, "It needs setting up" after one failed, and for a worker built from no recipe
    with no setup job to take. A check due is what runs here instead, since it runs no agent and so
    needs neither a Claude login nor room under the usage limit, see "Setting up a project".
-9. `NoClaudeLogin`, no Claude login, or one past `renew_by`; one due soon still works: "No Claude
-   login" or "The Claude login has expired", in the settings.
+9. `NoClaudeLogin`, no Claude login, or one past `renew_by`, only for a project whose `runs_on`
+   is `subscription`; one due soon still works: "No Claude login" or "The Claude login has
+   expired", in the settings. A project on the API key skips it; with no key given it hands out
+   nothing, which the key's removal refusing and the settings' check keep from happening.
 10. `UsageLimit(until)`, the project's wait when the last failure outside its cards was Claude's
    usage limit and its reset was believed, `until_reset` on `project_waits`: "At Claude's usage
    limit until <time>", in UTC; it does not read the user's zone yet.
@@ -3289,7 +3363,7 @@ queued; moves it to `building`; records a run for the worker; and answers `200` 
 | `brief` | What the agent is asked, see "The brief" below |
 | `report_schema` | `contracts/devflow/report.schema.json`, the report's form; for a review the verdict's, and for a reading `contracts/devflow/reading.schema.json`, the reading's |
 | `check` | `check` from the project's `.devflow/project.json` on its default branch, read as the app; empty for a reading, which runs none |
-| `claude_token` | The run's user's Claude token, see "Claude login" |
+| `credential` | What the agent logs in with, the one the project's `runs_on` names when the job was handed out: `{"kind": "subscription", "secret": "<the run's user's Claude token>"}`, see "Claude login", or `{"kind": "api_key", "secret": "<their API key>"}`, see "The API key"; null on a check, which runs no agent. The run records its `kind` as `credential`. The worker refuses an agent's job without one of the two kinds and a secret as a protocol error, outside the card, and scrubs the secret from everything it sends back, as it did the token |
 | `values` | The project's values, each `name` and `value`, opened in the transaction that takes the work, on every job that runs the project's code, a build, a fix, a conflict, a feature's fix, a setup and a check; an empty list on a reading and a review, of a card, a feature or a setup, which run none of it. See "Setting up a project" and "The worker" |
 | `push_key`, `push_key_expires_at` | A key the app made for this job, narrowed to fetching and pushing the repository's code, and when it stops working, an hour on |
 | `committer` | `name` and `email`, the app's bot, `<app-slug>[bot]` and `<id>+<app-slug>[bot]@users.noreply.github.com`, read once from GitHub's `GET /users/<app-slug>[bot]` and kept; `devflow-fake[bot]` with a fixed address in the fake mode |
@@ -3305,9 +3379,9 @@ the run records its `run_minutes`, from `migrations/0037_models_and_limits.sql`.
 
 Everything the job needs from the code host is read before the card is taken, so the row lock is
 held for one short transaction and never while GitHub answers; a push key made for a card another
-worker took first is dropped unused. The project's page says when the Claude login stops work:
-`GET /devflow/api/projects/{id}/workers` answers `held`, `no_claude_login`, `claude_login_expired`
-or null, and the Workers card shows it, see "The pages".
+worker took first is dropped unused. The project's page says when the Claude login stops work for a project on the
+subscription: `GET /devflow/api/projects/{id}/workers` answers `held`, `no_claude_login`,
+`claude_login_expired` or null, and the Workers card shows it, see "The pages".
 
 **A feature's cards.** A card of a feature is let start only while its feature is `queued` or
 `building`, no card of the feature has a run under way, and every card before it in position

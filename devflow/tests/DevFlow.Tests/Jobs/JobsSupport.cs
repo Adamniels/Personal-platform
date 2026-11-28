@@ -273,7 +273,7 @@ internal sealed class Jobs : IAsyncDisposable
                    head_commit AS HeadCommit, auth_method AS AuthMethod, usage::text AS Usage, input_tokens AS InputTokens,
                    output_tokens AS OutputTokens, cache_creation_input_tokens AS CacheCreationInputTokens,
                    cache_read_input_tokens AS CacheReadInputTokens, cost_usd AS CostUsd, turns AS Turns, duration_ms AS DurationMs,
-                   stderr AS Stderr
+                   stderr AS Stderr, credential AS Credential
             FROM runs WHERE project_id = @project ORDER BY started_at, id
             """,
             new { project = project ?? Project },
@@ -288,6 +288,21 @@ internal sealed class Jobs : IAsyncDisposable
         await admin.ExecuteAsync(new CommandDefinition(
             "UPDATE claude_logins SET given_at = @at WHERE user_id = @user",
             new { at = Routes.Time.GetUtcNow().AddDays(-days), user = User },
+            cancellationToken: Ct));
+    }
+
+    /// <summary>The API key the harness gives, shaped like one and never real.</summary>
+    public const string ApiKey = "sk-ant-api03-alice-test-key";
+
+    /// <summary>Gives the user's API key and sets the project to run on it, as the superuser past
+    /// the settings route, so the route's own check is SettingsTests'.</summary>
+    public async Task RunOnTheKey(Guid? project = null)
+    {
+        await Routes.App.Services.GetRequiredService<ApiKeys>().Set(User, ApiKey, Ct);
+        await using var admin = await Routes.Database.OpenAdmin(Ct);
+        await admin.ExecuteAsync(new CommandDefinition(
+            "UPDATE project_settings SET runs_on = 'api_key' WHERE project_id = @project",
+            new { project = project ?? Project },
             cancellationToken: Ct));
     }
 
@@ -357,5 +372,7 @@ internal sealed class Jobs : IAsyncDisposable
         public long? DurationMs { get; init; }
 
         public string? Stderr { get; init; }
+
+        public string Credential { get; init; } = "";
     }
 }

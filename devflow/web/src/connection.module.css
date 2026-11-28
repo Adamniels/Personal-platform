@@ -1,12 +1,13 @@
 /* An item of Connections on the Projects tab. Tokens only. */
 
-/* A --surface card of its own, one line 64px high, of a wrapping row of two,
- * flex: 1 1 360px as the slice settles, so on phone each is the full width.
- * Thin borders, no shadow (hard rule 3). */
+/* A --surface card of its own, one line 64px high, of a wrapping row,
+ * flex: 1 1 480px, so two share a line on desktop and the third takes one of
+ * its own, since three to a line leave none room for its mono line; on phone
+ * each is the full width. Thin borders, no shadow (hard rule 3). */
 .item {
 	box-sizing: border-box;
 	position: relative;
-	flex: 1 1 360px;
+	flex: 1 1 480px;
 	min-width: 0;
 	display: flex;
 	flex-direction: column;

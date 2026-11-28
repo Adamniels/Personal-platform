@@ -59,6 +59,7 @@ const DEFAULTS: ProjectSettings = {
 	fix_rounds_feature: 3,
 	questions: true,
 	daily_token_budget: null,
+	runs_on: "subscription",
 	preset: "custom",
 };
 
@@ -90,6 +91,7 @@ const answered = (settings: SettingsRequest): ProjectSettings => ({
 	fix_rounds_feature: settings.fix_rounds_feature ?? 0,
 	questions: settings.questions ?? false,
 	daily_token_budget: settings.daily_token_budget,
+	runs_on: settings.runs_on ?? "",
 	preset: presetOf({
 		questions: settings.questions ?? false,
 		waits_for_owner: settings.waits_for_owner ?? "",
@@ -238,6 +240,48 @@ describe("the settings page's form", () => {
 		});
 		expect(spend.value).toBe("40");
 		expect(settings.getByText("No unsaved changes")).toBeTruthy();
+	});
+
+	test("runs on offers the API key only once one is given", async () => {
+		// None given: the subscription, and the key's option disabled with why.
+		renderPage();
+		let card = within((await page()).getByRole("article", { name: "Usage" }));
+		let runsOn = card.getByLabelText("Runs on") as HTMLSelectElement;
+		expect(runsOn.value).toBe("subscription");
+		expect(
+			[...runsOn.options].map((option) => [option.text, option.disabled]),
+		).toEqual([
+			["Your subscription", false],
+			["The API key only", true],
+		]);
+		expect(
+			card.getByText("Give an API key on the Projects tab first"),
+		).toBeTruthy();
+		cleanup();
+
+		// One given: chosen and saved as api_key, one change.
+		const { saveSettings } = renderPage({ apiKey: true });
+		const settings = await page();
+		card = within(settings.getByRole("article", { name: "Usage" }));
+		runsOn = card.getByLabelText("Runs on") as HTMLSelectElement;
+		await waitFor(() =>
+			expect([...runsOn.options].every((option) => !option.disabled)).toBe(
+				true,
+			),
+		);
+		expect(
+			card.queryByText("Give an API key on the Projects tab first"),
+		).toBeNull();
+		fireEvent.change(runsOn, { target: { value: "api_key" } });
+		expect(settings.getByText("1 unsaved change")).toBeTruthy();
+		fireEvent.click(settings.getByRole("button", { name: "Save" }));
+		expect(await settings.findByText(SAVED)).toBeTruthy();
+		expect(saveSettings).toHaveBeenCalledWith(ID, {
+			...REQUEST,
+			runs_on: "api_key",
+			trusted_logins: ["octo-owner"],
+		});
+		expect(runsOn.value).toBe("api_key");
 	});
 
 	test("the daily budget is off, switched on with a number, and saved", async () => {
@@ -796,6 +840,7 @@ function renderPage(
 			settings: SettingsRequest,
 		) => Promise<ProjectSettings>;
 		values?: ProjectValueList["values"];
+		apiKey?: boolean;
 	} = {},
 ) {
 	let values = api.values ?? [];
@@ -834,6 +879,13 @@ function renderPage(
 		),
 		saveSchedules: vi.fn(() => new Promise<never>(() => {})),
 		saveTimeZone: vi.fn(() => new Promise<never>(() => {})),
+		loadApiKey: vi.fn(() =>
+			Promise.resolve(
+				api.apiKey
+					? { set: true, given_at: "2026-11-25T08:00:00+00:00" }
+					: { set: false, given_at: null },
+			),
+		),
 		disconnect: vi.fn(() => Promise.resolve()),
 		back: vi.fn(),
 		disconnected: vi.fn(),
@@ -1175,6 +1227,7 @@ describe("the settings page", () => {
 				saveTimeZone={() => new Promise(() => {})}
 				giveValue={() => Promise.resolve()}
 				removeValue={() => Promise.resolve()}
+				loadApiKey={() => Promise.resolve({ set: false, given_at: null })}
 				disconnect={() => Promise.resolve()}
 				back={() => {}}
 				disconnected={() => {}}

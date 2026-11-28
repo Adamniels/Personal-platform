@@ -56,11 +56,11 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
 
     /// <summary>The job's log, sent to Dev flow from now until it is disposed, once the result is
     /// sent: the agent's lines, the check's and every line the worker writes meanwhile, scrubbed of
-    /// the job's Claude token and its values.</summary>
+    /// the job's credential, the token or the key, and its values.</summary>
     protected RunLogSender Sending(Job job)
     {
         ArgumentNullException.ThrowIfNull(job);
-        return _sending = RunLogSender.Start(Client, job.JobId, WorkerId, job.ClaudeToken ?? "", job.Values, Time, Log);
+        return _sending = RunLogSender.Start(Client, job.JobId, WorkerId, job.Credential?.Secret ?? "", job.Values, Time, Log);
     }
 
     /// <summary>Where a program's output goes as it is written, standard output's and standard
@@ -128,7 +128,7 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
     private static string? Cut(string? text, int most) => text is { Length: > 0 } && text.Length > most ? text[..most] : text;
 
     /// <summary>The agent, as <c>agent</c>, in <paramref name="workingDirectory"/> with
-    /// <paramref name="access"/>, with the job's brief, schema, model, limits, Claude token and the
+    /// <paramref name="access"/>, with the job's brief, schema, model, limits, credential and the
     /// project's values, ended
     /// at the job's time limit whatever it is doing; and a failure in the card if it was.</summary>
     protected async Task<AgentResult> RunAgent(Job job, string workingDirectory, AgentAccess access, CancellationToken stopping)
@@ -141,7 +141,7 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
             return AgentResult.Stopped([], "", null);
         }
 
-        var run = new AgentRun(workingDirectory, job.Brief, job.ReportSchema.GetRawText(), job.Model, limits, new AgentCredential(job.ClaudeToken), access, job.Values, Log.Run, Stop);
+        var run = new AgentRun(workingDirectory, job.Brief, job.ReportSchema.GetRawText(), job.Model, limits, new AgentCredential(job.Credential!.Secret, job.Credential.Kind), access, job.Values, Log.Run, Stop);
         using var limit = new CancellationTokenSource(limits.Time, Time);
         using var either = CancellationTokenSource.CreateLinkedTokenSource(stopping, limit.Token);
         Log.Write($"Starting the agent on {job.Model}");
@@ -168,15 +168,21 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
     /// Why the job breaks the protocol, or null when it does not: it carries no model, or one that
     /// is not a model's name, lowercase letters and digits with single dots or hyphens between,
     /// which Claude Code's aliases and its full model ids are, so no value given as
-    /// <c>--model</c> is read as another option. Dev flow always sends one; a job without it comes
-    /// from a Dev flow that does not speak this worker's protocol, which is no fault of the card.
+    /// <c>--model</c> is read as another option; or no credential of a kind the worker knows, with
+    /// a secret. Dev flow always sends both; a job without them comes from a Dev flow that does not
+    /// speak this worker's protocol, which is no fault of the card.
     /// </summary>
     internal static string? ProtocolError(Job job)
     {
         ArgumentNullException.ThrowIfNull(job);
-        return job.Model is { } model && ModelName().IsMatch(model)
+        if (job.Model is not { } model || !ModelName().IsMatch(model))
+        {
+            return "The job carries no model the worker can pass to Claude Code, so Dev flow and the worker disagree on the protocol";
+        }
+
+        return job.Credential is { Kind: JobCredential.Subscription or JobCredential.ApiKey, Secret.Length: > 0 }
             ? null
-            : "The job carries no model the worker can pass to Claude Code, so Dev flow and the worker disagree on the protocol";
+            : "The job carries no credential the worker can give Claude Code, so Dev flow and the worker disagree on the protocol";
     }
 
     [GeneratedRegex(@"^[a-z0-9]+(?:[.-][a-z0-9]+)*\z", RegexOptions.CultureInvariant)]

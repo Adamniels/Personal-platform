@@ -841,6 +841,25 @@ waits rather than counting it. It checks only that what is pasted looks like a s
 it works is the worker's check before every run. The routes, the table and the section are "Claude
 login" and "The pages" in `devflow/README.md`.
 
+**A project runs on the subscription or on the API key, and its job carries that one credential.**
+The owner may give an Anthropic API key on the Projects tab beside the Claude login, and set a
+project's `runs_on` to `api_key`, round 4b's "Each project runs on the subscription or on an API
+key". Handing out a job opens the credential the project runs on, the token by `ClaudeLogins.ForRun`
+or the key by `ApiKeys.ForRun`, reads `runs_on` again under the project's lock and hands out nothing
+when it changed meanwhile, so a job never carries a credential the project was moved off. The job
+names it, `credential`, `{"kind", "secret"}`, and the worker gives Claude Code
+`CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`, never both, since round 5 found an API key in the
+environment silently wins over the token; its login check wants the method of the kind it was
+given, `oauth_token` or `api_key`. Each run records which, so spend on the key can be counted apart.
+A project on the key needs no Claude login, so the login's holds apply only to the subscription.
+
+The key is one per user, not per project, though the spec said a key per project: one owner pays for
+every project of his, so one key does the same with one place to give and replace it, and a key
+per project slots into the same credential choice later, when a project is billed apart from his,
+without changing the job, the worker or the run. While any project runs on it the key cannot be
+removed, rather than leaving a project with nothing to run on; removing it takes the key's row for
+update and saving settings onto it holds the row with a share lock, so neither passes the other.
+
 The project's values, what its tests or its start need, are the other: throwaway values or keys
 made for the automation, never production's, which the owner gives on the project's page, so they
 are in no repository and never copied to a machine by hand. Every job that runs the project's code
@@ -2503,11 +2522,13 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   `ClaudeAgentTests.TheEnvironmentIsBuiltFromNothing`, of what is asked for, and
   `ProcessStarterTests.TheProcessGetsOnlyTheEnvironmentGiven`, which sets an API key in the test's
   own process and checks a real child process never sees it.
-- **The worker never writes the token.** The Claude token reaches a run in its environment and
+- **The worker never writes the credential.** The Claude token, or the API key for a project on
+  it, reaches a run in its environment and
   nowhere else: the worker does not write it to a file, log it or send it back, `AgentCredential`
   prints as redacted, and its value is replaced in Claude Code's output before anything reads it,
   so an agent that prints its own environment cannot carry the token out in its report or its
-  stderr. `ClaudeAgentTests.TheTokenIsNeverWrittenAnywhere` checks every answer the worker keeps.
+  stderr. `ClaudeAgentTests.TheTokenIsNeverWrittenAnywhere` checks every answer the worker keeps,
+  and `ClaudeAgentTests.TheKeyIsScrubbed` the same for the key, every reason among them.
   Accepted: the agent runs with the token in its environment and can read it, which a run cannot
   avoid, and could send it out encoded; the token is the owner's subscription alone, and is revoked
   and made again if it is ever exposed.
@@ -2578,6 +2599,19 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   user, must hold it; the spec's experiment named this, and its round 5 looks at narrowing it. And
   Dev flow does not check the token with Anthropic when it is saved, so a mistyped one is found by
   the worker's check, not the page.
+- **The API key bills money, and is held as the token is.** Unlike the subscription, whose limits
+  cap what a run can draw, the key bills the owner's Anthropic account for whatever a run spends,
+  so it is guarded the same way and no less: sealed in the vault under `anthropic-api-key`, bound to
+  its user, held by nothing else in the database; no route answers it or any part of it, and a
+  refused one is not repeated; the page never reads it back, from a password field emptied on every
+  save; opened by `ApiKeys.ForRun` alone, only to hand out a job of a project that runs on it, as a
+  type that never prints its value; given to Claude Code alone in the run's environment, never
+  beside the token, and scrubbed by the worker from everything it sends back and logs. A test holds
+  each, in `ApiKeyTests`, `DispatchTests` and `ClaudeAgentTests`. Accepted, as for the token: code a
+  run executes can read the key, and could spend it. What a run may spend is held by its
+  `--max-budget-usd`, the project's `run_budget_usd`; a daily cap in money for the key is the next
+  slice's. And Dev flow does not check the key with Anthropic when it is saved; a refused key fails
+  each run outside its card, as `invalid-api-key.json` recorded.
 - **The program writes as the app, through a second typed path.** What the program does on GitHub
   is the app's, see "The program's own writes" above, made with an `AppWriteToken`, which only the
   installation token issuer and the fake's make, and which a read token or the owner's token
@@ -2807,11 +2841,11 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   log, as it can reach a result's stderr today; the log is shown only to the project's user, through
   the door as them, and a line is never posted on GitHub. A project that keeps such a secret where
   its agent can read it should give it as a value, so it is scrubbed.
-- **The Claude token, the project's values and a push key leave Dev flow only inside a job, to the
+- **The credential, the project's values and a push key leave Dev flow only inside a job, to the
   worker holding it.**
   A job is answered only to a worker of the key's own project, through the door as its user, so
-  the token is that user's, the values that project's, and the push key reaches that project's
-  repository alone, narrowed to
+  the token or the key is that user's, the values that project's, and the push key reaches that
+  project's repository alone, narrowed to
   fetching and pushing code; the answer carries `Cache-Control: no-store`. A fresh push key is
   answered only to the worker holding that job while it runs, and every other asker gets the same
   `404`, so it cannot tell another's job from none. The token is opened only after the login's

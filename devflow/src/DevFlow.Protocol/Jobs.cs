@@ -8,8 +8,8 @@ namespace DevFlow.Protocol;
 /// to review or to fix, a feature's conflict to resolve, the cards of a feature or a card on its
 /// own to read, a version of the project's <c>.devflow/</c> to check, or the project to set up,
 /// with everything the worker
-/// needs for it and nothing more. The Claude token, the
-/// key and the project's values leave Dev flow only here, to the worker holding the job. See "Jobs", "Review" and
+/// needs for it and nothing more. The credential, the
+/// push key and the project's values leave Dev flow only here, to the worker holding the job. See "Jobs", "Review" and
 /// "Fixing" in devflow/README.md.
 /// </summary>
 /// <param name="JobId">The run's id, which the job's other routes take.</param>
@@ -30,8 +30,9 @@ namespace DevFlow.Protocol;
 /// contracts/devflow/setup.schema.json.</param>
 /// <param name="Check">The command that checks the working copy, from the project's
 /// <c>.devflow/project.json</c> on its default branch; for a review, the one the build ran.</param>
-/// <param name="ClaudeToken">The run's user's Claude token, for the agent's
-/// <c>CLAUDE_CODE_OAUTH_TOKEN</c> and nowhere else.</param>
+/// <param name="Credential">What the agent logs in with, the one its project runs on: the run's
+/// user's Claude token for the subscription, or their API key; null on a check, which runs no
+/// agent.</param>
 /// <param name="PushKey">The key git is given for the repository: for a build one that fetches and
 /// pushes its code and does nothing else; for a review or a reading one that only fetches it.</param>
 /// <param name="PushKeyExpiresAt">When the key stops working; for a build a fresh one is asked
@@ -73,7 +74,7 @@ public sealed record Job(
     string Brief,
     JsonElement ReportSchema,
     string Check,
-    string ClaudeToken,
+    JobCredential? Credential,
     string PushKey,
     DateTimeOffset PushKeyExpiresAt,
     JobCommitter Committer,
@@ -140,9 +141,30 @@ public sealed record Job(
     /// request, from that commit. See "Setting up a project" in devflow/README.md.</summary>
     public const string Setup = "setup";
 
-    /// <summary>Its kind and card, never the token, the key or a value.</summary>
+    /// <summary>Its kind and card, never the credential, the key or a value.</summary>
     public override string ToString() =>
         string.Create(CultureInfo.InvariantCulture, $"Job {{ JobId = {JobId}, Kind = {Kind}, Card = {Card?.Number}, Branch = {Branch} }}");
+}
+
+/// <summary>
+/// What a job's agent logs in with, the one credential its project runs on, and never both: the
+/// worker gives Claude Code <see cref="Secret"/> as <c>CLAUDE_CODE_OAUTH_TOKEN</c> for
+/// <see cref="Subscription"/> or as <c>ANTHROPIC_API_KEY</c> for <see cref="ApiKey"/>, and checks
+/// Claude Code is logged in by that method. It prints as its kind alone. See "Jobs" and "The agent
+/// interface" in devflow/README.md.
+/// </summary>
+/// <param name="Kind"><see cref="Subscription"/> or <see cref="ApiKey"/>.</param>
+/// <param name="Secret">The run's user's Claude token, or their API key.</param>
+public sealed record JobCredential(string Kind, string Secret)
+{
+    /// <summary>The owner's subscription, through the Claude login's token.</summary>
+    public const string Subscription = "subscription";
+
+    /// <summary>The owner's Anthropic API key.</summary>
+    public const string ApiKey = "api_key";
+
+    /// <summary>Its kind, never the secret.</summary>
+    public override string ToString() => $"JobCredential {{ Kind = {Kind} }}";
 }
 
 /// <summary>

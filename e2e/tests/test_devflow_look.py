@@ -528,6 +528,7 @@ def test_the_projects_tab_follows_the_look(
     connections = page.get_by_role("region", name="Connections")
     github = connections.get_by_role("article", name="GitHub")
     login = connections.get_by_role("article", name="Claude login")
+    key = connections.get_by_role("article", name="Anthropic API key")
     border = resolve(page, "--border", "border-top-color")
     accent = resolve(page, "--accent-border", "border-top-color")
     surface = resolve(page, "--surface", "background-color")
@@ -536,7 +537,7 @@ def test_the_projects_tab_follows_the_look(
     # desktop; on phone its status and action take a line of their own.
     expect(github.get_by_text("Not linked", exact=True)).to_be_visible()
     assert style(github)["borderColors"] == [border] * 4
-    for item in (github, login):
+    for item in (github, login, key):
         look = style(item)
         assert look["background"] == surface, look
         assert look["boxShadow"] == "none", look
@@ -613,7 +614,7 @@ def test_the_projects_tab_follows_the_look(
     # On phone the cards stack, and each Connections item is full width.
     if viewport == "phone":
         width = connections.bounding_box()["width"]
-        for item in (github, login):
+        for item in (github, login, key):
             assert abs(item.bounding_box()["width"] - width) < 1
         assert fodr.bounding_box()["x"] == platform.bounding_box()["x"]
 
@@ -674,7 +675,8 @@ def test_a_project_page_follows_the_look(
         workers.get_by_role("list", name="Workers").get_by_role("listitem")
     ).to_have_count(1)
     settings = page.get_by_role("article", name="Settings", exact=True)
-    expect(settings.get_by_role("term")).to_have_count(8)
+    # The preset, questions, waiting, the daily budget, runs on and four labels.
+    expect(settings.get_by_role("term")).to_have_count(9)
     expect(page.get_by_text("8 cards: 8 queued.")).to_be_visible()
 
     # The cards column first; on desktop the side column beside it, on phone

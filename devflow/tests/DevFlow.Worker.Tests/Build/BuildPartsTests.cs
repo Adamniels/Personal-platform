@@ -70,6 +70,19 @@ public sealed class BuildPartsTests
         Assert.Null(WorkerJob.ProtocolError(Job("devflow/1-x") with { Model = model }));
 
     [Fact]
+    public void AJobWithoutACredentialIsAProtocolError()
+    {
+        // An agent's job always carries one of the two kinds, with its secret; a check carries none
+        // and is never judged by this.
+        foreach (var credential in new JobCredential?[] { null, new("both", "sk-ant-oat01-a-token"), new(JobCredential.ApiKey, "") })
+        {
+            Assert.Contains("credential", WorkerJob.ProtocolError(Job("devflow/1-x") with { Credential = credential }), StringComparison.Ordinal);
+        }
+
+        Assert.Null(WorkerJob.ProtocolError(Job("devflow/1-x") with { Credential = new(JobCredential.ApiKey, "sk-ant-api03-a-key") }));
+    }
+
+    [Fact]
     public async Task AJobWithoutAModelIsRefusedOutsideTheCard()
     {
         // A Dev flow that sends no model: the agent never runs, and the job ends at once as a failure
@@ -192,7 +205,7 @@ public sealed class BuildPartsTests
         "The brief",
         JsonDocument.Parse("{}").RootElement,
         "true",
-        "sk-ant-oat01-a-token",
+        new JobCredential(JobCredential.Subscription, "sk-ant-oat01-a-token"),
         "ghs_a_push_key",
         new DateTimeOffset(2026, 11, 18, 10, 0, 0, TimeSpan.Zero),
         new JobCommitter("devflow[bot]", "1+devflow[bot]@users.noreply.github.com"),

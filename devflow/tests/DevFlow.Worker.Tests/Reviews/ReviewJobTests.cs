@@ -102,7 +102,7 @@ public sealed class ReviewJobTests
         job["brief"] = "";
         job["report_schema"] = null;
         job["check"] = check;
-        job["claude_token"] = "";
+        job["credential"] = null;
         job["model"] = "";
         job["start"] = "";
         job["url"] = "";

@@ -110,10 +110,10 @@ public sealed class CheckJobTests
         Assert.Equal(Start, (string)job["start"]!);
         Assert.Equal(Url, (string)job["url"]!);
         Assert.Equal(30, (int)job["limits"]!["minutes"]!);
-        // No agent: no brief, model, token or report's schema; and a key that only fetches.
+        // No agent: no brief, model, credential or report's schema; and a key that only fetches.
         Assert.Equal("", (string)job["brief"]!);
         Assert.Equal("", (string)job["model"]!);
-        Assert.Equal("", (string)job["claude_token"]!);
+        Assert.Null(job["credential"]);
         Assert.Null(job["report_schema"]);
         Assert.Equal(WritePurpose.Fetch, jobs.Fake.Issued(Jobs.User, (string)job["push_key"]!)!.Value.Purpose);
 

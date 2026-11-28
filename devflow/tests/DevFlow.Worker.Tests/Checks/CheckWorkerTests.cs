@@ -35,7 +35,7 @@ public sealed class CheckWorkerTests
         job["brief"] = "";
         job["report_schema"] = null;
         job["check"] = check;
-        job["claude_token"] = "";
+        job["credential"] = null;
         job["model"] = "";
         job["start"] = start;
         job["url"] = url;

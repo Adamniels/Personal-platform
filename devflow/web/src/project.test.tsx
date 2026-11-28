@@ -198,6 +198,7 @@ function renderPage(
 				fix_rounds_feature: 3,
 				questions: true,
 				daily_token_budget: null,
+				runs_on: "subscription",
 				preset: "custom" as const,
 			}),
 		),
@@ -1148,6 +1149,7 @@ describe("a project's page", () => {
 			fix_rounds_feature: 3,
 			questions: true,
 			daily_token_budget: null,
+			runs_on: "subscription",
 			preset: "only_i_merge" as const,
 		};
 		// The settings as saved where the page reads them, changed by a save on
@@ -2033,6 +2035,7 @@ describe("a project's page, cards first", () => {
 			fix_rounds_feature: 3,
 			questions: true,
 			daily_token_budget: null,
+			runs_on: "subscription",
 			preset: "only_i_merge",
 		};
 		const saveSettings = vi.fn((_id: string, request: SettingsRequest) =>
@@ -2068,6 +2071,7 @@ describe("a project's page, cards first", () => {
 			"Questions before starting": "On",
 			"Pull requests wait for you": "Always",
 			"Daily budget": "Off",
+			"Runs on": "Your subscription",
 			"Pick-up label": "devflow",
 			"Hold label": "devflow-hold",
 			"Attention label": "devflow-attention",

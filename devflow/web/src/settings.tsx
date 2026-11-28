@@ -3,9 +3,9 @@
 // whether a card's questions wait for the owner's answers, and whether a card's pull request waits
 // for him, with what "sometimes" waits for; how cards are picked, the four labels and the trusted
 // accounts whose cards, edits and comments count; the models and limits its runs get; its usage,
-// the daily budget in millions of tokens; when it runs, always or by its schedules; and its
+// what its runs run on and the daily budget in millions of tokens; when it runs, always or by its schedules; and its
 // values. A preset fills in the settings it covers in the form, and the side column names the
-// preset the form matches, or Custom. All nineteen settings are saved together with one Save,
+// preset the form matches, or Custom. All twenty-one settings are saved together with one Save,
 // never the preset, and a value Dev flow refuses is named under its field; when it runs, its
 // schedules and the time zone, and its values are saved at once through their own routes. See
 // "Settings" and "Schedules" in devflow/README.md.
@@ -31,6 +31,7 @@ import { plainClick } from "./address";
 import { ApiError } from "./api/client";
 import type { components } from "./api/schema";
 import { USAGE_ANCHOR } from "./budget";
+import type { ApiKeyStatus } from "./claude-login";
 import type { Project } from "./projects";
 import { type SchedulesApi, SchedulesCard } from "./schedules";
 import { projectPath } from "./sections";
@@ -43,6 +44,8 @@ export type SettingsRequest = components["schemas"]["SettingsRequest"];
 
 export const NOT_READ = "The settings could not be read. Try again.";
 export const NOT_SAVED = "The settings were not saved. Try again.";
+/** Why "The API key only" cannot be chosen yet. */
+export const RUNS_ON_NO_KEY = "Give an API key on the Projects tab first";
 export const SAVED = "Saved.";
 
 /** How the panel reads and saves a project's settings, Dev flow's API in
@@ -346,6 +349,8 @@ export type SettingsPageApi = SettingsApi &
 	ValuesApi &
 	SchedulesApi & {
 		loadProjects: () => Promise<Project[]>;
+		/** Whether an API key is given, which "Runs on" offers only then. */
+		loadApiKey: () => Promise<ApiKeyStatus>;
 		disconnect: (id: string) => Promise<void>;
 	};
 
@@ -380,6 +385,7 @@ const PLAIN: (
 	| ConditionField
 	| "questions"
 	| "waits_for_owner"
+	| "runs_on"
 )[] = [
 	"pickup_label",
 	"hold_label",
@@ -393,9 +399,10 @@ const PLAIN: (
 	"wait_when_marked",
 	"wait_when_paths",
 	"wait_when_decision",
+	"runs_on",
 ];
 
-/** How many of the nineteen settings the form changes from the settings as
+/** How many of the twenty-one settings the form changes from the settings as
  * last read or saved. */
 export const unsaved = (form: Form, base: ProjectSettings): number => {
 	let count = PLAIN.filter(
@@ -457,6 +464,7 @@ export function SettingsPage({
 	loadSchedules,
 	saveSchedules,
 	saveTimeZone,
+	loadApiKey,
 	disconnect,
 }: SettingsPageProps) {
 	const [project, setProject] = useState<Project | null>();
@@ -472,6 +480,8 @@ export function SettingsPage({
 	const [adding, setAdding] = useState("");
 	const [leaving, setLeaving] = useState(false);
 	const [leaveError, setLeaveError] = useState<string | null>(null);
+	// Whether an API key is given; until it is read, the key is not offered.
+	const [keyGiven, setKeyGiven] = useState(false);
 	const formId = useId();
 	const presetLabel = useId();
 	// The card "Usage" is drawn only once the project and its settings are
@@ -497,6 +507,19 @@ export function SettingsPage({
 			current = false;
 		};
 	}, [id, loadProjects]);
+
+	useEffect(() => {
+		let current = true;
+		loadApiKey().then(
+			(answer) => {
+				if (current) setKeyGiven(answer.set);
+			},
+			() => {},
+		);
+		return () => {
+			current = false;
+		};
+	}, [loadApiKey]);
 
 	useEffect(() => {
 		let current = true;
@@ -960,6 +983,18 @@ export function SettingsPage({
 							</Card>
 							<Card title="Usage" id={USAGE_ANCHOR} className={styles.section}>
 								<div className={styles.group}>
+									<Select
+										label="Runs on"
+										help={keyGiven ? undefined : RUNS_ON_NO_KEY}
+										value={values.runs_on}
+										error={invalid.runs_on}
+										onChange={(event) => set("runs_on", event.target.value)}
+									>
+										<option value="subscription">Your subscription</option>
+										<option value="api_key" disabled={!keyGiven}>
+											The API key only
+										</option>
+									</Select>
 									<Switch
 										label="Daily budget"
 										checked={form.budget.on}

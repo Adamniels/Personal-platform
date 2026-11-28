@@ -51,6 +51,7 @@ public sealed class RunSettingsTests
             ["fix_rounds_feature"] = 3,
             ["questions"] = true,
             ["daily_token_budget"] = null,
+            ["runs_on"] = "subscription",
         };
         foreach (var (field, value) in changes)
         {

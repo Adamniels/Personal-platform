@@ -2240,6 +2240,49 @@ def test_i_give_dev_flow_my_claude_login(
     assert page.request.get("/devflow/api/claude-login").json()["set"] is False
 
 
+API_KEY = "sk-ant-api03-e2e-only-not-a-real-key-ZmFrZQ_AAAAAAAAAAAAAAAAAAAA"
+
+
+def test_i_give_an_api_key_and_a_project_runs_on_it(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    page.goto("/devflow/projects")
+    key = page.get_by_role("article", name="Anthropic API key")
+    expect(key.get_by_text("Not set", exact=True)).to_be_visible()
+    expect(key.get_by_text("for runs billed to your Anthropic account")).to_be_visible()
+
+    # Given on the Projects tab, as the Claude login is.
+    key.get_by_role("button", name="Give a key").click()
+    field = key.get_by_label("API key")
+    expect(field).to_have_attribute("type", "password")
+    field.fill(API_KEY)
+    key.get_by_role("button", name="Save").click()
+    expect(key.get_by_label("API key")).to_have_count(0)
+    status = page.request.get("/devflow/api/api-key").json()
+    assert status["set"] is True
+    expect(key.get_by_text(f"given {_day(page, status['given_at'])}")).to_be_visible()
+    expect(key.get_by_text("Given", exact=True)).to_be_visible()
+    assert API_KEY[10:] not in page.content()
+    capture(page, "devflow-connections-api-key")
+
+    # The project is set to run on it, and its settings page shows it saved.
+    _open_project(page, base_url, devflow_world)
+    settings = _edit_settings(page)
+    runs_on = settings.get_by_label("Runs on")
+    expect(runs_on).to_have_value("subscription")
+    runs_on.select_option(label="The API key only")
+    settings.get_by_role("button", name="Save").click()
+    expect(settings.get_by_text("Saved.")).to_be_visible()
+    page.reload()
+    expect(page.get_by_label("Runs on")).to_have_value("api_key")
+
+    # While the project runs on it, the key cannot be removed.
+    removed = page.request.delete("/devflow/api/api-key", headers={"Origin": base_url})
+    assert removed.status == 409
+    assert "These projects run on it:" in removed.json()["detail"]
+
+
 def test_dev_flow_tells_me_when_my_claude_login_is_due(
     page: Page, invite_code: str, base_url: str, viewport: str
 ):
