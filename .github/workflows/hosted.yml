@@ -14,7 +14,9 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    # arm64, the architecture the hosted copy runs on, the Mac mini's: the images are proven on what
+    # is released. GitHub's arm64 runners are free for a public repository.
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
 
     # Every uv run, check.sh's suite among them, fails on a uv.lock that does not match its
