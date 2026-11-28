@@ -23,6 +23,7 @@ import {
 import { openEvents } from "./events";
 import { type FeatureApi, FeaturePage } from "./feature";
 import type { FeatureMergeApi } from "./feature-merge";
+import { Machines, type MachinesApi } from "./machines";
 import { PAUSED, PausedStrip, type PausesApi, usePaused } from "./paused";
 import { type ProjectApi, ProjectPage } from "./project";
 import { type Project, Projects, type ProjectsApi } from "./projects";
@@ -94,6 +95,9 @@ export type AppProps = {
 	/** How whether everything is paused is read and changed, the service's
 	 * by default; a test passes its own. */
 	pauses?: PausesApi;
+	/** How Machines reads, adds and removes machines, the service's by
+	 * default; a test passes its own. */
+	machines?: MachinesApi;
 	/** The time, in milliseconds since the epoch, the page says how old the
 	 * picture is by, and counts a run's time to; a test passes its own. */
 	now?: () => number;
@@ -404,6 +408,19 @@ const usageApi: UsageApi = {
 		client.get(`/usage?period=${period}` as "/usage"),
 };
 
+/** Machines, through Dev flow's API. */
+const machinesApi: MachinesApi = {
+	loadMachines: () => client.get("/machines"),
+	newEnrollment: () =>
+		client.send<components["schemas"]["MachineEnrollment"]>(
+			"POST",
+			"/machines/enrollment",
+		),
+	removeMachine: async (id) => {
+		await client.send("DELETE", `/machines/${encodeURIComponent(id)}`);
+	},
+};
+
 /** Running now, through Dev flow's API and its streams. */
 const runningApi: RunningApi = {
 	loadRunning: () => client.get("/running"),
@@ -504,6 +521,7 @@ function Frame({
 	running = runningApi,
 	usage = usageApi,
 	pauses = pausesApi,
+	machines = machinesApi,
 	now = Date.now,
 }: AppProps) {
 	const pathname = usePathname();
@@ -599,6 +617,8 @@ function Frame({
 							/>
 						) : section.key === "usage" ? (
 							<Usage {...usage} />
+						) : section.key === "machines" ? (
+							<Machines {...machines} />
 						) : section.key === "projects" && settingsOf ? (
 							<SettingsPage
 								key={settingsOf}

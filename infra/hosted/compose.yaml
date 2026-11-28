@@ -184,6 +184,12 @@ services:
       # .env says otherwise. See "Starting a worker" in devflow/README.md.
       DEVFLOW_WORKER_IMAGE: platform-hosted/devflow-worker:${PLATFORM_RELEASE:-dev}
       DEVFLOW_WORKER_URL: ${DEVFLOW_WORKER_URL:-http://host.docker.internal:9080}
+      # The address the machine this copy runs on reaches Dev flow at, the proxy's published one,
+      # which the second command of "Add a machine" names, since this machine cannot reach its own
+      # public origin; and the release, which a machine's hello answers. See "Machines" in
+      # devflow/README.md.
+      DEVFLOW_LOCAL_URL: http://${HOSTED_HTTP_BIND:-127.0.0.1:9080}
+      DEVFLOW_RELEASE: ${PLATFORM_RELEASE:-dev}
       # The app's private key, from the file the volume below mounts. In the .env this setting is
       # the file's path on the machine; Dev flow is given the path inside its container.
       DEVFLOW_GITHUB_PRIVATE_KEY_FILE: /run/secrets/github-app.pem

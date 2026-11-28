@@ -30,6 +30,13 @@ starts nothing of it. A worker is built from it and started by the command on a 
 outside this project, see "Starting a worker" in `devflow/README.md`; Dev flow is given its name as
 `DEVFLOW_WORKER_IMAGE`, so a worker on an older one is told to rebuild.
 
+Two more of Dev flow's settings come from this copy rather than its `.env`'s own lines, see
+"Machines" in `devflow/README.md`. `DEVFLOW_LOCAL_URL` is `http://${HOSTED_HTTP_BIND:-127.0.0.1:9080}`,
+the proxy's published address, which the second command of "Add a machine" names for the machine
+this copy runs on, since that machine cannot reach its own public origin. `DEVFLOW_RELEASE` is
+`${PLATFORM_RELEASE:-dev}`, the release's tag, which a machine's `hello` answers so its program can
+update itself.
+
 The proxy is the only container published, plain HTTP on the loopback. HTTPS is terminated in
 front of it, by `tailscale serve` on the real copy and by a test front in `check.sh`, so the proxy
 never holds a certificate. Postgres is published nowhere.

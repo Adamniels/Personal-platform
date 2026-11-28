@@ -154,6 +154,7 @@ you.", then the package's `Tabs`, one per section, each with its own address:
 | Running now       | `/devflow/running`  |
 | Projects          | `/devflow/projects` |
 | Usage and history | `/devflow/usage`    |
+| Machines          | `/devflow/machines` |
 
 The page names its tab in the top bar's crumb, "Dev flow / " and the tab's name, by setting the
 `crumb` attribute of its `<platform-nav>` whenever the tab changes.
@@ -731,7 +732,7 @@ says so on every tab, see above.
 
 ### Usage and history
 
-The Usage and history tab, `src/usage.tsx`, the last, shows what each project, feature and card
+The Usage and history tab, `src/usage.tsx`, the one before Machines, shows what each project, feature and card
 used, from `GET /devflow/api/usage`: tokens and time, never money. Its period is in the address,
 `/devflow/usage?period=7d`, `30d` or `all`, 30 days without one or with one it does not know, and is
 chosen with the package's `Select`, "Period", "Last 7 days", "Last 30 days" or "All time", which
@@ -806,6 +807,27 @@ Claude Code's estimate, counted by when they finished as the daily cap counts th
 none did. The days' bounds are `DevFlowTime`'s, a day 23 or 25 hours long across a change
 of summer time, and are handed to the query, so Postgres never counts a day by a zone of its own.
 
+### Machines
+
+The Machines tab, `src/machines.tsx`, the last, lists the owner's machines from
+`GET /devflow/api/machines`, read again every ten seconds while the tab is open, so a machine that
+enrols or goes quiet shows without a reload. They are a `Card`, "Machines", with "1 of 2 online"
+as its caption, each machine an inset row: its name with a ghost "Remove" on the right; `Status`
+"Online", or "Offline" with "Not seen since <date and time>"; "macOS · arm64 · Program
+<version>", or "Not said hello yet" before its first hello; and "Docker running", or `Status`
+"No Docker", in the attention style since it needs the owner, with the reason the program gave.
+"Remove" asks first, in a destructive `Dialog`, "Remove <name>?": "Its key stops working at once.
+The program on it reaches Dev flow again only once the machine is added again." With no machine,
+the `EmptyState` "No machine yet", "Add a machine, and it shows here once the program on it has
+enrolled."; a list that cannot be read says so as an alert.
+
+"Add a machine", the tab's one primary button, on the right above the card, makes a code with
+`POST /devflow/api/machines/enrollment` and opens a `Dialog` that only shows: "Run one of these in a
+terminal on the machine. Its code enrols one machine, once.", the two commands, "On any machine"
+and "On the machine the platform runs on", each in the mono font with a copy button, the project
+page's `Command`, and "The code expires at <time>.". Closing it forgets the code, and the list is
+read again. See "Machines" below for the code and the commands.
+
 ### The address
 
 The address is the state,
@@ -825,7 +847,8 @@ banner and the link, and again after unlinking; its other calls are starting a l
 the projects' four, reading what waits and refreshing a project, merging and sending back,
 merging a card, reading a card's story, reading a feature's story and answering a decision on it,
 a project's workers and making its key, reading, giving and removing the Claude login, and reading
-the runs under way and stopping one, and reading what was used in a period, which `src/app.tsx`
+the runs under way and stopping one, reading what was used in a period, and listing, adding and
+removing machines, which `src/app.tsx`
 gives the tabs, with the streams Running
 now opens, so a test gives its own, with its own clock.
 
@@ -959,14 +982,22 @@ shared, since no service imports from another's directory.
   not an IPv6 address, whose brackets a shell reads as a pattern, and an optional port, nothing
   after it. The default is Dev flow on the dev stack as Docker Desktop's containers reach the
   host.
+- `DEVFLOW_LOCAL_URL`, default `http://127.0.0.1:8084`: the address the machine the platform runs
+  on reaches Dev flow at, which the second command of "Add a machine" names, since that machine
+  cannot reach its own public address, see "Machines". A scheme, a host and an optional port,
+  nothing after it, kept as written. The default is Dev flow's own listener on the dev stack.
+- `DEVFLOW_RELEASE`, default `dev`: Dev flow's release, which a machine's `hello` answers. 1 to 128
+  ASCII letters, digits and `._-`, beginning with a letter or a digit, as a release's tag is.
 
 The defaults are right on the Mac mini and in CI, so neither sets them, the code host's fake
 included, except the listen address,
 which the manifest's `start` sets, and the database URLs, which `scripts/agent/services.sh` and
 `.github/workflows/dotnet.yml` build. The hosted copy sets `DEVFLOW_WORKER_IMAGE` to the base image
-of its own release, `platform-hosted/devflow-worker:<PLATFORM_RELEASE>`, and `DEVFLOW_WORKER_URL`
+of its own release, `platform-hosted/devflow-worker:<PLATFORM_RELEASE>`, `DEVFLOW_WORKER_URL`
 to its `.env`'s, `http://host.docker.internal:9080` unless set, the proxy's published port, so a
-release does not refuse without it. It sets the four it needs to serve and passes the
+release does not refuse without it, `DEVFLOW_LOCAL_URL` to the proxy's published address,
+`http://<HOSTED_HTTP_BIND>`, `http://127.0.0.1:9080` unless set, and `DEVFLOW_RELEASE` to
+`PLATFORM_RELEASE`, its release's tag. It sets the four it needs to serve and passes the
 vault's two, the code host's mode and the GitHub App's settings in `infra/hosted/compose.yaml`, from
 its `.env`, and the owner's URL only on `devflow-migrate`. The app's key file is mounted read only
 at `/run/secrets/github-app.pem`, which is the path Dev flow is given; the `.env` names the file on
@@ -1469,6 +1500,10 @@ of what Dev flow is:
 - `POST /devflow/api/fake/claude-login-age` with `{"days": 340}` moves when the caller's Claude
   login was given to that many days before now, so a test sees it due without waiting a year,
   `204`; `404` without a login, and `400` for a negative or malformed number.
+- `POST /devflow/api/fake/machine-age` with `{"machine_id", "minutes": 10}` moves when the caller's
+  machine was last seen to that many minutes before now, so a test sees it offline without waiting,
+  `204`; `404` for a machine the caller does not have, and `400` for a negative number or no
+  `machine_id`. See "Machines".
 - `POST /devflow/api/fake/end-wait` with `{"project_id"}` ends the caller's project's wait after
   failures outside its cards now, its count kept, so a test sees the next failure without waiting
   minutes, `204`; `404` for a project the caller does not have or that does not wait, and `400`
@@ -2423,6 +2458,91 @@ query tries, and disconnecting removes them; the migration adds the unique const
 
 `migrations/0009_recipe_version.sql` adds `projects.recipe_version`, the version of the project's
 recipe as Dev flow last read it, a full commit id of 40 or 64 lowercase hex digits, or null.
+
+## Machines
+
+A machine is a computer of the owner's that runs the machine program, which a later slice of
+"Dev flow: the machine program" adds: it will start, stop and rebuild a project's workers there as
+the page says. What exists now is the machine's side of Dev flow: enrolling it with a one-time
+code, its key, the scheme its requests authenticate with, `hello`, and the Machines tab, see "The
+pages". Like a worker, a machine calls Dev flow and is never called. Why it is built so is
+"Machines" in `docs/devflow-architecture.md`.
+
+**As the owner does it.** On the Machines tab press "Add a machine" and run one of the two commands
+it shows on the machine, within the hour: the first on any machine, the second on the machine the
+platform runs on, which cannot reach its own public address. The program enrols with the code in
+it, keeps the key it is given, and shows on the tab once it has said hello. "Remove" ends the
+machine and its key.
+
+**The code.** `dfe_` and the base64url of 16 random bytes from `RandomNumberGenerator`, 26
+characters, stored only as its SHA-256. It enrols one machine, once, for an hour from when it was
+made; a newer code ends no older one, and making a code deletes the user's codes made an hour ago
+or more, used or not. It is `MachineEnrollments`, in `src/DevFlow/Machines/`.
+
+**The key.** `dfm_` and the base64url of 32 random bytes, 47 characters, made in the transaction
+that marks the code used and creates the machine, answered that once and stored only as its
+SHA-256. A presented key is hashed, looked up in `machine_key_lookup` through the door's
+`WithoutUser`, and confirmed as the machine's user against `machine_keys`, as `WorkerKeys.Find`
+does. There is no way to list a key or show one again. Removing the machine removes its key. It is
+`MachineKeys`.
+
+**The commands.** `MachineInstall`:
+`curl -fsSL '<address>/devflow/machine/install.sh' | sh -s -- '<address>' '<code>'`, once with
+`DEVFLOW_PUBLIC_ORIGIN` and once with `DEVFLOW_LOCAL_URL`, see "Settings". Each part is in single
+quotes and none can hold one: both addresses are a scheme, a host and a port, as their settings
+parse them, and a code is base64url. The script's route comes in "Installing the machine program".
+
+**The machine scheme.** `MachineAuthentication` takes `Authorization: Bearer dfm_…` and nothing
+else on `/devflow/api/machine/`, `enroll` aside: no cookie, no `Origin`, a single header, the
+Bearer scheme and a key of the right shape that a machine has now. Everything the request does
+after runs as the machine's user. Anything else is `401` with an empty body, the same whatever the
+reason, as the worker scheme. A machine route takes this scheme alone, so neither a user's token
+nor a worker's key opens one, and a machine's key opens nothing else. The paths and the wire types
+are `MachineApi` in `DevFlow.Protocol`, beside the worker's, so the program shares them.
+
+The routes, in `MachineEndpoints`:
+
+- `POST /devflow/api/machine/enroll`, the one machine route without a key, with
+  `{"code", "name", "os", "arch"}`: `name` 1 to 255 characters, not only spaces, `os` `macos` or
+  `linux`, `arch` `arm64` or `x64`, else `422` naming the field, which spends no code. It marks the
+  code used, creates the machine as the code's user's, seen now, and stores its key in one
+  transaction, and answers `{"machine_id", "key"}` with `Cache-Control: no-store`. A code that is
+  missing, of the wrong shape, not made, used, or made an hour ago or more is `401` with an empty
+  body.
+- `POST /devflow/api/machine/hello`, the machine's, with
+  `{"name", "os", "arch", "program_version", "docker"}`: `os` and `arch` as above, `docker`
+  `running` or why Docker is not, each text 1 to 255 characters, else `422` naming it. It records
+  them and now as when the machine was last seen, and answers `{"release": "<DEVFLOW_RELEASE>"}`,
+  which the program updates itself to in a later slice.
+- `GET /devflow/api/machines`, the user's, answers
+  `[{"id", "name", "os", "arch", "program_version", "docker", "online", "last_seen_at"}]`, by when
+  each enrolled: `program_version` and `docker` null before its first hello, and `online` when it
+  was seen less than 60 seconds ago. Never a key, and never another user's machine.
+- `POST /devflow/api/machines/enrollment`, the user's, origin checked, answers
+  `{"code", "expires_at", "command", "local_command"}` with `Cache-Control: no-store`, the one time
+  the code is sent.
+- `DELETE /devflow/api/machines/{id}`, the user's, origin checked, removes the machine and its key,
+  `204`, so the key is refused from its next request; `404` for a machine the caller does not
+  have, another user's among them.
+
+The tables, from `migrations/0064_machines.sql`:
+
+- `machines`, guarded like every scoped table: `id`, `user_id`, `name`, `os`, `arch`,
+  `program_version` and `docker`, both null until the first hello and set together, `first_seen_at`
+  and `last_seen_at`, with the unique `(id, user_id)` its key references.
+- `machine_keys`, guarded: `machine_id`, its primary key, `user_id`, `key_hash`, the 32 byte
+  SHA-256, unique, and `created_at`, referencing `machines (id, user_id)` with `ON DELETE CASCADE`,
+  so a key belongs to its machine's own user whatever a query tries.
+- `machine_key_lookup`: `key_hash`, its primary key, `machine_id` and `user_id`, and **no** row level
+  security, kept by a trigger on `machine_keys` with a `SECURITY DEFINER` function,
+  `sync_machine_key_lookup`, owned by `devflow_owner`; `devflow_app` may only `SELECT` it, exactly
+  as `worker_key_lookup`.
+- `machine_enrollments`, guarded: `code_hash`, its primary key, `user_id`, `created_at` and
+  `used_at`.
+- `machine_enrollment_lookup`: `code_hash`, its primary key, and `user_id`, nothing else, and no row
+  level security, kept by `sync_machine_enrollment_lookup` the same way. Enrolling is the one
+  machine request that carries neither a user nor a key, so the code leads to its user here, and
+  its age and use are read from `machine_enrollments` as that user.
 
 ## Starting a worker
 
@@ -5650,11 +5770,16 @@ and does three things with it, in `src/DevFlow/DevFlowApp.cs`:
   second way a request authenticates, a project's worker key, and the policy
   `WorkerAuthentication.Policy`, which the worker routes, `hello`, `jobs/next` and a job's
   `push-key`, `progress` and `result`, take and nothing else does. A worker route reads its project and user through `context.Worker()`. See "Workers".
+- `AddMachineAuthentication`, in `src/DevFlow/Machines/MachineAuthentication.cs`: the third way, a
+  machine's key, and the policy `MachineAuthentication.Policy`, which `hello` under
+  `/devflow/api/machine/` takes and nothing else does; `enroll` there takes no key. A machine route
+  reads its machine and user through `context.Machine()`. See "Machines".
 - `UsePlatformOriginCheck` with `DEVFLOW_PUBLIC_ORIGIN`, before routing, so every route, one added
   later included, is covered: starting a link, unlinking, making a worker key, and the fake's
-  addresses and its sign in form. It runs for every path but those under `/devflow/api/worker/`,
-  matched case and all, which the worker scheme alone guards and which read no cookie, see
-  "Workers". The return from the code host, `GET /devflow/github/callback`, is the one route that
+  addresses and its sign in form. It runs for every path but those under `/devflow/api/worker/`
+  and `/devflow/api/machine/`, matched case and all and by whole segments, so the user's
+  `/devflow/api/machines` is checked, which the worker and machine schemes alone guard and which
+  read no cookie, see "Workers" and "Machines". The return from the code host, `GET /devflow/github/callback`, is the one route that
   changes state on a GET, which "How a feature authenticates" otherwise forbids; why it is safe is
   in "Security decisions and accepted risks" in `docs/devflow-architecture.md`.
 - `DevFlowApp.Build(settings, database, webRoot, configure)` builds the app, with the door; `configure` runs before it is

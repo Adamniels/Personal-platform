@@ -10,7 +10,7 @@ import {
 const ID = "0190a8f0-0000-7000-8000-000000000001";
 
 describe("the sections", () => {
-	test("the tabs are Waiting for you, Running now, Projects, Usage and history", () => {
+	test("the tabs are Waiting for you, Running now, Projects, Usage and history, Machines", () => {
 		expect(
 			SECTIONS.map((section) => [section.key, section.label, section.path]),
 		).toEqual([
@@ -18,6 +18,7 @@ describe("the sections", () => {
 			["running", "Running now", "/devflow/running"],
 			["projects", "Projects", "/devflow/projects"],
 			["usage", "Usage and history", "/devflow/usage"],
+			["machines", "Machines", "/devflow/machines"],
 		]);
 		// Usage and history has its own address, its period in the query.
 		expect(sectionAt("/devflow/usage")?.key).toBe("usage");

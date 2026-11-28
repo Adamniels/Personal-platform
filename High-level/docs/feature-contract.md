@@ -231,10 +231,10 @@ it:
 - On anything that changes state, check that the `Origin` header is the platform's own, and never
   change state on a GET. That is the CSRF defence in full. The known exceptions are two, both Dev
   flow's: its return from GitHub, `GET /devflow/github/callback`, which GitHub can only send as a
-  GET and which a single use state bound to the user makes safe instead, and its worker routes,
-  which take a worker's key and never a cookie, so no browser's session reaches them, see the
-  second way below; both are in "Security decisions and accepted risks" in
-  `devflow/docs/devflow-architecture.md`.
+  GET and which a single use state bound to the user makes safe instead, and its worker and
+  machine routes, which take a worker's or a machine's key and never a cookie, so no browser's
+  session reaches them, see the second way below; both are in "Security decisions and accepted
+  risks" in `devflow/docs/devflow-architecture.md`.
 - Treat a missing token, an expired one and one that fails verification the same way. An API call
   returns 401 and the frontend refreshes and retries; a plain page load redirects to the core's
   refresh endpoint with the path to come back to. The feature never decides whether someone needs
@@ -248,11 +248,13 @@ project and so to that project's user, and everything the request does then runs
 as that user, so every query still runs as a user, as "Multi user, and how isolation is enforced"
 in `High-level/docs/platform-architecture.md` requires. The two ways never stand in for each
 other: a worker route accepts only a key and a user's route only the user's token. Worker routes
-read no cookie, so a browser's session cannot reach them, and for that reason they are the one
-place outside the `Origin` check. A key is stored only as a hash and is replaced rather than
-listed. How Dev flow does it, and why it is safe, is "Workers" in `devflow/README.md` and
-"Security decisions and accepted risks" in `devflow/docs/devflow-architecture.md`. A feature that
-wants a key of its own follows that, not a token of its own making.
+read no cookie, so a browser's session cannot reach them, and for that reason they are outside the
+`Origin` check. A key is stored only as a hash and is replaced rather than listed. How Dev flow
+does it, and why it is safe, is "Workers" in `devflow/README.md` and "Security decisions and
+accepted risks" in `devflow/docs/devflow-architecture.md`. Dev flow's machines authenticate the
+same way, with a machine's own key, `dfm_…`, on its machine routes alone, which lead to the user who
+enrolled the machine, see "Machines" there. A feature that wants a key of its own follows that, not
+a token of its own making.
 
 So a feature frontend needing no authentication code is not quite true. It needs none to be
 authenticated, since the browser attaches the session cookie by itself on a shared origin, but the

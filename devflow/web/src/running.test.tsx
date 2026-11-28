@@ -163,6 +163,7 @@ describe("Running now", () => {
 			"Running now 1",
 			"Projects",
 			"Usage and history",
+			"Machines",
 		]);
 		expect(within(panel).getByText("Building")).toBeTruthy();
 		expect(within(panel).getByText("Fodr")).toBeTruthy();
@@ -240,6 +241,7 @@ describe("Running now", () => {
 			"Running now 2",
 			"Projects",
 			"Usage and history",
+			"Machines",
 		]);
 
 		// The first run ends: its log says so and its stream is closed.
@@ -605,6 +607,7 @@ describe("Running now", () => {
 			"Running now",
 			"Projects",
 			"Usage and history",
+			"Machines",
 		]);
 	});
 });

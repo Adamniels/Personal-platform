@@ -142,11 +142,12 @@ public sealed class IsolationTests
         await Assert.ThrowsAsync<ArgumentException>(() => door.InUserTransaction(Guid.Empty, _ => Task.FromResult(0), Ct));
     }
 
-    /// <summary>The two tables Dev flow leaves unguarded, each decided with the owner: the ids a loop
-    /// with no logged in user reads, and the hash a worker's key is looked up by, with its project
-    /// and user. See "Security decisions and accepted risks" in
+    /// <summary>The four tables Dev flow leaves unguarded, each decided with the owner: the ids a
+    /// loop with no logged in user reads, the hash a worker's key is looked up by, with its project
+    /// and user, and the hashes a machine's key and an enrolment code are looked up by, with their
+    /// machine and user. See "Security decisions and accepted risks" in
     /// devflow/docs/devflow-architecture.md. Nothing else belongs here.</summary>
-    private static readonly string[] Unguarded = ["poll_targets", "worker_key_lookup"];
+    private static readonly string[] Unguarded = ["poll_targets", "worker_key_lookup", "machine_key_lookup", "machine_enrollment_lookup"];
 
     [Fact]
     public async Task EveryTableIsGuarded()
@@ -160,6 +161,8 @@ public sealed class IsolationTests
         var unnamed = await IsolationChecks.Unguarded(database, unguarded: [], Ct);
         Assert.Contains("poll_targets: row level security is not enabled", unnamed);
         Assert.Contains("worker_key_lookup: row level security is not enabled", unnamed);
+        Assert.Contains("machine_key_lookup: row level security is not enabled", unnamed);
+        Assert.Contains("machine_enrollment_lookup: row level security is not enabled", unnamed);
 
         // And a table made the way the slice settles passes, so the check is not refusing all.
         await using (var owner = await database.OpenOwner(Ct))
