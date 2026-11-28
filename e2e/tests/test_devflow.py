@@ -7304,11 +7304,10 @@ def test_usage_and_history(
     second = build({"input_tokens": 100, "output_tokens": 900})
     assert second["card"] == 62
 
-    # The tab, last, at its own address, over the last 30 days.
+    # The tab, selected at its own address, over the last 30 days. Where it
+    # sits among the tabs is TABS's to check.
     page.goto("/devflow/usage")
-    tabs = page.get_by_role("tab")
-    expect(tabs.last).to_have_text("Usage and history")
-    expect(tabs.last).to_have_attribute("aria-selected", "true")
+    expect(page.get_by_role("tab", selected=True)).to_have_text("Usage and history")
     expect(page.get_by_label("Period")).to_have_value("30d")
 
     # The project's table, closed, then open with its feature, which opens into
