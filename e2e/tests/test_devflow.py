@@ -4582,6 +4582,16 @@ def test_i_set_the_models_and_limits(
     assert _axe_violations(page) == []
     runs.scroll_into_view_if_needed()
     capture(page, "devflow-settings-runs")
+    if viewport == "phone":
+        # The full page at phone width puts the sticky Save bar and the nav
+        # over the card's last fields, so the spend field and its help as
+        # they are seen, scrolled clear of them.
+        runs.get_by_label("Spend per run, USD").evaluate(
+            "field => field.scrollIntoView({block: 'center'})"
+        )
+        page.screenshot(
+            path=str(SCREENSHOTS / "devflow-settings-runs-detail-phone.png")
+        )
 
     # Kept: a fresh load reads them back.
     page.reload()
