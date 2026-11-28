@@ -50,14 +50,42 @@ public sealed class MachineStore(UserDb database, TimeProvider time)
         return [.. rows.Select(row => new Machine(row.Id, row.Name, row.Os, row.Arch, row.ProgramVersion, row.Docker, row.Online, GitHubLink.Utc(row.LastSeenAt)))];
     }
 
-    /// <summary>Removes the user's machine, and its key with it, so the key is refused from the
-    /// next request; false when they have none by that id, another user's included.</summary>
+    /// <summary>
+    /// Removes the user's machine, and its key, its placements and its slots with it, so the key
+    /// is refused from the next request; false when they have none by that id, another user's
+    /// included. Each project that was placed on it has its slots brought up to date in the same
+    /// transaction, so its setup slot moves to its next placed machine. The user's projects are
+    /// taken first, as every change to a placement takes its project first, see
+    /// <see cref="Placements.WorkerSlots.Lock"/>.
+    /// </summary>
     public async Task<bool> Remove(Guid userId, Guid machineId, CancellationToken cancellationToken) =>
-        await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
-            "DELETE FROM machines WHERE id = @machineId",
-            new { machineId },
-            transaction,
-            cancellationToken: cancellationToken)), cancellationToken) > 0;
+        await database.InUserTransaction(userId, async transaction =>
+        {
+            await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                "SELECT id FROM projects ORDER BY id FOR NO KEY UPDATE",
+                transaction: transaction,
+                cancellationToken: cancellationToken));
+            var placed = (await transaction.Connection!.QueryAsync<Guid>(new CommandDefinition(
+                "SELECT project_id FROM worker_placements WHERE machine_id = @machineId",
+                new { machineId },
+                transaction,
+                cancellationToken: cancellationToken))).ToList();
+            if (await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                    "DELETE FROM machines WHERE id = @machineId",
+                    new { machineId },
+                    transaction,
+                    cancellationToken: cancellationToken)) == 0)
+            {
+                return false;
+            }
+
+            foreach (var project in placed)
+            {
+                await Placements.WorkerSlots.Sync(transaction, project, cancellationToken);
+            }
+
+            return true;
+        }, cancellationToken);
 
     /// <summary>
     /// Records what the machine reports and now as when it was last seen. False when the machine

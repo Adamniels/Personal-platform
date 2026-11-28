@@ -14,6 +14,7 @@ using DevFlow.Link;
 using DevFlow.Machines;
 using DevFlow.Merging;
 using DevFlow.Pages;
+using DevFlow.Placements;
 using DevFlow.Projects;
 using DevFlow.PullRequests;
 using DevFlow.Reading;
@@ -128,6 +129,9 @@ public static class DevFlowApp
         builder.Services.AddSingleton(provider => new MachineEnrollments(database, provider.GetRequiredService<TimeProvider>()));
         builder.Services.AddMachineAuthentication();
         builder.Services.AddSingleton(provider => new MachineStore(database, provider.GetRequiredService<TimeProvider>()));
+        // Where each project's workers run, and the slots that follow. See "Workers" in
+        // devflow/README.md.
+        builder.Services.AddSingleton(provider => new PlacementStore(database, provider.GetRequiredService<TimeProvider>()));
         // The lines of each run's log as they are stored, which the live pages read. See "Jobs" in
         // devflow/README.md.
         builder.Services.AddSingleton(new RunLogFeed());
@@ -267,6 +271,7 @@ public static class DevFlowApp
         app.MapAttention();
         app.MapWorkers();
         app.MapMachines(settings.Release, new MachineInstall(settings.PublicOrigin, settings.LocalUrl));
+        app.MapPlacements();
         app.MapWatch();
         app.MapJobs();
         app.MapStops();

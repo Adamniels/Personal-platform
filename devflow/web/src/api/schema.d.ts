@@ -682,6 +682,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/projects/{id}/placements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Where a project's workers run
+         * @description The machines the project's workers are placed on, by when each was placed and then by when it enrolled, each with machine_id, name, as the machine last said, online, whether it was seen less than 60 seconds ago, and workers, how many of the project's workers it should run, 0 to 8. A machine the project is not placed on is not listed. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        get: operations["listPlacements"];
+        /**
+         * Place a project's workers on machines
+         * @description Takes the whole list, [{"machine_id", "workers"}], and replaces the project's placements with it: a machine left out is no longer placed. Each machine_id is one of the caller's machines, given once, and each workers a whole number from 0 to 8; else 422 naming the entry's field, [<index>].machine_id or [<index>].workers, another user's machine refused as one that does not exist. Brings the project's worker slots up to date at once, which the machine program reads. Answers the placements as listPlacements does. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        put: operations["savePlacements"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/projects/{id}/refresh": {
         parameters: {
             query?: never;
@@ -2163,6 +2187,20 @@ export interface components {
         };
         PauseRequest: {
             paused: null | boolean;
+        };
+        Placement: {
+            /** Format: uuid */
+            machine_id: string;
+            name: string;
+            online: boolean;
+            /** Format: int32 */
+            workers: number;
+        };
+        PlacementRequest: {
+            /** Format: uuid */
+            machine_id: null | string;
+            /** Format: double */
+            workers: null | number;
         };
         ProblemDetails: {
             detail?: null | string;
@@ -4631,6 +4669,95 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    listPlacements: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Placement"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    savePlacements: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["PlacementRequest"][];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Placement"][];
+                };
             };
             /** @description Unauthorized */
             401: {
