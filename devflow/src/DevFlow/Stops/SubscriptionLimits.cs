@@ -31,7 +31,7 @@ public static class SubscriptionLimits
             ON CONFLICT (user_id) DO UPDATE SET resets_at = EXCLUDED.resets_at, recorded_at = EXCLUDED.recorded_at
             WHERE subscription_limits.resets_at < EXCLUDED.resets_at
             """,
-            new { userId, resetsAt, now },
+            new { userId, resetsAt = resetsAt.ToUniversalTime(), now = now.ToUniversalTime() },
             transaction,
             cancellationToken: cancellationToken));
     }

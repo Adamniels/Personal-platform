@@ -61,10 +61,10 @@ public abstract record FreshKey
 /// everything that job needs from the code host is read, as the app, with a key for that kind, a
 /// feature's branch made for its first card, and only then is a card, or for a conflict a feature,
 /// of that kind taken, in one short transaction as the project's user, so no lock is held while
-/// GitHub is asked. That transaction reads the watch's hold, the pauses, the daily budget, the schedules and the
-/// credential again under the project's lock, so a stop, a pause or a schedule saved while GitHub was
-/// asked, or a window that ended meanwhile, still holds the card back, and a job never carries the key
-/// once the subscription's limit has reset. Anything the code host does not
+/// GitHub is asked. That transaction reads the watch's hold, the pauses, the daily budget, the schedules, the
+/// credential and the cap on the API key again under the project's lock, so a stop, a pause or a
+/// schedule saved while GitHub was asked, a window that ended or a cap reached meanwhile, still holds
+/// the card back, and a job never carries the key once the subscription's limit has reset. Anything the code host does not
 /// answer is no work now, and the worker asks again. See "Jobs" in devflow/README.md and "Handing
 /// out work" in devflow/docs/devflow-architecture.md.
 /// </summary>
@@ -206,14 +206,15 @@ public sealed partial class Dispatcher(
         {
             // The project's models and limits are read in the transaction that takes the work, so
             // the job carries them as they are now and the run keeps them whatever changes after.
-            // The daily budget and the credential are read again too, after the pauses took the
-            // project's row, so a run that finished, a budget lowered, or the subscription's limit
-            // reset meanwhile is seen.
+            // The daily budget, the credential and the cap on the key are read again too, after the
+            // pauses took the project's row, so a run that finished, a budget or a cap lowered, or
+            // the subscription's limit reset meanwhile is seen.
             if (await watch.HoldUnderLock(transaction, projectId, cancellationToken) != ProjectHold.None
                 || await Pauses.HeldUnderLock(transaction, projectId, cancellationToken) != PauseHold.None
                 || await Usage.DailyBudget.ReachedIn(transaction, projectId, now, cancellationToken) is not null
                 || await RunSettings.Read(transaction, projectId, cancellationToken) is not { } run
-                || !await Carries(transaction, run, credential, now, cancellationToken))
+                || !await Carries(transaction, run, credential, now, cancellationToken)
+                || await Usage.ApiCap.ReachedIn(transaction, projectId, now, cancellationToken) is not null)
             {
                 return null;
             }
@@ -355,7 +356,8 @@ public sealed partial class Dispatcher(
                 || await Usage.DailyBudget.ReachedIn(transaction, projectId, now, cancellationToken) is not null
                 || await Schedules.ScheduleStore.OutsideUnderLock(transaction, projectId, now, cancellationToken)
                 || await RunSettings.Read(transaction, projectId, cancellationToken) is not { } run
-                || !await Carries(transaction, run, credential, now, cancellationToken))
+                || !await Carries(transaction, run, credential, now, cancellationToken)
+                || await Usage.ApiCap.ReachedIn(transaction, projectId, now, cancellationToken) is not null)
             {
                 return null;
             }

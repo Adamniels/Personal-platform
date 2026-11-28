@@ -52,6 +52,7 @@ public sealed class RunSettingsTests
             ["questions"] = true,
             ["daily_token_budget"] = null,
             ["runs_on"] = "subscription",
+            ["api_daily_usd"] = null,
         };
         foreach (var (field, value) in changes)
         {

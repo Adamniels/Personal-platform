@@ -300,6 +300,7 @@ public sealed class RunDecisionTests
             (new WaitReason.NoClaudeLogin(Expired: false), "No Claude login", ActedOn.Settings),
             (new WaitReason.NoClaudeLogin(Expired: true), "The Claude login has expired", ActedOn.Settings),
             (new WaitReason.UsageLimit(new DateTimeOffset(2026, 11, 17, 14, 0, 0, TimeSpan.FromHours(1))), "At the usage limit, until Tue 14:00", ActedOn.RunsOn),
+            (new WaitReason.ApiCapReached(10.4m, 10m, new DateTimeOffset(2026, 11, 18, 0, 0, 0, TimeSpan.FromHours(1))), "API key spend reached for today, 10.40 of 10 USD", ActedOn.RunsOn),
             (new WaitReason.NoWorker("fodr"), "No worker is running for fodr", ActedOn.ProjectPage),
             (new WaitReason.WaitsForCard("#31"), "Waits for #31, which it depends on", ActedOn.Nowhere),
             (new WaitReason.WaitsForCard("Adamniels/elsewhere#5"), "Waits for Adamniels/elsewhere#5, which it depends on", ActedOn.Nowhere),

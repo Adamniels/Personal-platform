@@ -266,7 +266,7 @@ public sealed class ApiKeyTests
     {
         await using var admin = await routes.Database.OpenAdmin(Ct);
         await admin.ExecuteAsync(new CommandDefinition(
-            "UPDATE project_settings SET runs_on = @runsOn WHERE project_id = @project",
+            "UPDATE project_settings SET runs_on = @runsOn, api_daily_usd = CASE WHEN @runsOn = 'subscription' THEN NULL ELSE coalesce(api_daily_usd, 20) END WHERE project_id = @project",
             new { runsOn, project },
             cancellationToken: Ct));
     }

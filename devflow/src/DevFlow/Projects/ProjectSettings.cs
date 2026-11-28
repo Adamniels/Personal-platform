@@ -52,6 +52,8 @@ namespace DevFlow.Projects;
 /// default. Outside every preset. See <see cref="Usage.DailyBudget"/>.</param>
 /// <param name="RunsOn">What its runs log in with, one of <see cref="Projects.RunsOn.Values"/>, the
 /// subscription by default. Outside every preset.</param>
+/// <param name="ApiDailyUsd">Its daily cap on the API key, in whole US dollars, required on the key
+/// and null on the subscription alone. Outside every preset. See <see cref="Usage.ApiCap"/>.</param>
 public sealed record ProjectSettings(
     string PickupLabel,
     string HoldLabel,
@@ -73,7 +75,8 @@ public sealed record ProjectSettings(
     int FixRoundsFeature,
     bool Questions,
     long? DailyTokenBudget,
-    string RunsOn)
+    string RunsOn,
+    int? ApiDailyUsd = null)
 {
     /// <summary>The preset these settings match, or <c>custom</c>, never stored; see
     /// <see cref="Presets"/>.</summary>
@@ -92,7 +95,7 @@ public sealed record ProjectSettings(
         RunSettings.Defaults.Minutes, RunSettings.Defaults.Turns, RunSettings.Defaults.BudgetUsd, RunSettings.Defaults.FixRoundsCard, RunSettings.Defaults.FixRoundsFeature, true, null, Projects.RunsOn.Subscription);
 }
 
-/// <summary>What <c>PUT /devflow/api/projects/{id}/settings</c> takes: all twenty-one, every time,
+/// <summary>What <c>PUT /devflow/api/projects/{id}/settings</c> takes: all twenty-two, every time,
 /// the trusted accounts as plain logins. The daily budget may be null, for off, but is never left
 /// out: one left out is refused as the request's shape, so a client that does not know it never
 /// switches a budget off by saving.</summary>
@@ -117,7 +120,8 @@ public sealed record SettingsRequest(
     int? FixRoundsFeature,
     bool? Questions,
     [property: JsonRequired] long? DailyTokenBudget,
-    string? RunsOn)
+    string? RunsOn,
+    decimal? ApiDailyUsd = null)
 {
     /// <summary>
     /// The settings, with the trusted accounts to store, or what is wrong with each field, by its
@@ -136,8 +140,10 @@ public sealed record SettingsRequest(
     /// as any number, so that one with a fraction is refused naming it rather than as the request's
     /// shape, and must be whole. <c>questions</c> is given.
     /// <c>daily_token_budget</c> is null or as <see cref="Usage.DailyBudget.Holds"/> has it.
-    /// <c>runs_on</c> is one of <see cref="Projects.RunsOn.Values"/>, exactly; whether an API key is
-    /// given for <c>api_key</c> is the store's, under the key's lock, see
+    /// <c>runs_on</c> is one of <see cref="Projects.RunsOn.Values"/>, exactly, and
+    /// <c>api_daily_usd</c> as <see cref="Usage.ApiCap.ProblemOf"/> has it for that one, taken as any
+    /// number so one with a fraction is refused naming it; whether an API key is given for one on
+    /// the key is the store's, under the key's lock, see
     /// <see cref="ProjectSettingsStore.Save"/>.
     /// </summary>
     public (ProjectSettings? Settings, TrustedAccounts? Trusted, Dictionary<string, string[]> Errors) Check(string? mine)
@@ -222,6 +228,10 @@ public sealed record SettingsRequest(
         {
             errors["runs_on"] = [$"must be {string.Join(", ", Projects.RunsOn.Values.SkipLast(1))} or {Projects.RunsOn.Values[^1]}"];
         }
+        else if (Usage.ApiCap.ProblemOf(RunsOn, ApiDailyUsd) is { } wrongCap)
+        {
+            errors["api_daily_usd"] = [wrongCap];
+        }
 
         if (errors.Count > 0)
         {
@@ -234,7 +244,7 @@ public sealed record SettingsRequest(
             new ProjectSettings(
                 PickupLabel!, HoldLabel!, AttentionLabel!, ReviewLabel!, WaitsForOwner!, WaitWhenMarked!.Value, WaitWhenPaths!.Value, WaitWhenDecision!.Value, paths, trusted.Listed,
                 ModelReading!, ModelBuilding!, ModelReviewing!, RunMinutes!.Value, RunTurns!.Value, (int)RunBudgetUsd!.Value, FixRoundsCard!.Value, FixRoundsFeature!.Value, Questions!.Value,
-                DailyTokenBudget, RunsOn!),
+                DailyTokenBudget, RunsOn!, ApiDailyUsd is { } cap ? (int)cap : null),
             trusted,
             errors);
     }
@@ -326,7 +336,8 @@ public sealed class ProjectSettingsStore(UserDb database)
                    s.trusted_logins AS TrustedLogins, a.login AS Mine, s.model_reading AS ModelReading,
                    s.model_building AS ModelBuilding, s.model_reviewing AS ModelReviewing, s.run_minutes AS RunMinutes,
                    s.run_turns AS RunTurns, s.run_budget_usd AS RunBudgetUsd, s.fix_rounds_card AS FixRoundsCard, s.fix_rounds_feature AS FixRoundsFeature,
-                   s.questions AS Questions, s.daily_token_budget AS DailyTokenBudget, s.runs_on AS RunsOn
+                   s.questions AS Questions, s.daily_token_budget AS DailyTokenBudget, s.runs_on AS RunsOn,
+                   s.api_daily_usd AS ApiDailyUsd
             FROM project_settings s
             LEFT JOIN github_accounts a ON a.user_id = s.user_id
             WHERE s.project_id = @projectId
@@ -339,7 +350,7 @@ public sealed class ProjectSettingsStore(UserDb database)
             : new ProjectSettings(
                 row.PickupLabel, row.HoldLabel, row.AttentionLabel, row.ReviewLabel, row.WaitsForOwner, row.WaitWhenMarked, row.WaitWhenPaths,
                 row.WaitWhenDecision, row.WaitPaths, TrustedAccounts.Of(row.Mine, row.TrustedLogins).Listed, row.ModelReading, row.ModelBuilding,
-                row.ModelReviewing, row.RunMinutes, row.RunTurns, row.RunBudgetUsd, row.FixRoundsCard, row.FixRoundsFeature, row.Questions, row.DailyTokenBudget, row.RunsOn);
+                row.ModelReviewing, row.RunMinutes, row.RunTurns, row.RunBudgetUsd, row.FixRoundsCard, row.FixRoundsFeature, row.Questions, row.DailyTokenBudget, row.RunsOn, row.ApiDailyUsd);
     }
 
     /// <summary>The owner's linked login, whatever the link's state, or null without one.</summary>
@@ -392,7 +403,7 @@ public sealed class ProjectSettingsStore(UserDb database)
                 wait_when_decision = @WaitWhenDecision, wait_paths = @waitPaths, trusted_logins = @trustedLogins,
                 model_reading = @ModelReading, model_building = @ModelBuilding, model_reviewing = @ModelReviewing,
                 run_minutes = @RunMinutes, run_turns = @RunTurns, run_budget_usd = @RunBudgetUsd, fix_rounds_card = @FixRoundsCard, fix_rounds_feature = @FixRoundsFeature,
-                questions = @Questions, daily_token_budget = @DailyTokenBudget, runs_on = @RunsOn,
+                questions = @Questions, daily_token_budget = @DailyTokenBudget, runs_on = @RunsOn, api_daily_usd = @ApiDailyUsd,
                 accepted_at = coalesce(accepted_at, CASE WHEN EXISTS (SELECT 1 FROM projects p WHERE p.id = @projectId AND {Setup.SetupStore.SettingsDueSql}) THEN @now END)
             WHERE project_id = @projectId
             """,
@@ -420,6 +431,7 @@ public sealed class ProjectSettingsStore(UserDb database)
                 settings.Questions,
                 settings.DailyTokenBudget,
                 settings.RunsOn,
+                settings.ApiDailyUsd,
                 now,
             },
             transaction,
@@ -461,5 +473,6 @@ public sealed class ProjectSettingsStore(UserDb database)
         public bool Questions { get; init; }
         public long? DailyTokenBudget { get; init; }
         public string RunsOn { get; init; } = "";
+        public int? ApiDailyUsd { get; init; }
     }
 }

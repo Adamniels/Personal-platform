@@ -56,6 +56,7 @@ public sealed class SometimesSettingsTests
             ["questions"] = true,
             ["daily_token_budget"] = null,
             ["runs_on"] = "subscription",
+            ["api_daily_usd"] = null,
         };
 
     /// <summary>What the route answers for <paramref name="body"/>: the settings, and the preset

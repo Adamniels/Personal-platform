@@ -144,6 +144,18 @@ public abstract record WaitReason
         public override ActedOn Where => ActedOn.RunsOn;
     }
 
+    /// <summary>The project's jobs carry the API key, and its runs on the key that finished today, in
+    /// the user's zone, cost <paramref name="Spent"/> US dollars, at least its daily cap,
+    /// <paramref name="Cap"/>; it lifts at <paramref name="LiftsAt"/>, the next midnight there or,
+    /// for a project continuing on the key, the subscription's reset when that comes first, in the
+    /// zone's own offset. See <see cref="Usage.ApiCap"/>.</summary>
+    public sealed record ApiCapReached(decimal Spent, decimal Cap, DateTimeOffset LiftsAt) : WaitReason
+    {
+        public override string Sentence => string.Create(CultureInfo.InvariantCulture, $"API key spend reached for today, {Spent:0.00} of {Cap:0.##} USD");
+
+        public override ActedOn Where => ActedOn.RunsOn;
+    }
+
     /// <summary>No worker of <paramref name="Project"/> was seen in the last
     /// <see cref="RunStore.Silence"/>.</summary>
     public sealed record NoWorker(string Project) : WaitReason
@@ -244,6 +256,9 @@ public enum SetupGate
 /// subscription waits for the Claude login.</param>
 /// <param name="Limited">Until when the user's subscription is limited, by
 /// <see cref="Stops.SubscriptionLimits"/>, in their zone's own offset; null when it is not.</param>
+/// <param name="ApiCap">Why the project waits for its daily cap on the API key, its jobs carrying
+/// the key and its runs on it having cost the cap today, by <see cref="Usage.ApiCap"/>; null
+/// otherwise.</param>
 public sealed record ProjectSituation(
     string Project,
     bool NeedsRebuild,
@@ -262,7 +277,8 @@ public sealed record ProjectSituation(
     string? RunNowKind = null,
     WaitReason.BudgetReached? Budget = null,
     string RunsOn = Projects.RunsOn.Subscription,
-    DateTimeOffset? Limited = null);
+    DateTimeOffset? Limited = null,
+    WaitReason.ApiCapReached? ApiCap = null);
 
 /// <summary>A card's decision, and the kind of job due for it, null for one that waits for another
 /// card with none due.</summary>
@@ -286,7 +302,7 @@ public static class RunDecision
     /// lately; it waits after failures outside its cards, other than a usage limit; the worker's
     /// setup version has no check that passed, when a check due is what runs, since it runs no agent
     /// and needs no Claude login, once a worker of the project was seen lately; no Claude login, or
-    /// one past its renewal, for a project whose jobs carry the subscription; Claude's usage limit, for one on the subscription alone; no worker of the project seen lately. Past them a worker built from no recipe runs the setup's
+    /// one past its renewal, for a project whose jobs carry the subscription; Claude's usage limit, for one on the subscription alone; the daily cap on the API key, for one whose jobs carry the key; no worker of the project seen lately. Past them a worker built from no recipe runs the setup's
     /// next job, and any other the cards' next, or nothing when there is none.
     /// </summary>
     public static Decision Of(ProjectSituation situation)
@@ -371,6 +387,11 @@ public static class RunDecision
             return new Decision.Wait(limit);
         }
 
+        if (situation.ApiCap is { } cap)
+        {
+            return new Decision.Wait(cap);
+        }
+
         if (!situation.WorkerSeen)
         {
             return new Decision.Wait(new WaitReason.NoWorker(situation.Project));
@@ -438,7 +459,7 @@ public static class RunDecision
     private static async Task<ProjectSituation?> Read(UserDb database, Guid userId, Guid projectId, Guid? workerId, string image, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
-        var (row, schedule, budget, zone, limited) = await database.InUserTransaction(userId, async transaction =>
+        var (row, schedule, budget, zone, limited, onTheKey) = await database.InUserTransaction(userId, async transaction =>
         {
             // The dispatcher ends every override with nothing left to run before it reads anything,
             // so one that ended never covers a card added or sent back later; the page only reads.
@@ -480,12 +501,12 @@ public static class RunDecision
                 cancellationToken: cancellationToken));
             if (row is null)
             {
-                return (row, null, null, TimeZoneInfo.Utc, null);
+                return (row, null, null, TimeZoneInfo.Utc, null, null);
             }
 
             var limited = await Stops.SubscriptionLimits.UntilIn(transaction, now, cancellationToken);
             return ((SituationRow?)row, await Schedules.ScheduleStore.StateIn(transaction, projectId, now, cancellationToken), await Usage.DailyBudget.ReachedIn(transaction, projectId, now, cancellationToken),
-                await DevFlowTime.ZoneOf(transaction, cancellationToken), limited);
+                await DevFlowTime.ZoneOf(transaction, cancellationToken), limited, await Usage.ApiCap.StateIn(transaction, projectId, limited, now, cancellationToken));
         }, cancellationToken);
         if (row is null)
         {
@@ -503,7 +524,7 @@ public static class RunDecision
             : null;
         return new ProjectSituation(row.Project, row.Rebuild is not null, WatchStore.Read(row.Hold), wait, setup, row.SetupKind, login, row.WorkerSeen, row.NextKind, row.Version, now, Pauses.Read(row.Pause),
             schedule is null ? null : Schedules.Schedule.Reason(schedule), row.RunNow, row.RunNowKind, budget, row.RunsOn ?? Projects.RunsOn.Subscription,
-            limited is { } until ? TimeZoneInfo.ConvertTime(until, zone) : null);
+            limited is { } until ? TimeZoneInfo.ConvertTime(until, zone) : null, onTheKey?.Reached);
     }
 
     private static DateTimeOffset Utc(DateTime at) => new(DateTime.SpecifyKind(at, DateTimeKind.Utc));

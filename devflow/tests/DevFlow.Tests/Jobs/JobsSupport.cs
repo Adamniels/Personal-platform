@@ -302,7 +302,7 @@ internal sealed class Jobs : IAsyncDisposable
         await Routes.App.Services.GetRequiredService<ApiKeys>().Set(User, ApiKey, Ct);
         await using var admin = await Routes.Database.OpenAdmin(Ct);
         await admin.ExecuteAsync(new CommandDefinition(
-            "UPDATE project_settings SET runs_on = @runsOn WHERE project_id = @project",
+            "UPDATE project_settings SET runs_on = @runsOn, api_daily_usd = CASE WHEN @runsOn = 'subscription' THEN NULL ELSE coalesce(api_daily_usd, 20) END WHERE project_id = @project",
             new { project = project ?? Project, runsOn },
             cancellationToken: Ct));
     }
