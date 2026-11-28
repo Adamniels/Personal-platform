@@ -370,15 +370,26 @@ public static class JobStore
     /// <summary>The kind of job project <c>@projectId</c> has to hand out, as SQL, with
     /// <c>@watchedSince</c>, in <see cref="NextKind"/>'s order; null when it has none. The one
     /// statement of that order, which <see cref="RunDecision"/> reads too.</summary>
-    internal const string NextKindSql = $"""
-        CASE WHEN EXISTS (SELECT 1 FROM cards WHERE {Reviewable}) THEN 'review'
-             WHEN EXISTS (SELECT 1 FROM features WHERE {FeatureReviewable}) THEN 'feature_review'
-             WHEN EXISTS (SELECT 1 FROM cards WHERE {Fixable}) THEN 'fix'
-             WHEN EXISTS (SELECT 1 FROM features WHERE {FeatureFixable}) THEN 'feature_fix'
-             WHEN EXISTS (SELECT 1 FROM features WHERE {Resolvable}) THEN 'conflict'
+    internal static readonly string NextKindSql = NextKindWhere("", "");
+
+    /// <summary>The kind of job project <c>@projectId</c> has to hand out among the jobs an
+    /// override of its schedules covers, <see cref="RunNowStore.CoversCard"/> and
+    /// <see cref="RunNowStore.CoversFeature"/>, in the same order, as SQL with
+    /// <c>@watchedSince</c>; null when it has none. What <see cref="RunDecision"/> runs while the
+    /// project is outside its schedules.</summary>
+    internal static readonly string RunNowKindSql = NextKindWhere($" AND {RunNowStore.CoversCard}", $" AND {RunNowStore.CoversFeature}");
+
+    /// <summary>The order of <see cref="NextKind"/>, as SQL, each card's condition followed by
+    /// <paramref name="card"/> and each feature's by <paramref name="feature"/>.</summary>
+    private static string NextKindWhere(string card, string feature) => $"""
+        CASE WHEN EXISTS (SELECT 1 FROM cards WHERE {Reviewable}{card}) THEN 'review'
+             WHEN EXISTS (SELECT 1 FROM features WHERE {FeatureReviewable}{feature}) THEN 'feature_review'
+             WHEN EXISTS (SELECT 1 FROM cards WHERE {Fixable}{card}) THEN 'fix'
+             WHEN EXISTS (SELECT 1 FROM features WHERE {FeatureFixable}{feature}) THEN 'feature_fix'
+             WHEN EXISTS (SELECT 1 FROM features WHERE {Resolvable}{feature}) THEN 'conflict'
              WHEN NOT {SettingsAccepted} THEN NULL
-             WHEN EXISTS (SELECT 1 FROM cards WHERE {Readings.ReadingStore.Due}) THEN 'read'
-             WHEN EXISTS (SELECT 1 FROM cards WHERE {Buildable}) THEN 'build' END
+             WHEN EXISTS (SELECT 1 FROM cards WHERE {Readings.ReadingStore.Due}{card}) THEN 'read'
+             WHEN EXISTS (SELECT 1 FROM cards WHERE {Buildable}{card}) THEN 'build' END
         """;
 
     /// <summary>The kind of job the project has to hand out now, <see cref="DevFlow.Protocol.Job.Review"/>,
@@ -411,7 +422,7 @@ public static class JobStore
     /// check. The card stays <c>reviewing</c>, the run under way holding it. Null when there is
     /// none.
     /// </summary>
-    public static async Task<ClaimedReview?> ClaimReview(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, RunSettings run, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<ClaimedReview?> ClaimReview(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, RunSettings run, DateTimeOffset now, bool runNowOnly, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(transaction);
         var card = await transaction.Connection!.QuerySingleOrDefaultAsync<ToReview>(new CommandDefinition(
@@ -424,12 +435,12 @@ public static class JobStore
                           WHERE runs.project_id = cards.project_id AND runs.card_number = cards.number
                             AND runs.kind IN ('build', 'fix') AND runs.result = 'succeeded'
                           ORDER BY runs.started_at DESC, runs.id DESC LIMIT 1) b ON true
-            WHERE {Reviewable} AND b.report IS NOT NULL AND b.check_exit_code IS NOT NULL
+            WHERE {Reviewable} AND {RunNowStore.OnlyCards} AND b.report IS NOT NULL AND b.check_exit_code IS NOT NULL
             ORDER BY {CardStore.QueueOrder}
             LIMIT 1
             FOR UPDATE OF cards SKIP LOCKED
             """,
-            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now) },
+            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now), runNowOnly },
             transaction,
             cancellationToken: cancellationToken));
         if (card is null)
@@ -490,7 +501,7 @@ public static class JobStore
     /// <paramref name="check"/> its job carries. The
     /// card stays <c>fixing</c>, the run under way holding it. Null when there is none.
     /// </summary>
-    public static async Task<ClaimedFix?> ClaimFix(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, RunSettings run, string check, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<ClaimedFix?> ClaimFix(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, RunSettings run, string check, DateTimeOffset now, bool runNowOnly, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(transaction);
         ArgumentNullException.ThrowIfNull(check);
@@ -506,12 +517,12 @@ public static class JobStore
             JOIN LATERAL (SELECT branch, base FROM runs
                           WHERE runs.project_id = cards.project_id AND runs.card_number = cards.number AND runs.kind = 'build'
                           ORDER BY runs.started_at DESC, runs.id DESC LIMIT 1) b ON true
-            WHERE {Fixable}
+            WHERE {Fixable} AND {RunNowStore.OnlyCards}
             ORDER BY {CardStore.QueueOrder}
             LIMIT 1
             FOR UPDATE OF cards SKIP LOCKED
             """,
-            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now) },
+            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now), runNowOnly },
             transaction,
             cancellationToken: cancellationToken));
         if (card is null)
@@ -561,18 +572,18 @@ public static class JobStore
     /// <summary>The project's first feature to resolve, by <see cref="CardStore.QueueOrder"/>, read
     /// without a lock as the project's user, so the files in conflict can be read from the code host
     /// before anything is taken; null when there is none.</summary>
-    public static async Task<DueConflict?> ConflictDue(UserDb database, Guid userId, Guid projectId, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<DueConflict?> ConflictDue(UserDb database, Guid userId, Guid projectId, DateTimeOffset now, bool runNowOnly, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
         return await database.InUserTransaction(userId, transaction => transaction.Connection!.QuerySingleOrDefaultAsync<DueConflict>(new CommandDefinition(
             $"""
             SELECT features.id AS Id, {FeatureHeadOf} AS FeatureCommit, {DefaultHeadOf} AS DefaultCommit
             FROM features
-            WHERE {Resolvable}
+            WHERE {Resolvable} AND {RunNowStore.OnlyFeatures}
             ORDER BY {CardStore.QueueOrder}
             LIMIT 1
             """,
-            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now) },
+            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now), runNowOnly },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);
     }
@@ -589,7 +600,7 @@ public static class JobStore
     /// another transaction holds it, or when either commit has moved since, so the files read for it
     /// are never handed out with other commits.
     /// </summary>
-    public static async Task<ClaimedConflict?> ClaimConflict(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, RunSettings run, DueConflict due, string defaultBranch, string check, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<ClaimedConflict?> ClaimConflict(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, RunSettings run, DueConflict due, string defaultBranch, string check, DateTimeOffset now, bool runNowOnly, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(transaction);
         ArgumentNullException.ThrowIfNull(due);
@@ -601,10 +612,10 @@ public static class JobStore
                    coalesce(features.picked_body, '') AS Body, features.branch AS Branch,
                    {FeatureHeadOf} AS FeatureCommit, {DefaultHeadOf} AS DefaultCommit
             FROM features
-            WHERE {Resolvable} AND features.id = @id AND {FeatureHeadOf} = @featureCommit AND {DefaultHeadOf} = @defaultCommit
+            WHERE {Resolvable} AND {RunNowStore.OnlyFeatures} AND features.id = @id AND {FeatureHeadOf} = @featureCommit AND {DefaultHeadOf} = @defaultCommit
             FOR UPDATE OF features SKIP LOCKED
             """,
-            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now), id = due.Id, featureCommit = due.FeatureCommit, defaultCommit = due.DefaultCommit },
+            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now), runNowOnly, id = due.Id, featureCommit = due.FeatureCommit, defaultCommit = due.DefaultCommit },
             transaction,
             cancellationToken: cancellationToken));
         if (feature is null)
@@ -670,7 +681,7 @@ public static class JobStore
     /// The feature's earlier fix rounds are read too, by <see cref="FeatureEarlier"/>.
     /// The feature stays <c>reviewing</c>, the run under way holding it. Null when there is none.
     /// </summary>
-    public static async Task<ClaimedFeatureReview?> ClaimFeatureReview(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, RunSettings run, string defaultBranch, string check, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<ClaimedFeatureReview?> ClaimFeatureReview(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, RunSettings run, string defaultBranch, string check, DateTimeOffset now, bool runNowOnly, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(transaction);
         ArgumentException.ThrowIfNullOrEmpty(defaultBranch);
@@ -680,12 +691,12 @@ public static class JobStore
             SELECT features.id AS Id, features.number AS Number, coalesce(features.picked_title, features.title) AS Title,
                    coalesce(features.picked_body, '') AS Body, features.branch AS Branch, features.review_commit AS Commit
             FROM features
-            WHERE {FeatureReviewable}
+            WHERE {FeatureReviewable} AND {RunNowStore.OnlyFeatures}
             ORDER BY {CardStore.QueueOrder}
             LIMIT 1
             FOR UPDATE OF features SKIP LOCKED
             """,
-            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now) },
+            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now), runNowOnly },
             transaction,
             cancellationToken: cancellationToken));
         if (feature is null)
@@ -799,7 +810,7 @@ public static class JobStore
     /// report of the feature's newest fix that succeeded and the review it answers. The feature stays
     /// <c>fixing</c>, the run under way holding it. Null when there is none.
     /// </summary>
-    public static async Task<ClaimedFeatureFix?> ClaimFeatureFix(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, RunSettings run, string defaultBranch, string check, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<ClaimedFeatureFix?> ClaimFeatureFix(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, RunSettings run, string defaultBranch, string check, DateTimeOffset now, bool runNowOnly, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(transaction);
         ArgumentException.ThrowIfNullOrEmpty(defaultBranch);
@@ -814,12 +825,12 @@ public static class JobStore
                     WHERE r.project_id = features.project_id AND r.feature_number = features.number AND r.kind = 'feature_fix' AND r.result = 'succeeded'
                     ORDER BY r.started_at DESC, r.id DESC LIMIT 1) AS Report
             FROM features
-            WHERE {FeatureFixable}
+            WHERE {FeatureFixable} AND {RunNowStore.OnlyFeatures}
             ORDER BY {CardStore.QueueOrder}
             LIMIT 1
             FOR UPDATE OF features SKIP LOCKED
             """,
-            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now) },
+            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now), runNowOnly },
             transaction,
             cancellationToken: cancellationToken));
         if (feature is null)
@@ -917,7 +928,7 @@ public static class JobStore
     /// landed goes on a new branch, by <see cref="Branch"/>, and carries the pull request it landed
     /// in, the report it landed with and the owner's comments that sent it back.
     /// </summary>
-    public static async Task<ClaimedCard?> Claim(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, RunSettings run, string baseBranch, string check, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<ClaimedCard?> Claim(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, RunSettings run, string baseBranch, string check, DateTimeOffset now, bool runNowOnly, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(transaction);
         ArgumentException.ThrowIfNullOrEmpty(baseBranch);
@@ -931,12 +942,12 @@ public static class JobStore
                     WHERE r.project_id = cards.project_id AND r.card_number = cards.number AND r.kind IN ('build', 'fix') AND r.result = 'succeeded'
                     ORDER BY r.started_at DESC, r.id DESC LIMIT 1) AS Report
             FROM cards
-            WHERE {Takeable}
+            WHERE {Takeable} AND {RunNowStore.OnlyCards}
             ORDER BY {CardStore.QueueOrder}
             LIMIT 1
             FOR UPDATE SKIP LOCKED
             """,
-            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now) },
+            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now), runNowOnly },
             transaction,
             cancellationToken: cancellationToken));
         if (card is null)

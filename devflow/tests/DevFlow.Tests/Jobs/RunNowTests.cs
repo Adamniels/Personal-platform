@@ -26,6 +26,65 @@ public sealed class RunNowTests
     private static CancellationToken Ct => Jobs.Ct;
 
     [Fact]
+    public async Task AFeatureRunsOutsideItsSchedule()
+    {
+        // Feature 10 with cards 11 and 12, and card 20 on its own beside it.
+        await using var jobs = await Jobs.Start([
+            Jobs.Card(20),
+            FeatureJobs.Parent(10, "Dev flow: features", [11, 12]),
+            FeatureJobs.Sub(11),
+            FeatureJobs.Sub(12),
+        ]);
+        await jobs.SayHello(Jobs.SecondWorker);
+        await Outside(jobs);
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next()).Response.StatusCode);
+        Assert.Equal(new Decision.Wait(new WaitReason.OutsideSchedule(null)), await Rule(jobs));
+
+        // Run now anyway on the feature: its first card is built.
+        Assert.Equal(StatusCodes.Status204NoContent, (await RunNow(jobs, Feature, 10)).Response.StatusCode);
+        var job = await jobs.Job();
+        Assert.Equal(Job.Build, (string)job["kind"]!);
+        Assert.Equal(11, (int)job["card"]!["number"]!);
+
+        // The second worker gets nothing: 12 waits for 11, and 20 keeps to the schedule, which
+        // Running now's queue says of it, and of nothing of the feature.
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next(Jobs.SecondWorker)).Response.StatusCode);
+        var next = await NextUp(jobs);
+        Assert.Equal("No schedule is on", (string?)next[20]["reason"]);
+        Assert.Equal("Waits for #11, which it depends on", (string?)next[12]["reason"]);
+
+        // 11 done, the feature's next card is handed out, and still not 20.
+        await FeatureJobs.Finish(jobs, 11, "done");
+        Assert.Equal(12, (int)(await jobs.Job(Jobs.SecondWorker))["card"]!["number"]!);
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next()).Response.StatusCode);
+        Assert.Equal("queued", (await jobs.Card(20)).State);
+        Assert.DoesNotContain(await jobs.Runs(), run => run.CardNumber == 20);
+    }
+
+    [Fact]
+    public async Task ACardRunsOutsideItsSchedule()
+    {
+        await using var jobs = await Jobs.Start([Jobs.Card(4), Jobs.Card(5)]);
+        await Outside(jobs);
+
+        // Run now anyway on card 4: it is built, its pull request reviewed, and its fix run, each
+        // outside the schedule.
+        Assert.Equal(StatusCodes.Status204NoContent, (await RunNow(jobs, Card, 4)).Response.StatusCode);
+        var built = await Built.Run(jobs, Built.Prepared(Built.Report()));
+        Assert.Equal(4, (int)built["card"]!);
+        Assert.Equal("reviewing", (await Built.Card(jobs, 4)).State);
+        await Built.Review(jobs, Built.Verdict("changes"));
+        Assert.Equal("fixing", (await Built.Card(jobs, 4)).State);
+        await Fixed.Fix(jobs);
+        Assert.Equal(["build", "review", "fix"], (await jobs.Runs()).Select(run => run.Kind));
+
+        // Card 5 was never handed out, and keeps to the schedule.
+        Assert.Equal("queued", (await jobs.Card(5)).State);
+        Assert.DoesNotContain(await jobs.Runs(), run => run.CardNumber == 5);
+        Assert.Equal("No schedule is on", (string?)(await NextUp(jobs))[5]["reason"]);
+    }
+
+    [Fact]
     public async Task ItEndsWhenNothingIsLeftToRun()
     {
         // Card 13 is written, but not yet a sub-issue of feature 10.
@@ -72,6 +131,30 @@ public sealed class RunNowTests
         await Schedule(jobs, "always");
         await jobs.SayHello(Jobs.SecondWorker);
         Assert.Equal([4, 13], new[] { (int)(await jobs.Job())["card"]!["number"]!, (int)(await jobs.Job(Jobs.SecondWorker))["card"]!["number"]! }.Order());
+    }
+
+    [Fact]
+    public async Task ItOverridesOnlyTheSchedule()
+    {
+        await using var jobs = await Jobs.Start([FeatureJobs.Parent(10, "Dev flow: features", [11]), FeatureJobs.Sub(11)]);
+        await Outside(jobs);
+        Assert.Equal(StatusCodes.Status204NoContent, (await RunNow(jobs, Feature, 10)).Response.StatusCode);
+
+        // Paused, the feature with the override gets nothing.
+        await PauseTests.Pause(jobs, true);
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next()).Response.StatusCode);
+        Assert.Equal(new Decision.Wait(new WaitReason.Paused()), await Rule(jobs));
+        await PauseTests.Pause(jobs, false);
+
+        // Nor with everything paused.
+        await PauseTests.PauseAll(jobs, true);
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next()).Response.StatusCode);
+        Assert.Equal(new Decision.Wait(new WaitReason.AllPaused()), await Rule(jobs));
+        Assert.Empty(await jobs.Runs());
+
+        // Continued, it runs outside the schedule again.
+        await PauseTests.PauseAll(jobs, false);
+        Assert.Equal(11, (int)(await jobs.Job())["card"]!["number"]!);
     }
 
     [Fact]

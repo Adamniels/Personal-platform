@@ -350,7 +350,7 @@ public sealed class FixTests
         var commit = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var claim = door.InUserTransaction(Jobs.Jobs.User, async transaction =>
         {
-            var fix = await DevFlow.Jobs.JobStore.ClaimFix(transaction, jobs.Project, Jobs.Jobs.User, Jobs.Jobs.FirstWorker, DevFlow.Projects.RunSettings.Defaults, Jobs.Jobs.Check, jobs.Routes.Time.GetUtcNow(), Ct);
+            var fix = await DevFlow.Jobs.JobStore.ClaimFix(transaction, jobs.Project, Jobs.Jobs.User, Jobs.Jobs.FirstWorker, DevFlow.Projects.RunSettings.Defaults, Jobs.Jobs.Check, jobs.Routes.Time.GetUtcNow(), false, Ct);
             claimedIt.SetResult(fix);
             await commit.Task;
             return fix;

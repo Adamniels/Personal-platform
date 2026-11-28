@@ -79,7 +79,7 @@ public static class NextUp
                 continue;
             }
 
-            var decisions = await RunDecision.Cards(database, userId, projectId, RunDecision.Of(situation), now, cancellationToken);
+            var decisions = await RunDecision.Cards(database, userId, projectId, situation, cancellationToken);
             if (decisions.Count > 0)
             {
                 queues.Add(await Queue(database, userId, projectId, situation.Project, decisions, cancellationToken));

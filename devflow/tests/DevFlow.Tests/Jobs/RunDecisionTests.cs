@@ -105,6 +105,34 @@ public sealed class RunDecisionTests
     }
 
     [Fact]
+    public void OutsideTheScheduleAnOverrideRunsOnlyWhatItCovers()
+    {
+        var outside = new WaitReason.OutsideSchedule(null);
+        var covered = Free with { Outside = outside, RunNow = true, RunNowKind = DevFlow.Protocol.Job.Fix };
+
+        // Without an override, outside waits; with one, the covered kind runs, not the project's
+        // next.
+        Assert.Equal(new Decision.Wait(outside), RunDecision.Of(Free with { Outside = outside, RunNowKind = DevFlow.Protocol.Job.Fix }));
+        Assert.Equal(new Decision.Run(DevFlow.Protocol.Job.Fix), RunDecision.Of(covered));
+
+        // An override with nothing covered due is idle, so each card says its own wait.
+        Assert.Equal(new Decision.Idle(), RunDecision.Of(covered with { RunNowKind = null }));
+
+        // The gates after the schedule still hold: a check or a setup's job is never covered and
+        // waits for the schedule, and a missing login is said as it is.
+        Assert.Equal(new Decision.Wait(outside), RunDecision.Of(covered with { Setup = SetupGate.CheckDue }));
+        Assert.Equal(new Decision.Wait(outside), RunDecision.Of(covered with { Setup = SetupGate.NotSetUp, SetupKind = DevFlow.Setup.SetupRunStore.SetupKind }));
+        Assert.Equal(new Decision.Wait(new WaitReason.NoClaudeLogin(Expired: false)), RunDecision.Of(covered with { Login = ClaudeLoginState.None }));
+
+        // The pauses come first.
+        Assert.Equal(new Decision.Wait(new WaitReason.Paused()), RunDecision.Of(covered with { Pause = PauseHold.Paused }));
+        Assert.Equal(new Decision.Wait(new WaitReason.AllPaused()), RunDecision.Of(covered with { Pause = PauseHold.AllPaused }));
+
+        // Inside the schedule an override changes nothing.
+        Assert.Equal(RunDecision.Of(Free), RunDecision.Of(Free with { RunNow = true, RunNowKind = DevFlow.Protocol.Job.Fix }));
+    }
+
+    [Fact]
     public async Task EachCardReason()
     {
         // Card 1 is blocked on GitHub by card 2; feature 10's second card follows one that needs
@@ -195,8 +223,9 @@ public sealed class RunDecisionTests
 
         // The worker asking is seen first, as the dispatcher marks it, and then the rule is asked.
         await Sql(jobs, "UPDATE workers SET last_seen_at = @now WHERE id = @worker", new { now = jobs.Routes.Time.GetUtcNow(), worker });
-        var rule = RunDecision.Of(await Situation(jobs, worker));
-        var cards = await RunDecision.Cards(jobs.Routes.Door, Jobs.User, jobs.Project, rule, jobs.Routes.Time.GetUtcNow(), Ct);
+        var situation = await Situation(jobs, worker);
+        var rule = RunDecision.Of(situation);
+        var cards = await RunDecision.Cards(jobs.Routes.Door, Jobs.User, jobs.Project, situation, Ct);
         var firstToRun = cards.FirstOrDefault(card => card.Decision is Decision.Run);
 
         var response = await jobs.Next(worker);
@@ -299,8 +328,7 @@ public sealed class RunDecisionTests
     /// <summary>Each card's decision, by number, for the project as its first worker finds it.</summary>
     private static async Task<Dictionary<int, Decision>> CardDecisions(Jobs jobs)
     {
-        var project = RunDecision.Of(await Situation(jobs, Jobs.FirstWorker));
-        var cards = await RunDecision.Cards(jobs.Routes.Door, Jobs.User, jobs.Project, project, jobs.Routes.Time.GetUtcNow(), Ct);
+        var cards = await RunDecision.Cards(jobs.Routes.Door, Jobs.User, jobs.Project, await Situation(jobs, Jobs.FirstWorker), Ct);
         return cards.ToDictionary(card => card.Number, card => card.Decision);
     }
 

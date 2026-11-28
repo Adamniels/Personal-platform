@@ -191,7 +191,7 @@ public static class ReadingStore
     /// for it.
     /// Null when there is none.
     /// </summary>
-    public static async Task<ClaimedRead?> Claim(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, RunSettings run, string defaultBranch, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<ClaimedRead?> Claim(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, RunSettings run, string defaultBranch, DateTimeOffset now, bool runNowOnly, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(transaction);
         ArgumentNullException.ThrowIfNull(run);
@@ -200,12 +200,12 @@ public static class ReadingStore
         var first = await transaction.Connection!.QuerySingleOrDefaultAsync<FirstCard>(new CommandDefinition(
             $"""
             SELECT number AS Number, feature_id AS FeatureId, {ReadAgain} AS Again, {IsRead} AS WasRead, {FeatureRead} AS FeatureRead FROM cards
-            WHERE {Due}
+            WHERE {Due} AND {Jobs.RunNowStore.OnlyCards}
             ORDER BY {CardStore.QueueOrder}
             LIMIT 1
             FOR UPDATE SKIP LOCKED
             """,
-            new { projectId, watchedSince },
+            new { projectId, watchedSince, runNowOnly },
             transaction,
             cancellationToken: cancellationToken));
         if (first is null)
