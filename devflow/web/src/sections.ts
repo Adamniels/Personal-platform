@@ -32,6 +32,11 @@ export const SECTIONS: readonly Section[] = [
 		label: "Usage and history",
 		path: "/devflow/usage",
 	},
+	{
+		key: "machines",
+		label: "Machines",
+		path: "/devflow/machines",
+	},
 ];
 
 /** The section an address names, a trailing slash aside, or undefined when

@@ -150,6 +150,14 @@ PAGES = [
         True,
         text("Nothing used in the last 30 days"),
     ),
+    # A fresh account has no machine; the tab with two, one online, is held to
+    # the look in test_devflow.py.
+    Entry(
+        "dev flow: machines",
+        "/devflow/machines",
+        True,
+        text("No machine yet"),
+    ),
     # A fresh account has no feature, so its page is opened in the state it
     # shows one it does not have; the page with a feature's cards and decisions
     # is held to the look in test_devflow.py.

@@ -182,7 +182,7 @@ public static class FakeEndpoints
 
             var userId = context.UserId();
             var aged = await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
-                "UPDATE machines SET last_seen_at = @seenAt, first_seen_at = least(first_seen_at, @seenAt) WHERE id = @machineId",
+                "UPDATE machines SET last_seen_at = @seenAt WHERE id = @machineId",
                 new { machineId = body!.MachineId, seenAt = time.GetUtcNow() - TimeSpan.FromMinutes(body.Minutes) },
                 transaction,
                 cancellationToken: context.RequestAborted)), context.RequestAborted);

@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 27
+Last updated: 2026 11 28
 
 These are planning notes, not specifications. Everything here is the current best idea with the
 reasoning attached, and it is expected to change as building teaches things planning could not.
@@ -122,7 +122,8 @@ features" in `High-level/docs/platform-architecture.md`.
   route and its tables, what waits for the owner, the loop that
   reads it and refreshing a project, merging and sending back from the page and what each refusal
   means, a project's worker key, the worker scheme and the worker API with their routes and
-  tables, the pull request Dev flow opens for a built card, with its body, the screenshots the worker
+  tables, machines, with the code a machine enrols with, its key, the machine scheme, its routes,
+  its tables and the Machines tab, the pull request Dev flow opens for a built card, with its body, the screenshots the worker
   takes of a built card's pages, with `start`, `url` and `DEVFLOW=1`, and the developer's own look at
   its pages before it reports, a card's page, a feature's page with sending a landed card back
   from it, and
@@ -156,7 +157,9 @@ features" in `High-level/docs/platform-architecture.md`.
   watching the default branch, what is fine there, what stops a project and how it is resumed,
   and a feature's branch, watched from its creation, with why a job's own push is judged when its
   run ends and why a stop on one branch is never replaced by another's, workers
-  and how a worker's key leads to its project's user, the worker
+  and how a worker's key leads to its project's user, machines, with why one is enrolled with a
+  one-time code, why its key and its scheme copy the worker's, outbound only and the platform's own
+  machine, the worker
   program, the agent interface and the rule a run succeeds by, setting up a project, with why it is a
   worker's job, why every version of `.devflow/` is checked once and first and why the version covers
   `project.json`, why a project's values are a step that holds nothing back, sealed in their project's own table and scrubbed in two places with one function, a build job's two users, why its

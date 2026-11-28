@@ -1,0 +1,117 @@
+/* The "Machines" tab. Tokens only, design/DESIGN.md. */
+
+/* "Add a machine", then the card of machines, --space-4 apart. */
+.machines {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	min-width: 0;
+}
+
+/* The tab's one action, on the right, as the page header's actions sit. */
+.bar {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: var(--space-2);
+}
+
+.card {
+	min-width: 0;
+}
+
+/* The machines, each an inset, hard rule 3. */
+.list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--inset-gap);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.machine {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-width: 0;
+	padding: 8px 12px;
+	border-radius: var(--radius-md);
+	background: var(--surface-2);
+}
+
+/* The name on the left, Remove on the right, wrapping under it on a narrow
+ * row rather than pushing it sideways. */
+.head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+.name {
+	min-width: 0;
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.state,
+.docker {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+.docker > span:last-child {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.meta,
+.caption {
+	color: var(--text-2);
+	font-size: var(--text-caption-size);
+	line-height: var(--text-caption-line);
+	overflow-wrap: anywhere;
+}
+
+/* Offline: said in words, in --text at weight 600 so it is noticed, and not
+ * amber, which hard rule 4 keeps for what needs the user. */
+.quiet {
+	color: var(--text);
+	font-size: var(--text-caption-size);
+	line-height: var(--text-caption-line);
+	font-weight: 600;
+}
+
+/* The dialog's commands, under the line saying where they go. */
+.commands {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	min-width: 0;
+}
+
+.line {
+	margin: 0;
+}
+
+/* What did not happen, read as an alert, as the other tabs say theirs. */
+.error {
+	margin: 0;
+	color: var(--accent-text);
+	font-weight: 600;
+}
+
+/* Times, versions and counts, hard rule 8. */
+.mono {
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+	overflow-wrap: anywhere;
+}

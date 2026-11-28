@@ -55,7 +55,7 @@ from look import (
     assert_nothing_scrolls_sideways,
 )
 
-TABS = ["Waiting for you", "Running now", "Projects", "Usage and history"]
+TABS = ["Waiting for you", "Running now", "Projects", "Usage and history", "Machines"]
 BANNER = "Fake GitHub. Nothing here is real."
 
 
@@ -105,6 +105,7 @@ def test_each_devflow_tab_has_its_address(page: Page, invite_code: str, base_url
         ("/devflow/projects", "Projects", "No project connected yet"),
         ("/devflow/running", "Running now", "Nothing is running"),
         ("/devflow", "Waiting for you", "Nothing waits for you"),
+        ("/devflow/machines", "Machines", "No machine yet"),
     ]:
         page.goto(path)
         expect(page.get_by_role("tab", name=tab, exact=True)).to_have_attribute(
@@ -8018,3 +8019,145 @@ def test_a_project_continues_on_the_key_at_the_limit(
     spend.scroll_into_view_if_needed()
     _looks_right(page)
     capture(page, "devflow-usage-api-spend")
+
+
+CODE = re.compile(r"'(dfe_[A-Za-z0-9_-]{22})'")
+
+
+def _enroll(playwright, base_url: str, code: str, name: str, os: str, arch: str):
+    """The machine program enrolling with the code and saying hello, as it
+    calls Dev flow: no cookie and no Origin, from outside the browser, its key
+    in the header once it has one. Answers the machine's id."""
+    machine = playwright.request.new_context(
+        base_url=base_url, ignore_https_errors=True
+    )
+    try:
+        enrolled = machine.post(
+            "/devflow/api/machine/enroll",
+            data={"code": code, "name": name, "os": os, "arch": arch},
+        )
+        assert enrolled.status == 200, enrolled.text()
+        answer = enrolled.json()
+        assert re.fullmatch(r"dfm_[A-Za-z0-9_-]{43}", answer["key"])
+        hello = machine.post(
+            "/devflow/api/machine/hello",
+            data={
+                "name": name,
+                "os": os,
+                "arch": arch,
+                "program_version": "4f2a9c1b7e30",
+                "docker": "running",
+            },
+            headers={"Authorization": f"Bearer {answer['key']}"},
+        )
+        assert hello.status == 200, hello.text()
+        assert set(hello.json()) == {"release"}
+        # The code is spent.
+        again = machine.post(
+            "/devflow/api/machine/enroll",
+            data={"code": code, "name": name, "os": os, "arch": arch},
+        )
+        assert again.status == 401
+        return answer["machine_id"]
+    finally:
+        machine.dispose()
+
+
+def _add_a_machine(page: Page) -> Locator:
+    """Presses "Add a machine" and answers its dialog, once both commands
+    show."""
+    page.get_by_role("button", name="Add a machine").click()
+    dialog = page.get_by_role("dialog", name="Add a machine")
+    expect(dialog.get_by_role("region", name="On any machine")).to_be_visible()
+    expect(
+        dialog.get_by_role("region", name="On the machine the platform runs on")
+    ).to_be_visible()
+    return dialog
+
+
+def test_i_add_a_machine(
+    page: Page, invite_code: str, base_url: str, viewport: str, playwright
+):
+    register_and_log_in(page, invite_code, base_url)
+    page.goto("/devflow/machines")
+    expect(page.get_by_text("No machine yet")).to_be_visible()
+
+    # Both commands, holding the one code and their two addresses.
+    dialog = _add_a_machine(page)
+    command = dialog.get_by_role("region", name="On any machine").locator("code")
+    local = dialog.get_by_role(
+        "region", name="On the machine the platform runs on"
+    ).locator("code")
+    code = CODE.findall(command.inner_text())[-1]
+    assert command.inner_text() == (
+        f"curl -fsSL '{base_url}/devflow/machine/install.sh'"
+        f" | sh -s -- '{base_url}' '{code}'"
+    )
+    assert re.fullmatch(
+        rf"curl -fsSL '(http://[^']+)/devflow/machine/install\.sh' \| sh -s -- '\1' '{code}'",
+        local.inner_text(),
+    ), local.inner_text()
+    expect(dialog.get_by_text(re.compile(r"^The code expires at"))).to_be_visible()
+    expect(
+        dialog.get_by_role("button", name="Copy the command", exact=True)
+    ).to_be_visible()
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_nothing_active_is_amber,
+    ):
+        check(page)
+    capture(page, "devflow-add-machine")
+    dialog.get_by_role("button", name="Close").click()
+    expect(dialog).to_be_hidden()
+
+    # A machine enrolled with the code shows as online, with its version.
+    _enroll(playwright, base_url, code, "mac-mini", "macos", "arm64")
+    machines = page.get_by_role("list", name="Machines")
+    mini = machines.get_by_role("listitem").filter(has_text="mac-mini")
+    expect(mini.get_by_text("Online", exact=True)).to_be_visible(timeout=15_000)
+    expect(mini).to_contain_text("macOS · arm64 · Program 4f2a9c1b7e30")
+    expect(mini.get_by_text("Docker running")).to_be_visible()
+
+    # A second, quiet for ten minutes, shows since when it was not seen.
+    second = CODE.findall(
+        _add_a_machine(page)
+        .get_by_role("region", name="On any machine")
+        .locator("code")
+        .inner_text()
+    )[-1]
+    page.get_by_role("dialog", name="Add a machine").get_by_role(
+        "button", name="Close"
+    ).click()
+    box = _enroll(playwright, base_url, second, "build-box", "linux", "x64")
+    aged = page.request.post(
+        "/devflow/api/fake/machine-age",
+        data={"machine_id": box, "minutes": 10},
+        headers={"Origin": base_url},
+    )
+    assert aged.status == 204, aged.text()
+    page.reload()
+    rows = page.get_by_role("list", name="Machines").get_by_role("listitem")
+    expect(rows).to_have_count(2)
+    quiet = rows.filter(has_text="build-box")
+    expect(quiet.get_by_text("Offline", exact=True)).to_be_visible()
+    expect(quiet.get_by_text(re.compile(r"^Not seen since"))).to_be_visible()
+    expect(rows.filter(has_text="mac-mini").get_by_text("Online")).to_be_visible()
+    expect(page.get_by_role("article", name="Machines")).to_contain_text(
+        "1 of 2 online"
+    )
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+        assert_nothing_active_is_amber,
+    ):
+        check(page)
+    capture(page, "devflow-machines")
+
+    # Removed, after asking, it is gone.
+    quiet.get_by_role("button", name="Remove build-box").click()
+    asking = page.get_by_role("dialog", name="Remove build-box?")
+    expect(asking).to_contain_text("Its key stops working at once.")
+    asking.get_by_role("button", name="Remove").click()
+    expect(rows).to_have_count(1)

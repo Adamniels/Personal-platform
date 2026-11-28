@@ -167,11 +167,11 @@ afterEach(() => {
 });
 
 describe("Usage and history", () => {
-	test("is the last tab, at its own address", async () => {
+	test("is the tab before Machines, at its own address", async () => {
 		open("/devflow/usage", () => Promise.resolve(view()));
 		const tabs = screen.getAllByRole("tab");
-		expect(tabs.at(-1)?.textContent).toBe("Usage and history");
-		expect(tabs.at(-1)?.getAttribute("aria-selected")).toBe("true");
+		expect(tabs.at(-2)?.textContent).toBe("Usage and history");
+		expect(tabs.at(-2)?.getAttribute("aria-selected")).toBe("true");
 		expect(
 			await screen.findByRole("region", { name: "Usage of Personal-platform" }),
 		).toBeTruthy();

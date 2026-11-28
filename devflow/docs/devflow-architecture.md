@@ -868,6 +868,51 @@ check and the start, and nowhere else. Why each is safe, and the risk accepted, 
 decisions and accepted risks" below; how they are given and carried is "A project's values" in
 `devflow/README.md`.
 
+## Machines
+
+A machine is one of the owner's computers that runs the machine program, which starts, stops and
+rebuilds workers there as the page says; the feature "Dev flow: the machine program", #461, builds
+it slice by slice, and its first, #462, built what exists: enrolling a machine with a one-time code,
+its key, the machine scheme, `hello`, and the Machines tab. The routes, the tables and the tab are
+"Machines" and "The pages" in `devflow/README.md`.
+
+**A machine is enrolled with a one-time code**, as the feature settles. The program has to come by a
+secret of its own without the owner pasting one, since pasting the worker's key into a command is
+what put it in a shell's history, see the worker key's entry in "Security decisions and accepted
+risks" below. So the page makes a code, valid for an hour and once, and shows the install command
+holding it; the program trades it for a key that never appears in a command. What leaks of the
+code, in a history or on a screen, is spent the moment the machine enrols, and useless an hour
+later if it never does. A newer code ends no older one, since a code for one machine should not
+spoil one shown for another; making one deletes the user's expired codes, so the table holds about
+an hour of them.
+
+**The key is the worker key again, for a machine.** 32 random bytes as `dfm_` and their base64url,
+stored only as its SHA-256, found by its hash outside a user in `machine_key_lookup` and confirmed
+as the user against `machine_keys`, as `WorkerKeys.Find` does. A key per machine, not per user,
+so removing one machine ends only its key; it belongs to the user who enrolled it, and everything
+its requests do runs as that user through the door. The code has its own lookup,
+`machine_enrollment_lookup`, since enrolling is the one machine request that carries neither a
+user nor a key.
+
+**The machine scheme is its own**, `MachineAuthentication`, beside the worker's rather than shared
+with it: each scheme reads one prefix of key and leads to one kind of caller, a machine or a
+worker's project, so a route can only ever be called by the caller it was written for. The two are
+a few dozen lines each, and the security is in the stores they call.
+
+**Outbound only**, as the feature settles. The program calls Dev flow under
+`/devflow/api/machine/` and is never called, as a worker is, so a machine behind a home router
+needs no open port, and Dev flow needs no address for it. Being outbound is what lets a machine
+that was off catch up when it comes back, the desired state the later slices build on.
+
+**The platform's own machine gets a second command.** The Mac mini cannot reach its own Tailscale
+address, as the feature's first card found, so "Add a machine" shows the install command twice:
+with the public origin, for any machine, and with `DEVFLOW_LOCAL_URL`, the proxy's published
+address on the hosted copy, for the machine the platform runs on.
+
+**Online is a minute.** A machine is online while it was seen less than 60 seconds ago, by
+enrolling or by `hello`; the program says hello every few seconds, so a minute is several missed in
+a row rather than one slow request. What runs on a machine, its workers, is the later slices'.
+
 ## Setting up a project
 
 A project hands out no card until its setup has been tried, the feature "Dev flow: setup run and
@@ -2772,7 +2817,7 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   Settings, Applications, Authorized GitHub Apps, which "Registering the GitHub App" in
   `devflow/README.md` says. Revoking it from Dev flow would need the client secret sent to delete
   the grant, and adds nothing while Dev flow is the only holder of the tokens.
-- **The polling targets are the first of two tables without row level security.** `poll_targets` tells a
+- **The polling targets are the first of four tables without row level security.** `poll_targets` tells a
   background loop, which has no logged in user, which projects exist and whose they are, so it
   can then work through the door as each one's user. It holds a project's id and its user id and
   nothing else: no name, no repository, no token, so all it says about another user is that they
@@ -2783,9 +2828,11 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   that transaction and refuses its writes; all it does after is as each project's user. The alternative, decided against with the owner,
   was a second database role for the loop that bypasses row level security: less to build, but a
   bug in the loop could then read or write across users. `IsolationTests.EveryTableIsGuarded`
-  passes the shared check `["poll_targets", "worker_key_lookup"]` and nothing else, so a third
-  unguarded table fails it, and `PollTargetTests` keeps the table's two columns, the app role's
-  read only access and the trigger. The second is the worker key lookup, the next entry.
+  passes the shared check `["poll_targets", "worker_key_lookup", "machine_key_lookup",
+  "machine_enrollment_lookup"]` and nothing else, so a fifth unguarded table fails it, and
+  `PollTargetTests` keeps the table's two columns, the app role's read only access and the trigger.
+  The second is the worker key lookup, the next entry, and the third and fourth the machine's, after
+  it.
 - **The worker key lookup is the second table without row level security.** A worker's request
   carries a key and no user, and a key must lead to a user before anything else can run through the
   door. `worker_key_lookup` holds a key's SHA-256, its project's id and the user's id and nothing
@@ -2819,6 +2866,44 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   spans for equality. Accepted: the key sits in the command that starts a worker, and so in that
   machine's shell history and the container's environment; on the shared Mac mini that is the risk
   the first entry accepts, and replacing the key ends a leaked one.
+- **The machine key lookup and the enrolment code lookup are the third and fourth tables without
+  row level security.** A machine's request carries a key and no user, and enrolling carries a code
+  and neither, so each must lead to a user before anything runs through the door.
+  `machine_key_lookup` holds a key's SHA-256, its machine's id and the user's id, and
+  `machine_enrollment_lookup` a code's SHA-256 and the user's id, nothing else: no name, no time and
+  no use. They are safe for the reasons `worker_key_lookup` is, and kept the same way: `devflow_app`
+  may only read them, and only a trigger on `machine_keys` or `machine_enrollments`, through a
+  `SECURITY DEFINER` function owned by `devflow_owner` with its `search_path` fixed, writes them.
+  The lookup alone decides nothing: a key is then confirmed against the user's own `machine_keys`,
+  and a code's age and use are read from the user's own `machine_enrollments`, both under row level
+  security. A key references `machines (id, user_id)`, so it cannot be stored for a user other than
+  its machine's. `MachineTableTests` keeps the columns, the app role's read only access, the
+  triggers and the foreign key.
+- **A machine key opens the machine routes alone, is kept in a file of mode 600, and ends when the
+  machine is removed.** It opens `/devflow/api/machine/` but `enroll`, as its machine's user, and
+  nothing else: not a user's route, not a worker's, and a user's token or a worker's key opens no
+  machine route, which `MachineAuthenticationTests.OnlyAMachineKeyOpensMachineRoutes` keeps. What
+  it opens grows with the later slices of #461, which will hand a machine its workers' keys, so it
+  is as strong as the worker key: 256 random bits, sent once, in the answer to `enroll`, with
+  `Cache-Control: no-store`, stored only as its SHA-256, looked up by its hash and never compared
+  in ordinary time, which `MachineKeyTests` keeps. On the machine the program keeps it in a file of
+  mode 600 in its own folder, `~/Library/Application Support/devflow-machine/` or
+  `~/.local/share/devflow-machine/`, as "Installed as the user" in #461 settles, written by
+  "Installing the machine program"; it is never in a command, a shell's history or an address.
+  "Remove" on the Machines tab deletes the machine and, by the foreign key, its key, so a leaked key
+  is refused from its next request. Accepted: anyone who can read the owner's files on that machine
+  can act as that machine until it is removed, which is the same trust as the owner's own session
+  there.
+- **An enrolment code is short lived, used once, and refused alike whatever the reason.** 128 random
+  bits, stored as its SHA-256, enrolling one machine within an hour of being made. Marking it used,
+  creating the machine and storing its key are one transaction, and the update that marks it takes
+  the row's lock, so two enrolments with one code make one machine. A code that is missing, of the
+  wrong shape, unknown, used or old is `401` with an empty body, so a caller learns nothing about
+  which. Accepted: the code is in the command the page shows, and so in that machine's shell
+  history; there it is spent once the machine has enrolled.
+- **Machine routes are outside the `Origin` check, and read no cookie**, for the reasons the worker's
+  are, in the next entry. The prefix is matched by whole segments, so the user's
+  `/devflow/api/machines` routes are still checked.
 - **Worker routes are outside the `Origin` check, and read no cookie.** A worker is not a browser
   and sends no `Origin`, so `/devflow/api/worker/` is the one path the check leaves out, matched
   as written, case and all, so a path that only routes the same way is still checked. That is safe
