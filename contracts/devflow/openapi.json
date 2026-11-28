@@ -45,6 +45,39 @@
         ],
         "type": "object"
       },
+      "ApiKeyRequest": {
+        "properties": {
+          "key": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "type": "object"
+      },
+      "ApiKeyStatus": {
+        "properties": {
+          "given_at": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "set": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "set",
+          "given_at"
+        ],
+        "type": "object"
+      },
       "Attention": {
         "properties": {
           "attention": {
@@ -5733,6 +5766,100 @@
   },
   "openapi": "3.1.1",
   "paths": {
+    "/devflow/api/api-key": {
+      "delete": {
+        "description": "Forgets the key and its sealed secret. 204, whether or not there was one. 409, \"These projects run on it: <names>\", while any of the caller's projects runs on it, and nothing is removed. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "operationId": "removeApiKey",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Conflict"
+          }
+        },
+        "summary": "Remove the caller's Anthropic API key",
+        "tags": [
+          "DevFlow"
+        ]
+      },
+      "get": {
+        "description": "Whether one is set and when it was given. Never the key or any part of it. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "operationId": "getApiKey",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeyStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "The caller's Anthropic API key",
+        "tags": [
+          "DevFlow"
+        ]
+      },
+      "put": {
+        "description": "The key from the Claude Console, sealed in the vault and replacing any before it, given now. The space around it is dropped. Answers the status it leaves, never the key. 422 naming key for anything that does not look like an API key, sk-ant-api followed by more visible characters, a setup token among them, and nothing is stored; Dev flow does not ask Anthropic whether it works. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "operationId": "setApiKey",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeyStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Give Dev flow the caller's Anthropic API key",
+        "tags": [
+          "DevFlow"
+        ]
+      }
+    },
     "/devflow/api/attention": {
       "get": {
         "description": "Read from what Dev flow stored and never from GitHub. attention is true when the caller has a pull request, waiting or stopped, that is not sent back, a stopped project, a card of Dev flow's whose pull request waits, a card of Dev flow's refused as too thin, a card of Dev flow's waiting for the caller's answers to its questions, a feature of Dev flow's ready for review or waiting for the caller, a GitHub link that has expired, or a Claude login due for renewal within a month or past it, and false otherwise. The nav bar asks it with the session's cookie. Without a valid token, 401 with an empty body.",

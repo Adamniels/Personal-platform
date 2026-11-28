@@ -2,6 +2,34 @@
 // `npm run generate:api`. Do not edit: src/api/schema.test.ts fails when it is stale.
 
 export interface paths {
+    "/devflow/api/api-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's Anthropic API key
+         * @description Whether one is set and when it was given. Never the key or any part of it. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        get: operations["getApiKey"];
+        /**
+         * Give Dev flow the caller's Anthropic API key
+         * @description The key from the Claude Console, sealed in the vault and replacing any before it, given now. The space around it is dropped. Answers the status it leaves, never the key. 422 naming key for anything that does not look like an API key, sk-ant-api followed by more visible characters, a setup token among them, and nothing is stored; Dev flow does not ask Anthropic whether it works. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        put: operations["setApiKey"];
+        post?: never;
+        /**
+         * Remove the caller's Anthropic API key
+         * @description Forgets the key and its sealed secret. 204, whether or not there was one. 409, "These projects run on it: <names>", while any of the caller's projects runs on it, and nothing is removed. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        delete: operations["removeApiKey"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/attention": {
         parameters: {
             query?: never;
@@ -1283,6 +1311,14 @@ export interface components {
             answers: null | components["schemas"]["GivenAnswer"][];
             /** Format: uuid */
             reading_id: null | string;
+        };
+        ApiKeyRequest: {
+            key: null | string;
+        };
+        ApiKeyStatus: {
+            /** Format: date-time */
+            given_at: null | string;
+            set: boolean;
         };
         Attention: {
             attention: boolean;
@@ -2674,6 +2710,107 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getApiKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiKeyStatus"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    setApiKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApiKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiKeyStatus"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    removeApiKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     getAttention: {
         parameters: {
             query?: never;

@@ -158,6 +158,10 @@ public static class DevFlowApp
         // "Claude login" in devflow/README.md.
         builder.Services.AddSingleton(provider => new ClaudeLogins(
             database, provider.GetRequiredService<Vault>(), provider.GetRequiredService<TimeProvider>()));
+        // Each user's Anthropic API key, sealed in the vault and opened only for one of their runs
+        // on a project that runs on it. See "The API key" in devflow/README.md.
+        builder.Services.AddSingleton(provider => new ApiKeys(
+            database, provider.GetRequiredService<Vault>(), provider.GetRequiredService<TimeProvider>()));
         // Handing a worker its project's next card, with the brief and what the job needs. See
         // "Jobs" in devflow/README.md.
         builder.Services.AddSingleton(provider => new Dispatcher(
@@ -272,6 +276,7 @@ public static class DevFlowApp
         app.MapSetup();
         app.MapValues();
         app.MapClaudeLogin();
+        app.MapApiKey();
         app.MapPages(webRoot);
         if (settings.CodeHost == CodeHostMode.Fake)
         {
